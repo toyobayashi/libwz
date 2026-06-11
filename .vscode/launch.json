@@ -5,6 +5,13 @@
   "version": "0.2.0",
   "configurations": [
     {
+      "type": "java",
+      "name": "Playground",
+      "request": "launch",
+      "mainClass": "io.github.toyobayashi.libwz.Playground",
+      "projectName": "libwz"
+    },
+    {
       "name": "(lldb) 启动",
       "type": "cppdbg",
       "request": "launch",
@@ -15,13 +22,6 @@
       "environment": [],
       "externalConsole": false,
       "MIMode": "lldb"
-    },
-    {
-      "type": "java",
-      "name": "Playground",
-      "request": "launch",
-      "mainClass": "com.toyobayashi.libwz.Playground",
-      "projectName": "libwz"
     },
     {
       "name": "(Windows) 启动",

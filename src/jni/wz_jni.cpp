@@ -8,7 +8,7 @@
 #include "wz/WzFileManager.h"
 #include "wz/WzImage.h"
 #include "wz/wz_api.h"
-#define JNI_FUNC(cls, method) Java_com_toyobayashi_libwz_##cls##_##method
+#define JNI_FUNC(cls, method) Java_io_github_toyobayashi_libwz_##cls##_##method
 
 static const char* GetStringUTF(JNIEnv* env, jstring str) {
   if (!str) return nullptr;

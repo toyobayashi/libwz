@@ -61,7 +61,7 @@ Then add the dependency:
 
 ```xml
 <dependency>
-    <groupId>com.toyobayashi</groupId>
+    <groupId>io.github.toyobayashi</groupId>
     <artifactId>libwz</artifactId>
     <version>1.0.0</version>
 </dependency>

@@ -1,0 +1,39 @@
+package io.github.toyobayashi.libwz;
+
+public class WzImage extends WzObject {
+    WzImage(long ptr) { super(ptr); }
+
+    private static native void nativeDispose(long ptr);
+    private static native String nativeName(long ptr);
+    private static native boolean nativeParsed(long ptr);
+    private static native boolean nativeChanged(long ptr);
+    private static native int nativeBlockSize(long ptr);
+    private static native int nativeChecksum(long ptr);
+    private static native long nativeOffset(long ptr);
+    private static native boolean nativeIsLuaWzImage(long ptr);
+    private static native void nativeParseImage(long ptr);
+    static native int nativeCountProperties(long ptr);
+    static native long nativeGetProperty(long ptr, int index);
+    private static native long nativeGetFromPath(long ptr, String path);
+
+    @Override public String getName() { return nativeName(nativePtr); }
+    public boolean isParsed() { return nativeParsed(nativePtr); }
+    public boolean isChanged() { return nativeChanged(nativePtr); }
+    public int getBlockSize() { return nativeBlockSize(nativePtr); }
+    public int getChecksum() { return nativeChecksum(nativePtr); }
+    public long getOffset() { return nativeOffset(nativePtr); }
+    public boolean isLuaWzImage() { return nativeIsLuaWzImage(nativePtr); }
+    public void parseImage() { nativeParseImage(nativePtr); }
+
+    public WzPropertyCollection wzProperties() {
+        return new WzPropertyCollection(nativePtr, true);
+    }
+
+    public WzImageProperty getFromPath(String path) {
+        long p = nativeGetFromPath(nativePtr, path);
+        return p == 0 ? null : WzPropertyFactory.wrap(p);
+    }
+
+    @Override
+    protected void dispose() { nativeDispose(nativePtr); nativePtr = 0; }
+}
