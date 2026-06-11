@@ -1,4 +1,5 @@
 #include "wz/Properties/WzBinaryProperty.h"
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include "wz/Util/WzBinaryReader.h"

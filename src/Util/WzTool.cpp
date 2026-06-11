@@ -59,8 +59,8 @@ int WzTool::GetEncodedStringLength(const std::string& s) {
   if (s.empty()) return 1;
 
   bool unicode = false;
-  for (char c : s) {
-    if (static_cast<unsigned char>(c) > 255) {
+  for (unsigned char c : s) {
+    if (c > 127) {
       unicode = true;
       break;
     }

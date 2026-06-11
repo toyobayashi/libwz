@@ -344,7 +344,7 @@ void WzFileManager::BuildWzFileList() {
           continue;
         }
 
-        std::string fileNameNoExt = wz::to_path(fullPath).stem().string();
+        std::string fileNameNoExt = fullPath.stem().string();
         if (IsExcluded(ToLower(fileNameNoExt))) continue;
 
         std::string wzDirName = dirStr;
