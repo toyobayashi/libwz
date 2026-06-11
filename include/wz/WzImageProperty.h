@@ -1,0 +1,67 @@
+#ifndef WZ_WZIMAGEPROPERTY_H_
+#define WZ_WZIMAGEPROPERTY_H_
+#include <memory>
+#include <string>
+#include <vector>
+#include "wz/Result.h"
+#include "wz/Util/Defines.h"
+#include "wz/WzEnums.h"
+#include "wz/WzObject.h"
+#include "wz/WzPropertyCollection.h"
+
+namespace wz {
+
+class WzBinaryReader;
+class WzBinaryWriter;
+class WzImage;
+class WzFile;
+
+class IPropertyContainer {
+ public:
+  virtual ~IPropertyContainer() = default;
+  virtual void AddProperty(WzImageProperty* prop) = 0;
+  virtual void AddProperties(WzPropertyCollection& props);
+  virtual void RemoveProperty(const std::string& propertyName) = 0;
+  virtual void RemoveProperty(WzImageProperty* prop) = 0;
+  virtual void ClearProperties() = 0;
+  virtual WzPropertyCollection* WzProperties() = 0;
+};
+
+class WzImageProperty : public WzObject {
+ public:
+  WzImageProperty() = default;
+  WZ_DISALLOW_COPY_AND_MOVE(WzImageProperty)
+
+  WzObjectType ObjectType() const override { return WzObjectType::Property; }
+  WzFile* WzFileParent() const override;
+
+  virtual WzPropertyType PropertyType() const = 0;
+  virtual WzPropertyCollection* WzProperties() { return nullptr; }
+
+  virtual WzImageProperty* operator[](const std::string& name);
+
+  virtual WzImageProperty* GetFromPath(const std::string& path);
+  WzImageProperty* GetLinkedWzImageProperty();
+
+  WzImage* ParentImage() const;
+
+  virtual void SetValue(const std::string& value);
+  virtual void SetValue(int32_t value);
+  virtual void SetValue(int64_t value);
+  virtual void SetValue(float value);
+  virtual void SetValue(double value);
+  virtual void SetValue(const std::vector<uint8_t>& value);
+
+  static Result<WzPropertyCollection> ParsePropertyList(int64_t offset,
+                                                        WzBinaryReader* reader,
+                                                        WzObject* parent,
+                                                        WzImage* parentImg);
+  static Result<WzImageProperty*> ParseExtendedProp(int64_t offset,
+                                                    WzBinaryReader* reader,
+                                                    const std::string& name,
+                                                    WzObject* parent,
+                                                    WzImage* parentImg);
+};
+
+}  // namespace wz
+#endif  // WZ_WZIMAGEPROPERTY_H_

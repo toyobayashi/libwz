@@ -1,0 +1,15 @@
+# Native Library Directory
+# 
+# Build the native library with CMake from the project root:
+#   cmake -B build -DBUILD_JNI=ON
+#   cmake --build build
+#
+# Then copy the output here:
+#   Windows:   copy build\Debug\wz_jni.dll  src\main\resources\native\win32\x86_64\wz_jni.dll
+#   macOS:     copy build/libwz_jni.dylib   src\main\resources\native\darwin\x86_64\libwz_jni.dylib
+#   Linux:     copy build/libwz_jni.so      src\main\resources\native\linux\x86_64\libwz_jni.so
+#
+# Supported platform subdirectories:
+#   win32/x86_64, win32/x86
+#   darwin/x86_64, darwin/aarch64
+#   linux/x86_64, linux/aarch64

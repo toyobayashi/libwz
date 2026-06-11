@@ -1,0 +1,207 @@
+#include "wz/WzDirectory.h"
+#include <algorithm>
+#include "wz/Util/WzBinaryReader.h"
+#include "wz/WzFile.h"
+#include "wz/WzImage.h"
+
+namespace wz {
+
+WzDirectory::WzDirectory() = default;
+WzDirectory::WzDirectory(const std::string& dirName) {
+  SetName(dirName);
+}
+WzDirectory::WzDirectory(WzBinaryReader* reader,
+                         const std::string& dirName,
+                         uint32_t verHash,
+                         const std::array<uint8_t, 4>& wzIv,
+                         WzFile* wzFile)
+    : reader_(reader), hash_(verHash), wz_iv_(wzIv), wzFile_(wzFile) {
+  SetName(dirName);
+}
+
+WzDirectory::~WzDirectory() {
+  name_.clear();
+  reader_ = nullptr;
+  for (auto* img : images_) {
+    delete img;
+  }
+  for (auto* dir : subDirs_) {
+    delete dir;
+  }
+  images_.clear();
+  subDirs_.clear();
+}
+
+void WzDirectory::Remove() {
+  if (Parent()) {
+    static_cast<WzDirectory*>(Parent())->RemoveDirectory(this);
+  }
+}
+
+Result<void> WzDirectory::ParseDirectory() {
+  if (!reader_) return {};
+  if (reader_->Available() == 0) return {};
+
+  int entryCount = reader_->ReadCompressedInt();
+  if (entryCount < 0 || entryCount > 100000)
+    return Error::ParseError("Invalid wz version used for decryption, try "
+                             "parsing other version numbers.");
+
+  for (int i = 0; i < entryCount; i++) {
+    uint8_t type = reader_->ReadByte();
+    std::string fname;
+    int fsize, checksum;
+    int64_t woffset;
+    int64_t rememberPos = 0;
+
+    switch (static_cast<WzDirectoryType>(type)) {
+      case WzDirectoryType::UnknownType_1: {
+        reader_->ReadInt32();  // unknown
+        reader_->ReadInt16();
+        reader_->ReadOffset();
+        continue;
+      }
+      case WzDirectoryType::RetrieveStringFromOffset_2: {
+        int stringOffset = reader_->ReadInt32();
+        rememberPos = reader_->Position();
+        reader_->SetPosition(static_cast<int64_t>(
+            reader_->GetHeader()->FStart() + stringOffset));
+        type = reader_->ReadByte();
+        fname = reader_->ReadString();
+        break;
+      }
+      case WzDirectoryType::WzDirectory_3:
+      case WzDirectoryType::WzImage_4: {
+        fname = reader_->ReadString();
+        rememberPos = reader_->Position();
+        break;
+      }
+      default:
+        return Error::ParseError("[WzDirectory] Unknown directory type = " +
+                                 std::to_string(type));
+    }
+
+    reader_->SetPosition(rememberPos);
+    fsize = reader_->ReadCompressedInt();
+    checksum = reader_->ReadCompressedInt();
+    woffset = reader_->ReadOffset();
+
+    if (type == static_cast<uint8_t>(WzDirectoryType::WzDirectory_3)) {
+      auto* subDir = new WzDirectory(reader_, fname, hash_, wz_iv_, wzFile_);
+      subDir->SetBlockSize(fsize);
+      subDir->SetChecksum(checksum);
+      subDir->SetOffset(woffset);
+      subDir->SetParent(this);
+      subDirs_.push_back(subDir);
+    } else {
+      auto* img = new WzImage(fname, reader_, checksum);
+      img->SetBlockSize(fsize);
+      img->SetOffset(woffset);
+      img->SetParent(this);
+      images_.push_back(img);
+    }
+  }
+
+  for (auto* subdir : subDirs_) {
+    reader_->SetPosition(subdir->Offset());
+    subdir->ParseDirectory();
+  }
+  return {};
+}
+
+void WzDirectory::ParseImages() {
+  for (auto* img : images_) {
+    if (img->Reader() && img->Reader()->Position() != img->Offset()) {
+      img->Reader()->SetPosition(img->Offset());
+    }
+    img->ParseImage();
+  }
+  for (auto* subdir : subDirs_) {
+    if (subdir->Reader() && subdir->Reader()->Position() != subdir->Offset()) {
+      subdir->Reader()->SetPosition(subdir->Offset());
+    }
+    subdir->ParseImages();
+  }
+}
+
+void WzDirectory::AddImage(WzImage* img) {
+  images_.push_back(img);
+  img->SetParent(this);
+}
+
+void WzDirectory::AddDirectory(WzDirectory* dir) {
+  subDirs_.push_back(dir);
+  dir->SetWzFile(wzFile_);
+  dir->SetParent(this);
+}
+
+void WzDirectory::ClearImages() {
+  for (auto* img : images_) img->SetParent(nullptr);
+  images_.clear();
+}
+
+void WzDirectory::ClearDirectories() {
+  for (auto* dir : subDirs_) dir->SetParent(nullptr);
+  subDirs_.clear();
+}
+
+static std::string ToLower(const std::string& s) {
+  std::string r = s;
+  std::transform(r.begin(), r.end(), r.begin(), [](unsigned char c) {
+    return static_cast<char>(std::tolower(c));
+  });
+  return r;
+}
+
+WzImage* WzDirectory::GetImageByName(const std::string& name) {
+  std::string lower = ToLower(name);
+  for (auto* img : images_) {
+    if (ToLower(img->Name()) == lower) return img;
+  }
+  return nullptr;
+}
+
+WzDirectory* WzDirectory::GetDirectoryByName(const std::string& name) {
+  std::string lower = ToLower(name);
+  for (auto* dir : subDirs_) {
+    if (ToLower(dir->Name()) == lower) return dir;
+  }
+  return nullptr;
+}
+
+void WzDirectory::RemoveImage(WzImage* image) {
+  auto it = std::find(images_.begin(), images_.end(), image);
+  if (it != images_.end()) {
+    images_.erase(it);
+    image->SetParent(nullptr);
+  }
+}
+
+void WzDirectory::RemoveDirectory(WzDirectory* dir) {
+  auto it = std::find(subDirs_.begin(), subDirs_.end(), dir);
+  if (it != subDirs_.end()) {
+    subDirs_.erase(it);
+    dir->SetParent(nullptr);
+  }
+}
+
+int WzDirectory::CountImages() const {
+  int count = static_cast<int>(images_.size());
+  for (auto* dir : subDirs_) {
+    count += dir->CountImages();
+  }
+  return count;
+}
+
+WzObject* WzDirectory::operator[](const std::string& name) const {
+  std::string lower = ToLower(name);
+  for (auto* img : images_) {
+    if (ToLower(img->Name()) == lower) return img;
+  }
+  for (auto* dir : subDirs_) {
+    if (ToLower(dir->Name()) == lower) return dir;
+  }
+  return nullptr;
+}
+
+}  // namespace wz
