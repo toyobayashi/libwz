@@ -155,7 +155,7 @@ jobs:
           TAG=${GITHUB_REF#refs/tags/v}
           sed -i "s|<version>.*</version>|<version>$TAG</version>|" pom.xml
           # Import GPG key
-          echo "$GPG_PRIVATE_KEY" | gpg --batch --import
+          echo "$GPG_PRIVATE_KEY" | base64 -d | gpg --batch --import
           # Set up Maven settings for OSSRH
           mkdir -p ~/.m2
           cat > ~/.m2/settings.xml <<'SETTINGS'
