@@ -22,6 +22,7 @@ endif()
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 option(BUILD_TESTS "Build unit tests" ON)
 option(BUILD_CAPI "Build C API layer" ON)
@@ -126,7 +127,6 @@ target_include_directories(wz PUBLIC
     $<INSTALL_INTERFACE:include>
 )
 target_link_libraries(wz PUBLIC tiny-aes zlibstatic)
-set_target_properties(wz PROPERTIES POSITION_INDEPENDENT_CODE ON)
 if(MSVC)
     target_compile_options(wz PUBLIC "/EHs-c-" "/GR-")
     target_compile_definitions(wz PUBLIC "_HAS_EXCEPTIONS=0")
@@ -143,7 +143,6 @@ if(BUILD_CAPI)
     add_library(wz_capi STATIC src/capi/wz_api.cpp)
     target_include_directories(wz_capi PUBLIC include/wz/capi)
     target_link_libraries(wz_capi PUBLIC wz)
-    set_target_properties(wz_capi PROPERTIES POSITION_INDEPENDENT_CODE ON)
 endif()
 
 if(BUILD_TESTS)
