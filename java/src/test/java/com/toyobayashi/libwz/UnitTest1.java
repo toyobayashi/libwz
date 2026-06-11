@@ -145,7 +145,7 @@ class UnitTest1 {
 
     private int countImagesRecursive(WzDirectory dir) {
         int count = dir.countImages();
-        for (int i = 0; i < dir.countDirectories(); i++) {
+        for (int i = 0; i < dir.wzDirectories().size(); i++) {
             WzDirectory sub = dir.getDirectory(i);
             if (sub != null) count += countImagesRecursive(sub);
         }
