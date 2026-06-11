@@ -48,23 +48,23 @@ ctest --test-dir build
 
 ## Quick Start — Java (Maven)
 
-Add the GitHub Packages repository to your `pom.xml`:
+Add the dependency (available on Maven Central):
+
+```xml
+<dependency>
+    <groupId>io.github.toyobayashi</groupId>
+    <artifactId>libwz</artifactId>
+    <version>0.1.0</version>
+</dependency>
+```
+
+Alternatively, from GitHub Packages (requires authentication):
 
 ```xml
 <repository>
     <id>github</id>
     <url>https://maven.pkg.github.com/toyobayashi/libwz</url>
 </repository>
-```
-
-Then add the dependency:
-
-```xml
-<dependency>
-    <groupId>io.github.toyobayashi</groupId>
-    <artifactId>libwz</artifactId>
-    <version>1.0.0</version>
-</dependency>
 ```
 
 Authenticate with a [GitHub personal access token](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-apache-maven-registry#authenticating-to-github-packages):

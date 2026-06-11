@@ -140,5 +140,40 @@ jobs:
           TAG=${GITHUB_REF#refs/tags/v}
           sed -i "s|<version>.*</version>|<version>$TAG</version>|" pom.xml
           mvn -B deploy --no-transfer-progress \
-            -DskipTests \
-            -DaltDeploymentRepository=github::default::https://maven.pkg.github.com/${{ github.repository }}
+            -Pgithub \
+            -DskipTests
+      
+      - name: Publish to Maven Central
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+        working-directory: java
+        env:
+          OSSRH_USERNAME: ${{ secrets.OSSRH_USERNAME }}
+          OSSRH_PASSWORD: ${{ secrets.OSSRH_PASSWORD }}
+          MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_GPG_PASSPHRASE }}
+          GPG_PRIVATE_KEY: ${{ secrets.MAVEN_GPG_PRIVATE_KEY }}
+        run: |
+          TAG=${GITHUB_REF#refs/tags/v}
+          sed -i "s|<version>.*</version>|<version>$TAG</version>|" pom.xml
+          # Import GPG key
+          echo "$GPG_PRIVATE_KEY" | gpg --batch --import
+          # Set up Maven settings for OSSRH
+          mkdir -p ~/.m2
+          cat > ~/.m2/settings.xml <<'SETTINGS'
+          <settings>
+            <servers>
+              <server>
+                <id>ossrh</id>
+                <username>${env.OSSRH_USERNAME}</username>
+                <password>${env.OSSRH_PASSWORD}</password>
+              </server>
+              <server>
+                <id>central</id>
+                <username>${env.OSSRH_USERNAME}</username>
+                <password>${env.OSSRH_PASSWORD}</password>
+              </server>
+            </servers>
+          </settings>
+          SETTINGS
+          mvn -B deploy --no-transfer-progress \
+            -Possrh \
+            -DskipTests
