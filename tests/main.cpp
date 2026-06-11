@@ -23,11 +23,10 @@ int main() {
       std::filesystem::path(HOME ? HOME : "") / "kinoko" / "MapleStory";
   wz::WzMapleVersion version = wz::WzMapleVersion::GMS;
 
-  std::filesystem::path baseDirectory = std::filesystem::path(BASE_MAPLE_DIR);
   bool isStandalone =
       false;  // Set to true if loading single file without directory structure
   wz::WzFileManager* manager =
-      new wz::WzFileManager(baseDirectory, isStandalone);
+      new wz::WzFileManager(BASE_MAPLE_DIR.string(), isStandalone);
   manager->BuildWzFileList();  // Scans and builds list of available .wz files
   const auto& map = manager->GetWzFilesList();
   for (const auto& [baseName, fileList] : map) {
@@ -37,7 +36,7 @@ int main() {
     }
   }
 
-  std::filesystem::path filePath = baseDirectory / "UI.wz";
+  auto filePath = (BASE_MAPLE_DIR / "UI.wz").string();
   wz::WzFile* wzFile = manager->LoadWzFile("UI.wz", version);
   // wz::WzFile* wzFile = new wz::WzFile(filePath, version);
   EXPECT_OK(wzFile->ParseWzFile() == wz::WzFileParseStatus::Success,
@@ -80,7 +79,7 @@ int main() {
 
   manager->UnloadWzFile(wzFile);
 
-  filePath = baseDirectory / "Sound.wz";
+  filePath = (BASE_MAPLE_DIR / "Sound.wz").string();
   wzFile = new wz::WzFile(filePath, version);
   EXPECT_OK(wzFile->ParseWzFile() == wz::WzFileParseStatus::Success,
             "Failed to parse .wz file: %s",

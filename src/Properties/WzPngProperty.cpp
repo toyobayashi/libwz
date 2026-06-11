@@ -208,7 +208,7 @@ Result<std::vector<uint8_t>> WzPngProperty::GetCompressedBytesForExtraction(
   auto rawBytes = GetCompressedBytes(saveInMemory);
   if (!rawBytes.is_ok()) return rawBytes.err();
   auto& rawData = rawBytes.ok();
-  if (rawData.size() < 2) return rawData;
+  if (rawData.size() < 2) return std::move(rawData);
 
   uint16_t header = rawData[0] | (static_cast<uint16_t>(rawData[1]) << 8);
   bool isListWz = (header != 0x9C78 && header != 0xDA78 && header != 0x0178 &&
