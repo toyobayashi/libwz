@@ -80,6 +80,7 @@ jobs:
     name: Assemble JAR
     runs-on: ubuntu-latest
     needs: build-native
+    if: github.event_name == 'push'
 
     steps:
       - uses: actions/checkout@v4
@@ -108,7 +109,6 @@ jobs:
         run: mvn -B package --no-transfer-progress
 
       - name: Upload JAR artifact
-        if: github.event_name == 'push'
         uses: actions/upload-artifact@v4
         with:
           name: libwz-jar
@@ -119,7 +119,7 @@ jobs:
   publish-snapshot:
     name: Publish SNAPSHOT
     runs-on: ubuntu-latest
-    needs: assemble-jar
+    needs: build-native
     if: github.event_name == 'workflow_dispatch' && github.event.inputs.deploy-type == 'snapshot'
     permissions:
       contents: read
@@ -186,7 +186,7 @@ jobs:
   publish-release:
     name: Publish Release
     runs-on: ubuntu-latest
-    needs: assemble-jar
+    needs: build-native
     if: github.event_name == 'workflow_dispatch' && github.event.inputs.deploy-type == 'release'
     permissions:
       contents: write
