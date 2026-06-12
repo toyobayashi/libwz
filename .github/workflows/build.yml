@@ -222,8 +222,7 @@ jobs:
 
       - name: Set release version in pom.xml
         working-directory: java
-        run: |
-          sed -i "0,|<version>.*</version>|s|<version>.*</version>|<version>$RELEASE_VERSION</version>|" pom.xml
+        run: mvn versions:set -DnewVersion=$RELEASE_VERSION -B
 
       - name: Publish to GitHub Packages
         working-directory: java
