@@ -159,7 +159,10 @@ jobs:
         env:
           OSSRH_USERNAME: ${{ secrets.OSSRH_USERNAME }}
           OSSRH_PASSWORD: ${{ secrets.OSSRH_PASSWORD }}
+          MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_GPG_PASSPHRASE }}
+          GPG_PRIVATE_KEY: ${{ secrets.MAVEN_GPG_PRIVATE_KEY }}
         run: |
+          echo "$GPG_PRIVATE_KEY" | base64 -d | gpg --batch --import
           mkdir -p ~/.m2
           cat > ~/.m2/settings.xml <<SETTINGS
           <settings>
@@ -169,10 +172,15 @@ jobs:
                 <username>${OSSRH_USERNAME}</username>
                 <password>${OSSRH_PASSWORD}</password>
               </server>
+              <server>
+                <id>central</id>
+                <username>${OSSRH_USERNAME}</username>
+                <password>${OSSRH_PASSWORD}</password>
+              </server>
             </servers>
           </settings>
           SETTINGS
-          mvn -B deploy --no-transfer-progress -DskipTests
+          mvn -B deploy --no-transfer-progress -Possrh -DskipTests
 
   # ── Publish RELEASE (workflow_dispatch only) ─────────────────────
   publish-release:
@@ -215,17 +223,10 @@ jobs:
           fi
           echo "RELEASE_VERSION=$V" >> $GITHUB_ENV
 
-      - name: Create and push tag
-        run: |
-          git config user.name "github-actions"
-          git config user.email "github-actions@github.com"
-          git tag -a "v$RELEASE_VERSION" -m "Release v$RELEASE_VERSION"
-          git push origin "v$RELEASE_VERSION"
-
       - name: Set release version in pom.xml
         working-directory: java
         run: |
-          sed -i "s|<version>.*</version>|<version>$RELEASE_VERSION</version>|" pom.xml
+          sed -i "0,|<version>.*</version>|s|<version>.*</version>|<version>$RELEASE_VERSION</version>|" pom.xml
 
       - name: Publish to GitHub Packages
         working-directory: java
@@ -261,3 +262,10 @@ jobs:
           </settings>
           SETTINGS
           mvn -B deploy --no-transfer-progress -Possrh -DskipTests
+      
+      - name: Create and push tag
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          git tag -a "v$RELEASE_VERSION" -m "Release v$RELEASE_VERSION"
+          git push origin "v$RELEASE_VERSION"
