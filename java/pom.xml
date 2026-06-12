@@ -50,6 +50,10 @@
     </dependencies>
 
     <distributionManagement>
+        <repository>
+            <id>ossrh</id>
+            <url>https://central.sonatype.com/repository/maven-releases</url>
+        </repository>
         <snapshotRepository>
             <id>ossrh</id>
             <url>https://central.sonatype.com/repository/maven-snapshots</url>
