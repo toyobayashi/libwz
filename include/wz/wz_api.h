@@ -204,10 +204,13 @@ wz_png_property wz_canvas_get_png(wz_property canvas_prop);
 int wz_canvas_contains_inlink(wz_property canvas_prop);
 int wz_canvas_contains_outlink(wz_property canvas_prop);
 int wz_canvas_save_to_file(wz_property canvas_prop, const char* file_path);
+wz_property wz_canvas_get_linked_wz_image_property(
+    wz_property canvas_prop);
 
 // ==================== WzUOLProperty ====================
 
 const char* wz_uol_get_value(wz_property uol_prop);
+wz_object wz_uol_get_link_value(wz_property uol_prop);
 
 // ==================== Property Link Resolution ====================
 

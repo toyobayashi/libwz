@@ -742,6 +742,17 @@ JNIEXPORT jboolean JNICALL JNI_FUNC(WzCanvasProperty, nativeSaveToFile)(
   return result ? JNI_TRUE : JNI_FALSE;
 }
 
+JNIEXPORT jlong JNICALL
+JNI_FUNC(WzCanvasProperty, nativeGetLinkedWzImageProperty)(JNIEnv* env,
+                                                           jclass,
+                                                           jlong ptr) {
+  jlong result = reinterpret_cast<jlong>(
+      wz_canvas_get_linked_wz_image_property(
+          reinterpret_cast<wz_property>(ptr)));
+  CheckErrorAndThrow(env);
+  return result;
+}
+
 // ==================== WzUOLProperty ====================
 
 JNIEXPORT jstring JNICALL JNI_FUNC(WzUOLProperty, nativeGetValue)(JNIEnv* env,
@@ -749,6 +760,14 @@ JNIEXPORT jstring JNICALL JNI_FUNC(WzUOLProperty, nativeGetValue)(JNIEnv* env,
                                                                   jlong ptr) {
   jstring result =
       env->NewStringUTF(wz_uol_get_value(reinterpret_cast<wz_property>(ptr)));
+  CheckErrorAndThrow(env);
+  return result;
+}
+
+JNIEXPORT jlong JNICALL
+JNI_FUNC(WzUOLProperty, nativeGetLinkValue)(JNIEnv* env, jclass, jlong ptr) {
+  jlong result = reinterpret_cast<jlong>(
+      wz_uol_get_link_value(reinterpret_cast<wz_property>(ptr)));
   CheckErrorAndThrow(env);
   return result;
 }

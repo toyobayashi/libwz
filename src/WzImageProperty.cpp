@@ -40,7 +40,7 @@ WzImageProperty* WzImageProperty::GetLinkedWzImageProperty() {
   WzImageProperty* current = this;
   while (current->PropertyType() == WzPropertyType::UOL) {
     auto* uol = static_cast<WzUOLProperty*>(current);
-    WzObject* linkValue = uol->ResolveLinkValue();
+    WzObject* linkValue = uol->LinkValue();
     if (linkValue && linkValue->ObjectType() == WzObjectType::Property) {
       current = static_cast<WzImageProperty*>(linkValue);
     } else {

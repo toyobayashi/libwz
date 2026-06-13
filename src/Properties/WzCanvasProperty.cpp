@@ -1,8 +1,13 @@
 #include "wz/Properties/WzCanvasProperty.h"
 #include <algorithm>
 #include <cctype>
+#include <regex>
+#include <string>
 #include "wz/Properties/WzPngProperty.h"
 #include "wz/Properties/WzStringProperty.h"
+#include "wz/WzFile.h"
+#include "wz/WzFileManager.h"
+#include "wz/WzImage.h"
 
 namespace wz {
 
@@ -82,6 +87,83 @@ WzImageProperty* WzCanvasProperty::operator[](const std::string& name) {
 bool WzCanvasProperty::SaveToFile(const std::string& filePath) {
   if (!imageProp_) return false;
   return imageProp_->SaveToFile(filePath);
+}
+
+WzImageProperty* WzCanvasProperty::GetLinkedWzImageProperty() {
+  auto* inlinkProp = (*this)[InlinkPropertyName];
+  std::string inlink = (inlinkProp && inlinkProp->PropertyType() ==
+                                        WzPropertyType::String)
+                           ? static_cast<WzStringProperty*>(inlinkProp)->Value()
+                           : "";
+  auto* outlinkProp = (*this)[OutlinkPropertyName];
+  std::string outlink =
+      (outlinkProp && outlinkProp->PropertyType() == WzPropertyType::String)
+          ? static_cast<WzStringProperty*>(outlinkProp)->Value()
+          : "";
+
+  if (!inlink.empty()) {
+    auto* current = Parent();
+    while (current) {
+      if (current->ObjectType() == WzObjectType::Image) {
+        auto* prop =
+            static_cast<WzImage*>(current)->GetFromPath(inlink);
+        if (prop) return prop;
+        break;
+      }
+      current = current->Parent();
+    }
+  } else if (!outlink.empty()) {
+    auto* current = Parent();
+    WzFile* wzFileParent = nullptr;
+    while (current) {
+      if (current->ObjectType() == WzObjectType::Directory) {
+        wzFileParent = current->WzFileParent();
+        break;
+      }
+      current = current->Parent();
+    }
+
+    if (wzFileParent) {
+      // Regex: match prefix letters before digits in wz file name
+      // e.g. "Mob001.wz" → "Mob/"
+      std::string fname = wzFileParent->Name();
+      std::string prefixWz;
+      for (char c : fname) {
+        if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z'))
+          prefixWz += c;
+        else
+          break;
+      }
+      prefixWz += "/";
+
+      WzObject* foundProperty = nullptr;
+      if (outlink.size() >= prefixWz.size() &&
+          outlink.compare(0, prefixWz.size(), prefixWz) == 0) {
+        std::string realpath =
+            outlink.substr(prefixWz.size());
+        std::string wzfName = wzFileParent->Name();
+        auto dotPos = wzfName.rfind(".wz");
+        if (dotPos != std::string::npos) wzfName = wzfName.substr(0, dotPos);
+        realpath = wzfName + "/" + realpath;
+        foundProperty = wzFileParent->GetObjectFromPath(realpath);
+      } else {
+        if (WzFileManager::fileManager &&
+            WzFileManager::fileManager->Is64Bit()) {
+          if (WzFileManager::ContainsCanvasDirectory(outlink)) {
+            std::string canvasFolderBase =
+                WzFileManager::NormaliseWzCanvasDirectory(outlink);
+            WzFileManager::fileManager->LoadCanvasSection(
+                canvasFolderBase, wzFileParent->MapleVersion());
+          }
+        }
+        foundProperty = wzFileParent->GetObjectFromPath(outlink);
+      }
+      if (foundProperty &&
+          foundProperty->ObjectType() == WzObjectType::Property)
+        return static_cast<WzImageProperty*>(foundProperty);
+    }
+  }
+  return this;
 }
 
 }  // namespace wz

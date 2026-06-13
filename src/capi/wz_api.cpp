@@ -927,6 +927,23 @@ int wz_canvas_save_to_file(wz_property canvas_prop, const char* file_path) {
   return static_cast<wz::WzCanvasProperty*>(p)->SaveToFile(file_path) ? 1 : 0;
 }
 
+wz_property wz_canvas_get_linked_wz_image_property(
+    wz_property canvas_prop) {
+  wz_clear_error();
+  auto* p = unwrap_prop(canvas_prop);
+  if (!p) {
+    set_error_null("wz_canvas_get_linked_wz_image_property");
+    return nullptr;
+  }
+  if (p->PropertyType() != wz::WzPropertyType::Canvas) {
+    set_error_wrong_type("wz_canvas_get_linked_wz_image_property");
+    return nullptr;
+  }
+  auto* linked =
+      static_cast<wz::WzCanvasProperty*>(p)->GetLinkedWzImageProperty();
+  return linked ? wrap_prop(linked) : nullptr;
+}
+
 // ==================== WzUOLProperty ====================
 
 const char* wz_uol_get_value(wz_property uol_prop) {
@@ -943,6 +960,21 @@ const char* wz_uol_get_value(wz_property uol_prop) {
   static thread_local std::string s;
   s = static_cast<wz::WzUOLProperty*>(p)->Value();
   return s.c_str();
+}
+
+wz_object wz_uol_get_link_value(wz_property uol_prop) {
+  wz_clear_error();
+  auto* p = unwrap_prop(uol_prop);
+  if (!p) {
+    set_error_null("wz_uol_get_link_value");
+    return nullptr;
+  }
+  if (p->PropertyType() != wz::WzPropertyType::UOL) {
+    set_error_wrong_type("wz_uol_get_link_value");
+    return nullptr;
+  }
+  return reinterpret_cast<wz_object>(
+      static_cast<wz::WzUOLProperty*>(p)->LinkValue());
 }
 
 // ==================== Property Link Resolution ====================

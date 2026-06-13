@@ -36,6 +36,7 @@ class WzCanvasProperty : public WzImageProperty, public IPropertyContainer {
   bool ContainsInlinkProperty() const;
   bool ContainsOutlinkProperty() const;
   bool SaveToFile(const std::string& filePath);
+  WzImageProperty* GetLinkedWzImageProperty();
 
  private:
   WzPropertyCollection properties_;

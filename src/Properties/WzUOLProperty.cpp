@@ -10,7 +10,11 @@ WzUOLProperty::WzUOLProperty(const std::string& name, const std::string& value)
   SetName(name);
 }
 
-WzObject* WzUOLProperty::ResolveLinkValue() {
+WzObject* WzUOLProperty::LinkValue() const {
+  if (linkVal_) return linkVal_;
+
+  auto* self = const_cast<WzUOLProperty*>(this);
+
   std::vector<std::string> paths;
   size_t start = 0, end;
   while ((end = val_.find('/', start)) != std::string::npos) {
@@ -20,14 +24,13 @@ WzObject* WzUOLProperty::ResolveLinkValue() {
   paths.push_back(val_.substr(start));
   if (paths.empty()) return nullptr;
 
-  // Determine starting point
   WzObject* linkVal;
   size_t i = 0;
   if (paths[0] != "..") {
-    linkVal = GetTopMostWzImage();
+    linkVal = self->GetTopMostWzImage();
   } else {
-    linkVal = Parent();
-    i = 1;  // skip first ".."
+    linkVal = self->Parent();
+    i = 1;
   }
 
   for (; i < paths.size() && linkVal; i++) {
@@ -55,6 +58,71 @@ WzObject* WzUOLProperty::ResolveLinkValue() {
       }
     }
   }
+  linkVal_ = linkVal;
   return linkVal;
+}
+
+WzPropertyCollection* WzUOLProperty::WzProperties() {
+  WzObject* lv = LinkValue();
+  if (lv && lv->ObjectType() == WzObjectType::Property)
+    return static_cast<WzImageProperty*>(lv)->WzProperties();
+  return nullptr;
+}
+
+WzImageProperty* WzUOLProperty::operator[](const std::string& name) {
+  WzObject* lv = LinkValue();
+  if (!lv) return nullptr;
+  if (lv->ObjectType() == WzObjectType::Property)
+    return (*static_cast<WzImageProperty*>(lv))[name];
+  if (lv->ObjectType() == WzObjectType::Image)
+    return (*static_cast<WzImage*>(lv))[name];
+  return nullptr;
+}
+
+WzImageProperty* WzUOLProperty::GetFromPath(const std::string& path) {
+  WzObject* lv = LinkValue();
+  if (!lv) return nullptr;
+  if (lv->ObjectType() == WzObjectType::Property)
+    return static_cast<WzImageProperty*>(lv)->GetFromPath(path);
+  if (lv->ObjectType() == WzObjectType::Image)
+    return static_cast<WzImage*>(lv)->GetFromPath(path);
+  return nullptr;
+}
+
+int32_t WzUOLProperty::GetInt() const {
+  WzObject* lv = LinkValue();
+  return lv ? lv->GetInt() : 0;
+}
+
+int16_t WzUOLProperty::GetShort() const {
+  WzObject* lv = LinkValue();
+  return lv ? lv->GetShort() : 0;
+}
+
+int64_t WzUOLProperty::GetLong() const {
+  WzObject* lv = LinkValue();
+  return lv ? lv->GetLong() : 0;
+}
+
+float WzUOLProperty::GetFloat() const {
+  WzObject* lv = LinkValue();
+  return lv ? lv->GetFloat() : 0.0f;
+}
+
+double WzUOLProperty::GetDouble() const {
+  WzObject* lv = LinkValue();
+  return lv ? lv->GetDouble() : 0.0;
+}
+
+std::string WzUOLProperty::GetString() const {
+  WzObject* lv = LinkValue();
+  return lv ? lv->GetString() : val_;
+}
+
+Result<std::vector<uint8_t>> WzUOLProperty::GetBytes() {
+  WzObject* lv = LinkValue();
+  return lv ? lv->GetBytes()
+            : Result<std::vector<uint8_t>>(
+                  Error::DataError("UOL link resolution failed"));
 }
 }  // namespace wz
