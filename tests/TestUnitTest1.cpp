@@ -87,6 +87,54 @@ INSTANTIATE_TEST_SUITE_P(
         std::make_tuple("TamingMob_TMS_113.wz", wz::WzMapleVersion::EMS),
         std::make_tuple("TMS_113_Item.wz", wz::WzMapleVersion::EMS)));
 
+static std::string FindMapleStoryDir() {
+#ifdef _WIN32
+  const char* home = std::getenv("USERPROFILE");
+#else
+  const char* home = std::getenv("HOME");
+#endif
+  if (!home) return "";
+  for (auto& c : {std::string(home) + "/kinoko/MapleStory",
+                  std::string(home) + "/MapleStory"}) {
+    if (fs::exists(c)) return c;
+  }
+  return "";
+}
+
+TEST(UnitTest1, MobWz_1210100_stand_0_PngParse) {
+  std::string msDir = FindMapleStoryDir();
+  if (msDir.empty()) GTEST_SKIP() << "MapleStory directory not found";
+
+  std::string mobPath = msDir + "/Mob.wz";
+  if (!fs::exists(mobPath)) GTEST_SKIP() << "Mob.wz not found at " << mobPath;
+
+  wz::WzFile f(mobPath, static_cast<short>(-1), wz::WzMapleVersion::GMS);
+  auto status = f.ParseWzFile();
+  ASSERT_EQ(status, wz::WzFileParseStatus::Success)
+      << "Failed to parse Mob.wz: " << wz::GetErrorDescription(status);
+
+  auto* root = f.GetWzDirectory();
+  ASSERT_NE(root, nullptr) << "Root directory is null";
+
+  wz::WzImage* img = root->GetImageByName("1210100.img");
+  ASSERT_NE(img, nullptr) << "1210100.img not found in Mob.wz";
+  ASSERT_TRUE(img->ParseImage()) << "Failed to parse 1210100.img";
+
+  auto* prop = img->GetFromPath("stand/0");
+  ASSERT_NE(prop, nullptr) << "stand/0 not found in 1210100.img";
+
+  ASSERT_EQ(prop->PropertyType(), wz::WzPropertyType::Canvas)
+      << "stand/0 is not a Canvas property";
+
+  auto* canvas = static_cast<wz::WzCanvasProperty*>(prop);
+  auto* pngProp = canvas->PngProperty();
+  ASSERT_NE(pngProp, nullptr) << "Canvas has no PNG property";
+
+  auto result = pngProp->GetImage(false);
+  EXPECT_TRUE(result.is_ok())
+      << "GetImage() failed: " << result.err().message();
+}
+
 TEST(UnitTest1, TestLegacyExtractionStyleSavePath_DoesNotThrow) {
   std::string testDir = FindWzTestDir();
   if (testDir.empty()) GTEST_SKIP() << "Test WZ files not found";

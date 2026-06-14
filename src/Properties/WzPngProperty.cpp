@@ -159,7 +159,7 @@ Result<std::vector<uint8_t>> WzPngProperty::GetRawImage(bool saveInMemory) {
     inflateInit(&infstream);
     int r = inflate(&infstream, Z_NO_FLUSH);
     inflateEnd(&infstream);
-    return r == 0 ? result
+    return (r == Z_OK || r == Z_STREAM_END) ? result
                   : Result<std::vector<uint8_t>>(
                         Error::DataError("inflate failed"));
   } else {
@@ -188,16 +188,15 @@ Result<std::vector<uint8_t>> WzPngProperty::GetRawImage(bool saveInMemory) {
     infstream.zalloc = Z_NULL;
     infstream.zfree = Z_NULL;
     infstream.opaque = Z_NULL;
-    infstream.avail_in =
-        static_cast<uInt>(decryptedData.size() - 2);  // size of input
-    infstream.next_in = decryptedData.data() + 2;     // input char array NOLINT
+    infstream.avail_in = static_cast<uInt>(decryptedData.size());
+    infstream.next_in = decryptedData.data();
     infstream.avail_out = (uInt)result.size();        // size of output
     infstream.next_out = (Bytef*)result.data();  // output char array NOLINT
 
     inflateInit(&infstream);
     int r = inflate(&infstream, Z_NO_FLUSH);
     inflateEnd(&infstream);
-    return r == 0 ? result
+    return (r == Z_OK || r == Z_STREAM_END) ? result
                   : Result<std::vector<uint8_t>>(
                         Error::DataError("inflate failed"));
   }
