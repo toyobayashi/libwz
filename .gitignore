@@ -1,6 +1,11 @@
 build
+dist
 tmp
+index.js
+index.d.ts
 java/src/main/resources/native/**/*.so
 java/src/main/resources/native/**/*.dll
 java/src/main/resources/native/**/*.dylib
 java/target
+node_modules
+package-lock.json

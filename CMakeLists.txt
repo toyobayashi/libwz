@@ -19,7 +19,7 @@ endif()
 #     )
 # endif()
 
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
@@ -31,22 +31,34 @@ option(BUILD_JNI "Build JNI bindings" OFF)
 include(FetchContent)
 
 # ---- tiny-AES-c (AES-256-ECB) ----
-FetchContent_Declare(
-    tiny-aes
-    GIT_REPOSITORY https://github.com/kokke/tiny-AES-c.git
-    GIT_TAG 23856752fbd139da0b8ca6e471a13d5bcc99a08d
-)
-FetchContent_MakeAvailable(tiny-aes)
+add_subdirectory(deps/tiny-aes)
 target_compile_definitions(tiny-aes PUBLIC AES256=1)
 
 # ---- zlib (static) ----
-FetchContent_Declare(
-    zlib
-    GIT_REPOSITORY https://github.com/madler/zlib.git
-    GIT_TAG v1.3.1
+add_library(zlibstatic STATIC
+    deps/zlib/adler32.c
+    deps/zlib/compress.c
+    deps/zlib/crc32.c
+    deps/zlib/deflate.c
+    deps/zlib/gzclose.c
+    deps/zlib/gzlib.c
+    deps/zlib/gzread.c
+    deps/zlib/gzwrite.c
+    deps/zlib/infback.c
+    deps/zlib/inffast.c
+    deps/zlib/inflate.c
+    deps/zlib/inftrees.c
+    deps/zlib/trees.c
+    deps/zlib/uncompr.c
+    deps/zlib/zutil.c
 )
-set(BUILD_SHARED_LIBS OFF CACHE INTERNAL "")
-FetchContent_MakeAvailable(zlib)
+target_include_directories(zlibstatic PUBLIC deps/zlib)
+if(MSVC)
+    target_compile_definitions(zlibstatic PRIVATE
+        _CRT_SECURE_NO_DEPRECATE
+        _CRT_NONSTDC_NO_DEPRECATE
+    )
+endif()
 
 set(WZ_SOURCES
     src/WzEnums.cpp

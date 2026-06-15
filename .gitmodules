@@ -1,3 +1,9 @@
 [submodule "Harepacker-resurrected"]
 	path = Harepacker-resurrected
 	url = https://github.com/lastbattle/Harepacker-resurrected.git
+[submodule "deps/tiny-aes"]
+	path = deps/tiny-aes
+	url = https://github.com/kokke/tiny-AES-c.git
+[submodule "deps/zlib"]
+	path = deps/zlib
+	url = https://github.com/madler/zlib.git

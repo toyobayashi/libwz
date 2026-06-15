@@ -1,0 +1,61 @@
+{
+  "name": "libwz",
+  "version": "0.1.0",
+  "description": "MapleStory wz parser.",
+  "types": "index.d.ts",
+  "main": "index.js",
+  "scripts": {
+    "install": "node-gyp rebuild",
+    "build": "npm run build:ts && node-gyp configure build",
+    "build:native": "node-gyp configure build",
+    "build:ts": "tsc -p tsconfig.json",
+    "types": "tsc -p tsconfig.json --emitDeclarationOnly",
+    "prepack": "npm run build:ts",
+    "test": "npm run build:ts && node --test"
+  },
+  "files": [
+    "binding.gyp",
+    "deps",
+    "include",
+    "index.js",
+    "index.d.ts",
+    "index.ts",
+    "src/capi",
+    "src/node",
+    "src/Properties",
+    "src/Util",
+    "src/PngUtility.cpp",
+    "src/WzAESConstant.cpp",
+    "src/WzDirectory.cpp",
+    "src/WzEnums.cpp",
+    "src/WzFile.cpp",
+    "src/WzFileManager.cpp",
+    "src/WzImage.cpp",
+    "src/WzImageProperty.cpp",
+    "src/WzObject.cpp",
+    "src/WzPropertyCollection.cpp",
+    "tsconfig.json"
+  ],
+  "keywords": [
+    "maplestory",
+    "wz"
+  ],
+  "author": "toyobayashi",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/toyobayashi/libwz.git"
+  },
+  "bugs": {
+    "url": "https://github.com/toyobayashi/libwz/issues"
+  },
+  "homepage": "https://github.com/toyobayashi/libwz#readme",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "devDependencies": {
+    "typescript": "~5.9.3",
+    "node-gyp": "^11.2.0",
+    "node-addon-api": "8.8.0"
+  }
+}

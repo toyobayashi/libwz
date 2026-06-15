@@ -3,6 +3,7 @@
     "includePath": [
       "${default}",
       "${workspaceFolder}/include",
+      "${workspaceFolder}/node_modules/node-addon-api",
       "${workspaceFolder}/build/_deps/*-src",
       "${workspaceFolder}/build/_deps/*-build",
       "${workspaceFolder}/build/_deps/*-src/**/include"
@@ -23,8 +24,8 @@
       "includePath": [
         "${includePath}",
         "C:\\Program Files\\Amazon Corretto\\jdk21.0.11_10\\include",
-        "C:\\Program Files\\Amazon Corretto\\jdk21.0.11_10\\include\\win32"
-        // "${env:USERPROFILE}/AppData/Local/node-gyp/Cache/16.15.0/include/node"
+        "C:\\Program Files\\Amazon Corretto\\jdk21.0.11_10\\include\\win32",
+        "${env:USERPROFILE}/AppData/Local/node-gyp/Cache/24.12.0/include/node"
       ],
       "browse": {
         "path": ["${workspaceFolder}"]
