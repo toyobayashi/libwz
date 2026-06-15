@@ -4,8 +4,8 @@ import io.github.toyobayashi.libwz.WzEnums.*;
 
 public class WzFile extends WzObject {
     public WzFile(String path, short gameVersion, MapleVersion version) {
-        super(0);
-        this.nativePtr = nativeOpen(path, gameVersion, version.ordinal());
+        super(0, true);
+        this.nativePtr = nativeOpen(path, gameVersion, version.value);
     }
 
     public WzFile(String path, MapleVersion version) {
@@ -13,7 +13,7 @@ public class WzFile extends WzObject {
     }
 
     public WzFile(String path, byte[] iv) {
-        super(0);
+        super(0, true);
         this.nativePtr = nativeOpenWithIv(path, iv);
     }
 
@@ -73,5 +73,10 @@ public class WzFile extends WzObject {
     }
 
     @Override
-    protected void dispose() { nativeDispose(nativePtr); nativePtr = 0; }
+    protected void dispose() {
+        if (ownsNative() && nativePtr != 0) {
+            nativeDispose(nativePtr);
+            nativePtr = 0;
+        }
+    }
 }

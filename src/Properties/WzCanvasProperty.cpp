@@ -3,6 +3,7 @@
 #include <cctype>
 #include <regex>
 #include <string>
+#include <vector>
 #include "wz/Properties/WzPngProperty.h"
 #include "wz/Properties/WzStringProperty.h"
 #include "wz/WzFile.h"
@@ -84,6 +85,56 @@ WzImageProperty* WzCanvasProperty::operator[](const std::string& name) {
   return nullptr;
 }
 
+WzImageProperty* WzCanvasProperty::GetFromPath(const std::string& path) {
+  std::vector<std::string> segments;
+  size_t start = 0;
+  while (true) {
+    size_t end = path.find('/', start);
+    if (end == std::string::npos) break;
+    if (end > start) segments.push_back(path.substr(start, end - start));
+    start = end + 1;
+  }
+  std::string last = path.substr(start);
+  if (!last.empty()) segments.push_back(last);
+
+  if (segments.empty()) return nullptr;
+
+  if (segments[0] == "..") {
+    auto* parent = Parent();
+    if (!parent) return nullptr;
+
+    std::string remaining;
+    for (size_t i = 1; i < segments.size(); i++) {
+      if (i > 1) remaining += '/';
+      remaining += segments[i];
+    }
+
+    auto parentType = parent->ObjectType();
+    if (parentType == WzObjectType::Image)
+      return static_cast<WzImage*>(parent)->GetFromPath(remaining);
+    if (parentType == WzObjectType::Property)
+      return static_cast<WzImageProperty*>(parent)->GetFromPath(remaining);
+    return nullptr;
+  }
+
+  WzImageProperty* ret = this;
+  for (const auto& seg : segments) {
+    if (seg == "PNG") return imageProp_;
+    if (!ret || !ret->WzProperties()) return nullptr;
+
+    WzImageProperty* found = nullptr;
+    for (auto* p : *ret->WzProperties()) {
+      if (p && p->Name() == seg) {
+        found = p;
+        break;
+      }
+    }
+    if (!found) return nullptr;
+    ret = found;
+  }
+  return ret;
+}
+
 bool WzCanvasProperty::SaveToFile(const std::string& filePath) {
   if (!imageProp_) return false;
   return imageProp_->SaveToFile(filePath);
@@ -91,10 +142,10 @@ bool WzCanvasProperty::SaveToFile(const std::string& filePath) {
 
 WzImageProperty* WzCanvasProperty::GetLinkedWzImageProperty() {
   auto* inlinkProp = (*this)[InlinkPropertyName];
-  std::string inlink = (inlinkProp && inlinkProp->PropertyType() ==
-                                        WzPropertyType::String)
-                           ? static_cast<WzStringProperty*>(inlinkProp)->Value()
-                           : "";
+  std::string inlink =
+      (inlinkProp && inlinkProp->PropertyType() == WzPropertyType::String)
+          ? static_cast<WzStringProperty*>(inlinkProp)->Value()
+          : "";
   auto* outlinkProp = (*this)[OutlinkPropertyName];
   std::string outlink =
       (outlinkProp && outlinkProp->PropertyType() == WzPropertyType::String)
@@ -105,8 +156,7 @@ WzImageProperty* WzCanvasProperty::GetLinkedWzImageProperty() {
     auto* current = Parent();
     while (current) {
       if (current->ObjectType() == WzObjectType::Image) {
-        auto* prop =
-            static_cast<WzImage*>(current)->GetFromPath(inlink);
+        auto* prop = static_cast<WzImage*>(current)->GetFromPath(inlink);
         if (prop) return prop;
         break;
       }
@@ -139,8 +189,7 @@ WzImageProperty* WzCanvasProperty::GetLinkedWzImageProperty() {
       WzObject* foundProperty = nullptr;
       if (outlink.size() >= prefixWz.size() &&
           outlink.compare(0, prefixWz.size(), prefixWz) == 0) {
-        std::string realpath =
-            outlink.substr(prefixWz.size());
+        std::string realpath = outlink.substr(prefixWz.size());
         std::string wzfName = wzFileParent->Name();
         auto dotPos = wzfName.rfind(".wz");
         if (dotPos != std::string::npos) wzfName = wzfName.substr(0, dotPos);

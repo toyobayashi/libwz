@@ -2,6 +2,7 @@ package io.github.toyobayashi.libwz;
 
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 
 import io.github.toyobayashi.libwz.WzEnums.*;
 import org.junit.jupiter.api.Test;
@@ -102,6 +103,56 @@ class UnitTest1 {
             assertNotNull(img.wzProperties(), "Hotfix image properties should not be null");
             assertEquals(true, img.wzProperties().size() > 0,
                 "Hotfix image should have at least one property");
+        }
+    }
+
+    @Test
+    @DisplayName("Top-most helpers preserve the native object type")
+    void testTopMostHelpersPreserveNativeType() {
+        String filePath = Paths.get(WZ_FILES_ROOT, "Common",
+            "TamingMob_GMS_87.wz").toString();
+
+        File f = new File(filePath);
+        if (!f.exists()) {
+            System.err.println("Skipping missing file: " + filePath);
+            return;
+        }
+
+        try (WzFile wzf = new WzFile(filePath, MapleVersion.GMS)) {
+            assertEquals(ParseStatus.SUCCESS, wzf.parseWzFile());
+
+            assertInstanceOf(WzFile.class, wzf.getTopMostWzDirectory());
+            assertInstanceOf(WzFile.class, wzf.getTopMostWzImage());
+
+            WzDirectory root = wzf.getWzDirectory();
+            assertNotNull(root);
+            WzObject topDirectory = root.getTopMostWzDirectory();
+            assertInstanceOf(WzDirectory.class, topDirectory);
+        }
+    }
+
+    @Test
+    @DisplayName("Closing borrowed wrappers does not free parent-owned native objects")
+    void testClosingBorrowedWrappersDoesNotFreeNativeObjects() {
+        String filePath = Paths.get(WZ_FILES_ROOT, "Common",
+            "TamingMob_GMS_87.wz").toString();
+
+        File f = new File(filePath);
+        if (!f.exists()) {
+            System.err.println("Skipping missing file: " + filePath);
+            return;
+        }
+
+        try (WzFile wzf = new WzFile(filePath, MapleVersion.GMS)) {
+            assertEquals(ParseStatus.SUCCESS, wzf.parseWzFile());
+
+            WzDirectory root = wzf.getWzDirectory();
+            assertNotNull(root);
+            root.close();
+
+            WzDirectory rootAgain = wzf.getWzDirectory();
+            assertNotNull(rootAgain);
+            assertEquals(root.getName(), rootAgain.getName());
         }
     }
 

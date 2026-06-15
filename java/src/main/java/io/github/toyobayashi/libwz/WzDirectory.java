@@ -77,5 +77,10 @@ public class WzDirectory extends WzObject {
     public long getOffset() { return nativeOffset(nativePtr); }
 
     @Override
-    protected void dispose() { nativeDispose(nativePtr); nativePtr = 0; }
+    protected void dispose() {
+        if (ownsNative() && nativePtr != 0) {
+            nativeDispose(nativePtr);
+            nativePtr = 0;
+        }
+    }
 }

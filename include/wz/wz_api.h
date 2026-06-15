@@ -145,6 +145,8 @@ wz_object wz_object_get_top_most_wz_image(wz_object obj);
 wz_object wz_object_at(wz_object obj, const char* name);
 
 wz_property_type wz_property_get_type(wz_property prop);
+int wz_property_is_raw_data(wz_property prop);
+int wz_property_is_video(wz_property prop);
 const char* wz_property_name(wz_property prop);
 int wz_property_count_children(wz_property prop);
 wz_property wz_property_get_child(wz_property prop, int index);
@@ -204,8 +206,7 @@ wz_png_property wz_canvas_get_png(wz_property canvas_prop);
 int wz_canvas_contains_inlink(wz_property canvas_prop);
 int wz_canvas_contains_outlink(wz_property canvas_prop);
 int wz_canvas_save_to_file(wz_property canvas_prop, const char* file_path);
-wz_property wz_canvas_get_linked_wz_image_property(
-    wz_property canvas_prop);
+wz_property wz_canvas_get_linked_wz_image_property(wz_property canvas_prop);
 
 // ==================== WzUOLProperty ====================
 

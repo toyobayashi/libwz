@@ -1,6 +1,8 @@
 #include "wz/Properties/WzConvexProperty.h"
 #include <algorithm>
 #include <cctype>
+#include <vector>
+#include "wz/WzImage.h"
 
 namespace wz {
 
@@ -57,6 +59,55 @@ WzImageProperty* WzConvexProperty::operator[](const std::string& name) {
     if (n == lower) return prop;
   }
   return nullptr;
+}
+
+WzImageProperty* WzConvexProperty::GetFromPath(const std::string& path) {
+  std::vector<std::string> segments;
+  size_t start = 0;
+  while (true) {
+    size_t end = path.find('/', start);
+    if (end == std::string::npos) break;
+    if (end > start) segments.push_back(path.substr(start, end - start));
+    start = end + 1;
+  }
+  std::string last = path.substr(start);
+  if (!last.empty()) segments.push_back(last);
+
+  if (segments.empty()) return nullptr;
+
+  if (segments[0] == "..") {
+    auto* parent = Parent();
+    if (!parent) return nullptr;
+
+    std::string remaining;
+    for (size_t i = 1; i < segments.size(); i++) {
+      if (i > 1) remaining += '/';
+      remaining += segments[i];
+    }
+
+    auto parentType = parent->ObjectType();
+    if (parentType == WzObjectType::Image)
+      return static_cast<WzImage*>(parent)->GetFromPath(remaining);
+    if (parentType == WzObjectType::Property)
+      return static_cast<WzImageProperty*>(parent)->GetFromPath(remaining);
+    return nullptr;
+  }
+
+  WzImageProperty* ret = this;
+  for (const auto& seg : segments) {
+    if (!ret || !ret->WzProperties()) return nullptr;
+
+    WzImageProperty* found = nullptr;
+    for (auto* p : *ret->WzProperties()) {
+      if (p && p->Name() == seg) {
+        found = p;
+        break;
+      }
+    }
+    if (!found) return nullptr;
+    ret = found;
+  }
+  return ret;
 }
 
 }  // namespace wz

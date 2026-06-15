@@ -16,6 +16,7 @@ class WzVideoProperty : public WzImageProperty, public IPropertyContainer {
   WZ_DISALLOW_COPY_AND_MOVE(WzVideoProperty)
 
   WzPropertyType PropertyType() const override { return WzPropertyType::Raw; }
+  bool IsVideoProperty() const override { return true; }
   WzPropertyCollection* WzProperties() override { return &properties_; }
   void AddProperty(WzImageProperty* prop) override;
   void RemoveProperty(const std::string& propertyName) override;

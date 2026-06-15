@@ -30,7 +30,6 @@ WzObject* WzUOLProperty::LinkValue() const {
     linkVal = self->GetTopMostWzImage();
   } else {
     linkVal = self->Parent();
-    i = 1;
   }
 
   for (; i < paths.size() && linkVal; i++) {

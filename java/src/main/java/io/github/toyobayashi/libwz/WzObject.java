@@ -4,8 +4,16 @@ public abstract class WzObject implements AutoCloseable {
     static { NativeLibraryLoader.load(); }
 
     protected long nativePtr;
+    private final boolean ownsNative;
 
-    protected WzObject(long ptr) { this.nativePtr = ptr; }
+    protected WzObject(long ptr) {
+        this(ptr, false);
+    }
+
+    protected WzObject(long ptr, boolean ownsNative) {
+        this.nativePtr = ptr;
+        this.ownsNative = ownsNative;
+    }
 
     public long nativePtr() { return nativePtr; }
 
@@ -42,12 +50,16 @@ public abstract class WzObject implements AutoCloseable {
 
     public WzObject getTopMostWzDirectory() {
         long p = nativeGetTopMostWzDirectory(nativePtr);
-        return p == 0 ? null : WzObjectFactory.wrap(WzEnums.ObjectType.DIRECTORY.value, p);
+        if (p == 0) return null;
+        int type = nativeObjectType(p);
+        return WzObjectFactory.wrap(type, p);
     }
 
     public WzObject getTopMostWzImage() {
         long p = nativeGetTopMostWzImage(nativePtr);
-        return p == 0 ? null : WzObjectFactory.wrap(WzEnums.ObjectType.IMAGE.value, p);
+        if (p == 0) return null;
+        int type = nativeObjectType(p);
+        return WzObjectFactory.wrap(type, p);
     }
 
     public WzObject at(String name) {
@@ -58,6 +70,7 @@ public abstract class WzObject implements AutoCloseable {
     }
 
     void updateNativePtr(long ptr) { this.nativePtr = ptr; }
+    protected boolean ownsNative() { return ownsNative; }
 
     @Override
     public void close() { dispose(); }

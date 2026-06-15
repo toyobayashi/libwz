@@ -518,6 +518,22 @@ wz_property_type wz_property_get_type(wz_property prop) {
   return static_cast<wz_property_type>(unwrap_prop(prop)->PropertyType());
 }
 
+int wz_property_is_raw_data(wz_property prop) {
+  if (!prop) {
+    set_error_null("wz_property_is_raw_data");
+    return 0;
+  }
+  return unwrap_prop(prop)->IsRawDataProperty() ? 1 : 0;
+}
+
+int wz_property_is_video(wz_property prop) {
+  if (!prop) {
+    set_error_null("wz_property_is_video");
+    return 0;
+  }
+  return unwrap_prop(prop)->IsVideoProperty() ? 1 : 0;
+}
+
 const char* wz_property_name(wz_property prop) {
   if (!prop) {
     set_error_null("wz_property_name");
@@ -927,8 +943,7 @@ int wz_canvas_save_to_file(wz_property canvas_prop, const char* file_path) {
   return static_cast<wz::WzCanvasProperty*>(p)->SaveToFile(file_path) ? 1 : 0;
 }
 
-wz_property wz_canvas_get_linked_wz_image_property(
-    wz_property canvas_prop) {
+wz_property wz_canvas_get_linked_wz_image_property(wz_property canvas_prop) {
   wz_clear_error();
   auto* p = unwrap_prop(canvas_prop);
   if (!p) {
@@ -1216,7 +1231,7 @@ size_t wz_rawdata_get_data(wz_property raw_prop,
     set_error_null("wz_rawdata_get_data");
     return 0;
   }
-  if (p->PropertyType() != wz::WzPropertyType::Raw) {
+  if (!p->IsRawDataProperty()) {
     set_error_wrong_type("wz_rawdata_get_data");
     return 0;
   }
@@ -1239,7 +1254,7 @@ int wz_rawdata_get_type(wz_property raw_prop) {
     set_error_null("wz_rawdata_get_type");
     return 0;
   }
-  if (p->PropertyType() != wz::WzPropertyType::Raw) {
+  if (!p->IsRawDataProperty()) {
     set_error_wrong_type("wz_rawdata_get_type");
     return 0;
   }
@@ -1257,7 +1272,7 @@ int wz_rawdata_save_to_file(wz_property raw_prop, const char* file_path) {
     set_error_null("wz_rawdata_save_to_file");
     return 0;
   }
-  if (p->PropertyType() != wz::WzPropertyType::Raw) {
+  if (!p->IsRawDataProperty()) {
     set_error_wrong_type("wz_rawdata_save_to_file");
     return 0;
   }
@@ -1275,15 +1290,11 @@ size_t wz_video_get_data(wz_property video_prop,
     set_error_null("wz_video_get_data");
     return 0;
   }
-  if (p->PropertyType() != wz::WzPropertyType::Raw) {
+  if (!p->IsVideoProperty()) {
     set_error_wrong_type("wz_video_get_data");
     return 0;
   }
   auto* vp = static_cast<wz::WzVideoProperty*>(p);
-  if (!vp) {
-    set_error_wrong_type("wz_video_get_data");
-    return 0;
-  }
   auto result = vp->GetBytes(false);
   if (!result.is_ok()) {
     set_error(result.err().code(), result.err().message());
@@ -1307,15 +1318,11 @@ int wz_video_save_to_file(wz_property video_prop, const char* file_path) {
     set_error_null("wz_video_save_to_file");
     return 0;
   }
-  if (p->PropertyType() != wz::WzPropertyType::Raw) {
+  if (!p->IsVideoProperty()) {
     set_error_wrong_type("wz_video_save_to_file");
     return 0;
   }
   auto* vp = static_cast<wz::WzVideoProperty*>(p);
-  if (!vp) {
-    set_error_wrong_type("wz_video_save_to_file");
-    return 0;
-  }
   return vp->SaveToFile(file_path) ? 1 : 0;
 }
 

@@ -26,7 +26,7 @@ class WzImage final : public WzObject, public IPropertyContainer {
 
   WZ_DISALLOW_COPY_AND_MOVE(WzImage)
 
-  WzObjectType ObjectType() const override { return WzObjectType::Image; }
+  WzObjectType ObjectType() const override;
   WzFile* WzFileParent() const override;
   void Remove() override;
 

@@ -48,6 +48,11 @@ WzFile* WzImage::WzFileParent() const {
   return Parent() ? Parent()->WzFileParent() : nullptr;
 }
 
+WzObjectType WzImage::ObjectType() const {
+  if (reader_ && !parsed_) const_cast<WzImage*>(this)->ParseImage();
+  return WzObjectType::Image;
+}
+
 void WzImage::Remove() {
   if (Parent()) {
     static_cast<WzDirectory*>(Parent())->RemoveImage(this);
@@ -67,7 +72,7 @@ WzPropertyCollection* WzImage::WzProperties() {
 void WzImage::AddProperty(WzImageProperty* prop) {
   // Check for duplicate name (case-insensitive) matching C#
   if ((*this)[prop->Name()] != nullptr) {
-    // Duplicate found - no exceptions, silently skip in C++ (C# throws)
+    return;
   }
   if (reader_ && !parsed_) ParseImage();
   properties_.Add(prop);
@@ -122,7 +127,8 @@ WzImageProperty* WzImage::GetFromPath(const std::string& path) {
   WzImageProperty* ret = nullptr;
   for (const auto& seg : segments) {
     WzPropertyCollection* wps = ret ? ret->WzProperties() : nullptr;
-    auto& props = (ret == nullptr ? properties_ : wps ? *wps : properties_);
+    if (ret != nullptr && wps == nullptr) return nullptr;
+    auto& props = (ret == nullptr ? properties_ : *wps);
     bool found = false;
     for (auto* p : props) {
       if (p && p->Name() == seg) {

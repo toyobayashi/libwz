@@ -36,6 +36,8 @@ class WzImageProperty : public WzObject {
   WzFile* WzFileParent() const override;
 
   virtual WzPropertyType PropertyType() const = 0;
+  virtual bool IsRawDataProperty() const { return false; }
+  virtual bool IsVideoProperty() const { return false; }
   virtual WzPropertyCollection* WzProperties() { return nullptr; }
 
   virtual WzImageProperty* operator[](const std::string& name);

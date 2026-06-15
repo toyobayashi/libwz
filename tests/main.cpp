@@ -102,6 +102,34 @@ int main() {
       soundProp->SaveToFile("tmp/" + prop->Name() + ".mp3");
     }
   }
+  manager->UnloadWzFile(wzFile);
+
+  // --- Export Mob.wz canvas images ---
+  std::filesystem::create_directories("tmp");
+  auto exportMobCanvas = [&](const std::string& imgName,
+                              const std::string& path,
+                              const std::string& outName) {
+    std::string mobPath = (BASE_MAPLE_DIR / "Mob.wz").string();
+    wz::WzFile mobFile(mobPath, version);
+    EXPECT_OK(mobFile.ParseWzFile() == wz::WzFileParseStatus::Success,
+              "Failed to parse Mob.wz: %s", mobPath.c_str());
+
+    auto* mobImg = mobFile.GetWzDirectory()->GetImageByName(imgName);
+    EXPECT_OK(mobImg, "%s not found in Mob.wz", imgName.c_str());
+    EXPECT_OK(mobImg->ParseImage(), "Failed to parse %s", imgName.c_str());
+
+    auto* prop = mobImg->GetFromPath(path);
+    EXPECT_OK(prop, "%s not found in %s", path.c_str(), imgName.c_str());
+    auto* canvas = static_cast<wz::WzCanvasProperty*>(prop);
+    EXPECT_OK(canvas->SaveToFile(outName),
+      "Failed to export %s", outName.c_str());
+    printf("Exported: %s\n", outName.c_str());
+  };
+
+  exportMobCanvas("1210100.img", "stand/0", "tmp/1210100_stand_0.png");
+  exportMobCanvas("1210101.img", "stand/0", "tmp/1210101_stand_0.png");
+  exportMobCanvas("8220004.img", "stand/0", "tmp/8220004_stand_0.png");
+
   delete wzFile;
   delete manager;
   return 0;

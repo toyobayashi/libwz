@@ -35,5 +35,10 @@ public class WzImage extends WzObject {
     }
 
     @Override
-    protected void dispose() { nativeDispose(nativePtr); nativePtr = 0; }
+    protected void dispose() {
+        if (ownsNative() && nativePtr != 0) {
+            nativeDispose(nativePtr);
+            nativePtr = 0;
+        }
+    }
 }

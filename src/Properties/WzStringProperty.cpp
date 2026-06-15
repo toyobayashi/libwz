@@ -1,21 +1,15 @@
 #include "wz/Properties/WzStringProperty.h"
 #include <cerrno>
+#include <cstdint>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <limits>
 #include "wz/Util/WzPath.h"
 
 namespace wz {
 
-static int32_t safeStoi(const std::string& s) {
-  char* end = nullptr;
-  errno = 0;
-  auto v = std::strtol(s.c_str(), &end, 10);
-  if (errno != 0 || end == s.c_str() || *end != '\0') return 0;
-  return static_cast<int32_t>(v);
-}
-
-static int64_t safeStoll(const std::string& s) {
+static int64_t safeParseInt64(const std::string& s) {
   char* end = nullptr;
   errno = 0;
   auto v = std::strtoll(s.c_str(), &end, 10);
@@ -23,14 +17,24 @@ static int64_t safeStoll(const std::string& s) {
   return static_cast<int64_t>(v);
 }
 
+template <typename T>
+static T safeParseInteger(const std::string& s) {
+  int64_t value = safeParseInt64(s);
+  if (value < std::numeric_limits<T>::min() ||
+      value > std::numeric_limits<T>::max()) {
+    return 0;
+  }
+  return static_cast<T>(value);
+}
+
 int32_t WzStringProperty::GetInt() const {
-  return safeStoi(value_);
+  return safeParseInteger<int32_t>(value_);
 }
 int16_t WzStringProperty::GetShort() const {
-  return static_cast<int16_t>(safeStoi(value_));
+  return safeParseInteger<int16_t>(value_);
 }
 int64_t WzStringProperty::GetLong() const {
-  return safeStoll(value_);
+  return safeParseInt64(value_);
 }
 
 bool WzStringProperty::SaveToFile(const std::string& filePath) {

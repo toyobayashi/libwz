@@ -559,6 +559,17 @@ JNIEXPORT jint JNICALL JNI_FUNC(WzPropertyFactory,
   return result;
 }
 
+JNIEXPORT jboolean JNICALL JNI_FUNC(WzPropertyFactory,
+                                    nativeIsVideoProperty)(JNIEnv* env,
+                                                           jclass,
+                                                           jlong ptr) {
+  jboolean result = wz_property_is_video(reinterpret_cast<wz_property>(ptr))
+                        ? JNI_TRUE
+                        : JNI_FALSE;
+  CheckErrorAndThrow(env);
+  return result;
+}
+
 // ==================== Scalar Properties ====================
 
 JNIEXPORT jint JNICALL JNI_FUNC(WzIntProperty, nativeGetValue)(JNIEnv* env,
@@ -742,13 +753,12 @@ JNIEXPORT jboolean JNICALL JNI_FUNC(WzCanvasProperty, nativeSaveToFile)(
   return result ? JNI_TRUE : JNI_FALSE;
 }
 
-JNIEXPORT jlong JNICALL
-JNI_FUNC(WzCanvasProperty, nativeGetLinkedWzImageProperty)(JNIEnv* env,
-                                                           jclass,
-                                                           jlong ptr) {
-  jlong result = reinterpret_cast<jlong>(
-      wz_canvas_get_linked_wz_image_property(
-          reinterpret_cast<wz_property>(ptr)));
+JNIEXPORT jlong JNICALL JNI_FUNC(WzCanvasProperty,
+                                 nativeGetLinkedWzImageProperty)(JNIEnv* env,
+                                                                 jclass,
+                                                                 jlong ptr) {
+  jlong result = reinterpret_cast<jlong>(wz_canvas_get_linked_wz_image_property(
+      reinterpret_cast<wz_property>(ptr)));
   CheckErrorAndThrow(env);
   return result;
 }
@@ -764,8 +774,9 @@ JNIEXPORT jstring JNICALL JNI_FUNC(WzUOLProperty, nativeGetValue)(JNIEnv* env,
   return result;
 }
 
-JNIEXPORT jlong JNICALL
-JNI_FUNC(WzUOLProperty, nativeGetLinkValue)(JNIEnv* env, jclass, jlong ptr) {
+JNIEXPORT jlong JNICALL JNI_FUNC(WzUOLProperty, nativeGetLinkValue)(JNIEnv* env,
+                                                                    jclass,
+                                                                    jlong ptr) {
   jlong result = reinterpret_cast<jlong>(
       wz_uol_get_link_value(reinterpret_cast<wz_property>(ptr)));
   CheckErrorAndThrow(env);
@@ -774,12 +785,12 @@ JNI_FUNC(WzUOLProperty, nativeGetLinkValue)(JNIEnv* env, jclass, jlong ptr) {
 
 // ==================== Property Link Resolution ====================
 
-JNIEXPORT jlong JNICALL
-JNI_FUNC(WzImageProperty, nativeGetLinkedWzImageProperty)(JNIEnv* env,
-                                                          jclass,
-                                                          jlong ptr) {
-  jlong result = reinterpret_cast<jlong>(
-      wz_property_get_linked_wz_image_property(
+JNIEXPORT jlong JNICALL JNI_FUNC(WzImageProperty,
+                                 nativeGetLinkedWzImageProperty)(JNIEnv* env,
+                                                                 jclass,
+                                                                 jlong ptr) {
+  jlong result =
+      reinterpret_cast<jlong>(wz_property_get_linked_wz_image_property(
           reinterpret_cast<wz_property>(ptr)));
   CheckErrorAndThrow(env);
   return result;

@@ -18,6 +18,7 @@ class WzRawDataProperty : public WzImageProperty, public IPropertyContainer {
   WZ_DISALLOW_COPY_AND_MOVE(WzRawDataProperty)
 
   WzPropertyType PropertyType() const override { return WzPropertyType::Raw; }
+  bool IsRawDataProperty() const override { return true; }
   WzPropertyCollection* WzProperties() override { return &properties_; }
   void AddProperty(WzImageProperty* prop) override;
   void RemoveProperty(const std::string& propertyName) override;

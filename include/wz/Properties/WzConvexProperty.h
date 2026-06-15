@@ -20,6 +20,7 @@ class WzConvexProperty : public WzImageProperty, public IPropertyContainer {
   void RemoveProperty(WzImageProperty* prop) override;
   void ClearProperties() override;
   WzImageProperty* operator[](const std::string& name) override;
+  WzImageProperty* GetFromPath(const std::string& path) override;
 
  private:
   WzPropertyCollection properties_;
