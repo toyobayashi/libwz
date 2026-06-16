@@ -49,7 +49,7 @@ class WzBinaryProperty : public WzImageProperty {
   Result<std::vector<uint8_t>> GetBytes() override;
   Result<std::vector<uint8_t>> GetBytes(bool saveInMemory);
   Result<std::vector<uint8_t>> GetBytesForWAVPlayback(bool saveInMemory);
-  bool SaveToFile(const std::string& filePath);
+  Result<void> SaveToFile(const std::string& filePath);
 
  private:
   void ParseWzSoundPropertyHeader();

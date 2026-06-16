@@ -168,14 +168,25 @@ if(BUILD_TESTS)
     FetchContent_MakeAvailable(googletest)
 
     enable_testing()
-    add_executable(wz_test
+    set(WZ_TEST_SOURCES
         tests/TestUnitTest1.cpp
         tests/TestMapleLib.cpp
         tests/TestPortalType.cpp
         tests/TestPngUtility.cpp
     )
+    if(BUILD_CAPI)
+        list(APPEND WZ_TEST_SOURCES tests/TestCapiError.cpp)
+    endif()
+    add_executable(wz_test
+        ${WZ_TEST_SOURCES}
+    )
     target_include_directories(wz_test PRIVATE include)
-    target_link_libraries(wz_test PRIVATE wz GTest::gtest GTest::gtest_main)
+    target_link_libraries(wz_test PRIVATE GTest::gtest_main)
+    if(BUILD_CAPI)
+        target_link_libraries(wz_test PRIVATE wz_capi)
+    else()
+        target_link_libraries(wz_test PRIVATE wz)
+    endif()
     add_test(NAME wz_test COMMAND wz_test)
 endif()
 

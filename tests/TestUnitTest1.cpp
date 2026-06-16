@@ -118,7 +118,10 @@ TEST(UnitTest1, MobWz_1210100_stand_0_PngParse) {
 
   wz::WzImage* img = root->GetImageByName("1210100.img");
   ASSERT_NE(img, nullptr) << "1210100.img not found in Mob.wz";
-  ASSERT_TRUE(img->ParseImage()) << "Failed to parse 1210100.img";
+  auto parseResult = img->ParseImage();
+  ASSERT_TRUE(parseResult.is_ok())
+      << "Failed to parse 1210100.img: " << parseResult.err().message();
+  ASSERT_TRUE(parseResult.ok()) << "Failed to parse 1210100.img";
 
   auto* prop = img->GetFromPath("stand/0");
   ASSERT_NE(prop, nullptr) << "stand/0 not found in 1210100.img";
@@ -154,7 +157,15 @@ TEST(UnitTest1, TestLegacyExtractionStyleSavePath_DoesNotThrow) {
       for (auto* img : d->WzImages()) {
         if (count >= 150) return;
         count++;
-        img->ParseImage();
+        auto parseResult = img->ParseImage();
+        if (parseResult.is_err()) {
+          ADD_FAILURE() << "Failed to parse image: " << img->Name() << ": "
+                        << parseResult.err().message();
+          continue;
+        }
+        if (!parseResult.ok()) {
+          continue;
+        }
         for (auto* p : *img->WzProperties()) {
           if (p && p->PropertyType() == wz::WzPropertyType::Canvas) {
             auto* c = static_cast<wz::WzCanvasProperty*>(p);

@@ -28,7 +28,7 @@ class WzRawDataProperty : public WzImageProperty, public IPropertyContainer {
   Result<std::vector<uint8_t>> GetBytes(bool saveInMemory);
   void Parse(bool parseNow);
   uint8_t Type() const { return type_; }
-  bool SaveToFile(const std::string& filePath);
+  Result<void> SaveToFile(const std::string& filePath);
 
  private:
   WzBinaryReader* wzReader_ = nullptr;

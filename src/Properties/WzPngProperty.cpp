@@ -159,9 +159,10 @@ Result<std::vector<uint8_t>> WzPngProperty::GetRawImage(bool saveInMemory) {
     inflateInit(&infstream);
     int r = inflate(&infstream, Z_NO_FLUSH);
     inflateEnd(&infstream);
-    return (r == Z_OK || r == Z_STREAM_END) ? result
-                  : Result<std::vector<uint8_t>>(
-                        Error::DataError("inflate failed"));
+    return (r == Z_OK || r == Z_STREAM_END)
+               ? result
+               : Result<std::vector<uint8_t>>(
+                     Error::DataError("inflate failed"));
   } else {
     // List.wz format - decrypt then decompress
     if (!wzReader_)
@@ -190,15 +191,16 @@ Result<std::vector<uint8_t>> WzPngProperty::GetRawImage(bool saveInMemory) {
     infstream.opaque = Z_NULL;
     infstream.avail_in = static_cast<uInt>(decryptedData.size());
     infstream.next_in = decryptedData.data();
-    infstream.avail_out = (uInt)result.size();        // size of output
+    infstream.avail_out = (uInt)result.size();   // size of output
     infstream.next_out = (Bytef*)result.data();  // output char array NOLINT
 
     inflateInit(&infstream);
     int r = inflate(&infstream, Z_NO_FLUSH);
     inflateEnd(&infstream);
-    return (r == Z_OK || r == Z_STREAM_END) ? result
-                  : Result<std::vector<uint8_t>>(
-                        Error::DataError("inflate failed"));
+    return (r == Z_OK || r == Z_STREAM_END)
+               ? result
+               : Result<std::vector<uint8_t>>(
+                     Error::DataError("inflate failed"));
   }
 }
 
@@ -329,11 +331,11 @@ Result<std::vector<uint8_t>> WzPngProperty::GetImage(bool saveInMemory) {
   return pngData_;
 }
 
-bool WzPngProperty::SaveToFile(const std::string& filePath) {
+Result<void> WzPngProperty::SaveToFile(const std::string& filePath) {
   auto result = GetImage(true);
-  if (!result.is_ok()) return false;
+  if (!result.is_ok()) return result.err();
   auto& bgra = result.ok();
-  if (bgra.empty()) return false;
+  if (bgra.empty()) return Error::DataError("PNG image data is empty");
 
   std::vector<uint8_t> rgba(bgra.size());
   for (size_t i = 0; i < bgra.size(); i += 4) {
@@ -356,7 +358,7 @@ bool WzPngProperty::SaveToFile(const std::string& filePath) {
   if (deflateInit2(
           &zs, Z_BEST_COMPRESSION, Z_DEFLATED, 15, 8, Z_DEFAULT_STRATEGY) !=
       Z_OK)
-    return false;
+    return Error::DataError("deflateInit2 failed");
 
   zs.next_in = rawData.data();
   zs.avail_in = static_cast<uInt>(rawData.size());
@@ -369,16 +371,20 @@ bool WzPngProperty::SaveToFile(const std::string& filePath) {
   int ret = deflate(&zs, Z_FINISH);
   if (ret != Z_STREAM_END) {
     deflateEnd(&zs);
-    return false;
+    return Error::DataError("deflate failed");
   }
   size_t compressedSize = zs.total_out;
   deflateEnd(&zs);
 
+  auto outPath = wz::to_path(filePath);
+  auto parentPath = outPath.parent_path();
   std::error_code ec;
-  std::filesystem::create_directories(wz::to_path(filePath).parent_path(), ec);
-  if (ec) return false;
-  std::ofstream out(wz::to_path(filePath), std::ios::binary);
-  if (!out) return false;
+  if (!parentPath.empty()) {
+    std::filesystem::create_directories(parentPath, ec);
+    if (ec) return Error::IoError(ec.message());
+  }
+  std::ofstream out(outPath, std::ios::binary);
+  if (!out) return Error::IoError("Failed to open file for writing");
 
   const uint8_t signature[8] = {137, 80, 78, 71, 13, 10, 26, 10};
   out.write(reinterpret_cast<const char*>(signature), 8);
@@ -401,7 +407,7 @@ bool WzPngProperty::SaveToFile(const std::string& filePath) {
 
   WritePngChunk(out, "IEND", nullptr, 0);
 
-  return true;
+  return {};
 }
 
 }  // namespace wz

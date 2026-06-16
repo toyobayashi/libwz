@@ -1,5 +1,7 @@
 #include <gtest/gtest.h>
 #include <filesystem>
+#include <fstream>
+#include <vector>
 #include "wz/CRC32.h"
 #include "wz/Properties/WzCanvasProperty.h"
 #include "wz/Properties/WzConvexProperty.h"
@@ -10,6 +12,7 @@
 #include "wz/Properties/WzSubProperty.h"
 #include "wz/Properties/WzUOLProperty.h"
 #include "wz/Properties/WzVideoProperty.h"
+#include "wz/Util/WzKeyGenerator.h"
 #include "wz/Util/WzTool.h"
 #include "wz/WzDirectory.h"
 #include "wz/WzEnums.h"
@@ -54,6 +57,44 @@ TEST(WzImageTest, AddPropertyRejectsDuplicateNameCaseInsensitive) {
   EXPECT_EQ(duplicate->Parent(), nullptr);
 
   delete duplicate;
+}
+
+TEST(WzImageTest, ParseImagePreservesNestedParseError) {
+  auto path = std::filesystem::temp_directory_path() /
+              "libwz_parse_image_result_error.img";
+  auto iv = wz::WzTool::GetIvByMapleVersion(wz::WzMapleVersion::GMS);
+  auto key = wz::WzKeyGenerator::GenerateWzKey(iv);
+
+  std::vector<uint8_t> bytes;
+  bytes.push_back(wz::WzImage::WzImageHeaderByte_WithoutOffset);
+  bytes.push_back(static_cast<uint8_t>(-8));
+  uint8_t mask = 0xAA;
+  for (size_t i = 0; i < 8; i++, mask++) {
+    bytes.push_back(static_cast<uint8_t>("Property"[i]) ^ mask ^ key[i]);
+  }
+  bytes.push_back(0);
+  bytes.push_back(0);
+  bytes.push_back(1);   // one property entry
+  bytes.push_back(0);   // inline property name
+  bytes.push_back(0);   // empty property name
+  bytes.push_back(99);  // unknown ptype, equivalent to C# throw
+
+  {
+    std::ofstream out(path, std::ios::binary);
+    out.write(reinterpret_cast<const char*>(bytes.data()),
+              static_cast<std::streamsize>(bytes.size()));
+  }
+
+  auto* stream = new std::ifstream(path, std::ios::binary);
+  wz::WzImage image("bad.img", stream, wz::WzMapleVersion::GMS);
+  auto result = image.ParseImage();
+
+  EXPECT_TRUE(result.is_err());
+  EXPECT_EQ(result.err().code(), wz::ErrorCode::ParseError);
+  EXPECT_NE(result.err().message().find("Unknown property type"),
+            std::string::npos);
+
+  std::filesystem::remove(path);
 }
 
 TEST(WzPropertyTypeTest, RawDataAndVideoKeepRawTypeWithDistinctSubtypes) {
@@ -110,6 +151,20 @@ TEST(WzStringPropertyTest, NumericParsingMatchesMapleLibTryParse) {
   EXPECT_EQ(wz::WzStringProperty("n", "2147483648").GetInt(), 0);
   EXPECT_EQ(wz::WzStringProperty("n", "not-number").GetInt(), 0);
   EXPECT_EQ(wz::WzStringProperty("n", "9223372036854775808").GetLong(), 0);
+}
+
+TEST(WzStringPropertyTest, SaveToFileAllowsPathWithoutParentDirectory) {
+  const std::string path = "libwz_string_save_no_parent.txt";
+  wz::WzStringProperty prop("text", "hello");
+
+  auto result = prop.SaveToFile(path);
+
+  if (result.is_err()) {
+    ADD_FAILURE() << result.err().message();
+  }
+  EXPECT_TRUE(result.is_ok());
+  EXPECT_TRUE(std::filesystem::exists(path));
+  std::filesystem::remove(path);
 }
 
 TEST(WzUOLPropertyTest, LeadingParentSegmentMatchesMapleLibResolution) {

@@ -51,6 +51,14 @@ static void set_error_idx(const char* fn, int idx, size_t size) {
                      " out of range [0, " + std::to_string(size) + ")";
 }
 
+static int return_result(const wz::Result<void>& result) {
+  if (result.is_err()) {
+    set_error(result.err().code(), result.err().message());
+    return 0;
+  }
+  return 1;
+}
+
 static wz::WzImageProperty* unwrap_prop(wz_property p) {
   return reinterpret_cast<wz::WzImageProperty*>(p);
 }
@@ -79,12 +87,29 @@ const char* wz_get_last_error_message(void) {
 wz_file wz_open_file(const char* file_path,
                      int16_t game_version,
                      wz_maple_version version) {
+  wz_clear_error();
+  if (!file_path) {
+    set_error(wz::ErrorCode::InvalidArgument,
+              "wz_open_file: file_path is null");
+    return nullptr;
+  }
   auto* f = new wz::WzFile(
       file_path, game_version, static_cast<wz::WzMapleVersion>(version));
   return reinterpret_cast<wz_file>(f);
 }
 
 wz_file wz_open_file_with_iv(const char* file_path, const uint8_t iv[4]) {
+  wz_clear_error();
+  if (!file_path) {
+    set_error(wz::ErrorCode::InvalidArgument,
+              "wz_open_file_with_iv: file_path is null");
+    return nullptr;
+  }
+  if (!iv) {
+    set_error(wz::ErrorCode::InvalidArgument,
+              "wz_open_file_with_iv: iv is null");
+    return nullptr;
+  }
   std::array<uint8_t, 4> ivArr = {iv[0], iv[1], iv[2], iv[3]};
   auto* f = new wz::WzFile(file_path, ivArr);
   return reinterpret_cast<wz_file>(f);
@@ -105,12 +130,14 @@ wz_parse_status wz_parse(wz_file file) {
 }
 
 void wz_close_file(wz_file file) {
+  wz_clear_error();
   if (!file) return;
   auto* f = reinterpret_cast<wz::WzFile*>(file);
   delete f;
 }
 
 const char* wz_file_name(wz_file file) {
+  wz_clear_error();
   if (!file) {
     set_error_null("wz_file_name");
     return nullptr;
@@ -121,6 +148,7 @@ const char* wz_file_name(wz_file file) {
 }
 
 const char* wz_file_path(wz_file file) {
+  wz_clear_error();
   if (!file) {
     set_error_null("wz_file_path");
     return nullptr;
@@ -131,6 +159,7 @@ const char* wz_file_path(wz_file file) {
 }
 
 int16_t wz_file_version(wz_file file) {
+  wz_clear_error();
   if (!file) {
     set_error_null("wz_file_version");
     return 0;
@@ -139,6 +168,7 @@ int16_t wz_file_version(wz_file file) {
 }
 
 wz_maple_version wz_file_maple_version(wz_file file) {
+  wz_clear_error();
   if (!file) {
     set_error_null("wz_file_maple_version");
     return WZ_UNKNOWN;
@@ -148,6 +178,7 @@ wz_maple_version wz_file_maple_version(wz_file file) {
 }
 
 wz_dir wz_file_get_wz_directory(wz_file file) {
+  wz_clear_error();
   if (!file) {
     set_error_null("wz_file_get_wz_directory");
     return nullptr;
@@ -157,6 +188,7 @@ wz_dir wz_file_get_wz_directory(wz_file file) {
 }
 
 int wz_file_is_64bit(wz_file file) {
+  wz_clear_error();
   if (!file) {
     set_error_null("wz_file_is_64bit");
     return 0;
@@ -165,6 +197,7 @@ int wz_file_is_64bit(wz_file file) {
 }
 
 int wz_file_is_unloaded(wz_file file) {
+  wz_clear_error();
   if (!file) {
     set_error_null("wz_file_is_unloaded");
     return 1;
@@ -173,6 +206,7 @@ int wz_file_is_unloaded(wz_file file) {
 }
 
 uint32_t wz_file_version_hash(wz_file file) {
+  wz_clear_error();
   if (!file) {
     set_error_null("wz_file_version_hash");
     return 0;
@@ -200,6 +234,7 @@ wz_object wz_file_get_object_from_path(wz_file file,
 // ==================== WzDirectory ====================
 
 const char* wz_dir_name(wz_dir dir) {
+  wz_clear_error();
   if (!dir) {
     set_error_null("wz_dir_name");
     return nullptr;
@@ -210,6 +245,7 @@ const char* wz_dir_name(wz_dir dir) {
 }
 
 int wz_dir_count_images(wz_dir dir) {
+  wz_clear_error();
   if (!dir) {
     set_error_null("wz_dir_count_images");
     return 0;
@@ -219,6 +255,7 @@ int wz_dir_count_images(wz_dir dir) {
 }
 
 int wz_dir_count_directories(wz_dir dir) {
+  wz_clear_error();
   if (!dir) {
     set_error_null("wz_dir_count_directories");
     return 0;
@@ -228,6 +265,7 @@ int wz_dir_count_directories(wz_dir dir) {
 }
 
 int wz_dir_count_images_total(wz_dir dir) {
+  wz_clear_error();
   if (!dir) {
     set_error_null("wz_dir_count_images_total");
     return 0;
@@ -295,6 +333,7 @@ wz_dir wz_dir_get_directory_by_name(wz_dir dir, const char* name) {
 }
 
 int wz_dir_block_size(wz_dir dir) {
+  wz_clear_error();
   if (!dir) {
     set_error_null("wz_dir_block_size");
     return 0;
@@ -303,6 +342,7 @@ int wz_dir_block_size(wz_dir dir) {
 }
 
 int wz_dir_checksum(wz_dir dir) {
+  wz_clear_error();
   if (!dir) {
     set_error_null("wz_dir_checksum");
     return 0;
@@ -311,6 +351,7 @@ int wz_dir_checksum(wz_dir dir) {
 }
 
 int64_t wz_dir_offset(wz_dir dir) {
+  wz_clear_error();
   if (!dir) {
     set_error_null("wz_dir_offset");
     return 0;
@@ -321,6 +362,7 @@ int64_t wz_dir_offset(wz_dir dir) {
 // ==================== WzImage ====================
 
 const char* wz_image_name(wz_image img) {
+  wz_clear_error();
   if (!img) {
     set_error_null("wz_image_name");
     return nullptr;
@@ -331,6 +373,7 @@ const char* wz_image_name(wz_image img) {
 }
 
 int wz_image_is_parsed(wz_image img) {
+  wz_clear_error();
   if (!img) {
     set_error_null("wz_image_is_parsed");
     return 0;
@@ -339,6 +382,7 @@ int wz_image_is_parsed(wz_image img) {
 }
 
 int wz_image_is_changed(wz_image img) {
+  wz_clear_error();
   if (!img) {
     set_error_null("wz_image_is_changed");
     return 0;
@@ -347,6 +391,7 @@ int wz_image_is_changed(wz_image img) {
 }
 
 int wz_image_block_size(wz_image img) {
+  wz_clear_error();
   if (!img) {
     set_error_null("wz_image_block_size");
     return 0;
@@ -355,6 +400,7 @@ int wz_image_block_size(wz_image img) {
 }
 
 int wz_image_checksum(wz_image img) {
+  wz_clear_error();
   if (!img) {
     set_error_null("wz_image_checksum");
     return 0;
@@ -363,6 +409,7 @@ int wz_image_checksum(wz_image img) {
 }
 
 int64_t wz_image_offset(wz_image img) {
+  wz_clear_error();
   if (!img) {
     set_error_null("wz_image_offset");
     return 0;
@@ -371,6 +418,7 @@ int64_t wz_image_offset(wz_image img) {
 }
 
 int wz_image_is_lua_wz_image(wz_image img) {
+  wz_clear_error();
   if (!img) {
     set_error_null("wz_image_is_lua_wz_image");
     return 0;
@@ -379,14 +427,23 @@ int wz_image_is_lua_wz_image(wz_image img) {
 }
 
 void wz_image_parse(wz_image img) {
+  wz_clear_error();
   if (!img) {
     set_error_null("wz_image_parse");
     return;
   }
-  reinterpret_cast<wz::WzImage*>(img)->ParseImage();
+  auto result = reinterpret_cast<wz::WzImage*>(img)->ParseImage();
+  if (result.is_err()) {
+    set_error(result.err().code(), result.err().message());
+    return;
+  }
+  if (!result.ok()) {
+    set_error(wz::ErrorCode::ParseError, "wz_image_parse: parse failed");
+  }
 }
 
 int wz_image_count_properties(wz_image img) {
+  wz_clear_error();
   if (!img) {
     set_error_null("wz_image_count_properties");
     return 0;
@@ -430,6 +487,7 @@ wz_property wz_image_get_from_path(wz_image img, const char* path) {
 // ==================== WzObject ====================
 
 wz_object_type wz_get_object_type(wz_object obj) {
+  wz_clear_error();
   if (!obj) {
     set_error_null("wz_get_object_type");
     return WZ_OBJECT_FILE;
@@ -439,6 +497,7 @@ wz_object_type wz_get_object_type(wz_object obj) {
 }
 
 const char* wz_object_name(wz_object obj) {
+  wz_clear_error();
   if (!obj) {
     set_error_null("wz_object_name");
     return nullptr;
@@ -449,6 +508,7 @@ const char* wz_object_name(wz_object obj) {
 }
 
 wz_object wz_object_get_parent(wz_object obj) {
+  wz_clear_error();
   if (!obj) {
     set_error_null("wz_object_get_parent");
     return nullptr;
@@ -458,6 +518,7 @@ wz_object wz_object_get_parent(wz_object obj) {
 }
 
 const char* wz_object_full_path(wz_object obj) {
+  wz_clear_error();
   if (!obj) {
     set_error_null("wz_object_full_path");
     return nullptr;
@@ -468,6 +529,7 @@ const char* wz_object_full_path(wz_object obj) {
 }
 
 wz_file wz_object_get_wz_file_parent(wz_object obj) {
+  wz_clear_error();
   if (!obj) {
     set_error_null("wz_object_get_wz_file_parent");
     return nullptr;
@@ -477,6 +539,7 @@ wz_file wz_object_get_wz_file_parent(wz_object obj) {
 }
 
 wz_object wz_object_get_top_most_wz_directory(wz_object obj) {
+  wz_clear_error();
   if (!obj) {
     set_error_null("wz_object_get_top_most_wz_directory");
     return nullptr;
@@ -486,6 +549,7 @@ wz_object wz_object_get_top_most_wz_directory(wz_object obj) {
 }
 
 wz_object wz_object_get_top_most_wz_image(wz_object obj) {
+  wz_clear_error();
   if (!obj) {
     set_error_null("wz_object_get_top_most_wz_image");
     return nullptr;
@@ -511,6 +575,7 @@ wz_object wz_object_at(wz_object obj, const char* name) {
 // ==================== WzProperty ====================
 
 wz_property_type wz_property_get_type(wz_property prop) {
+  wz_clear_error();
   if (!prop) {
     set_error_null("wz_property_get_type");
     return WZ_PROP_NULL;
@@ -519,6 +584,7 @@ wz_property_type wz_property_get_type(wz_property prop) {
 }
 
 int wz_property_is_raw_data(wz_property prop) {
+  wz_clear_error();
   if (!prop) {
     set_error_null("wz_property_is_raw_data");
     return 0;
@@ -527,6 +593,7 @@ int wz_property_is_raw_data(wz_property prop) {
 }
 
 int wz_property_is_video(wz_property prop) {
+  wz_clear_error();
   if (!prop) {
     set_error_null("wz_property_is_video");
     return 0;
@@ -535,6 +602,7 @@ int wz_property_is_video(wz_property prop) {
 }
 
 const char* wz_property_name(wz_property prop) {
+  wz_clear_error();
   if (!prop) {
     set_error_null("wz_property_name");
     return nullptr;
@@ -545,6 +613,7 @@ const char* wz_property_name(wz_property prop) {
 }
 
 int wz_property_count_children(wz_property prop) {
+  wz_clear_error();
   if (!prop) {
     set_error_null("wz_property_count_children");
     return 0;
@@ -607,6 +676,7 @@ wz_property wz_property_get_from_path(wz_property prop, const char* path) {
 }
 
 int32_t wz_property_get_int(wz_property prop) {
+  wz_clear_error();
   if (!prop) {
     set_error_null("wz_property_get_int");
     return 0;
@@ -615,6 +685,7 @@ int32_t wz_property_get_int(wz_property prop) {
 }
 
 int16_t wz_property_get_short(wz_property prop) {
+  wz_clear_error();
   if (!prop) {
     set_error_null("wz_property_get_short");
     return 0;
@@ -623,6 +694,7 @@ int16_t wz_property_get_short(wz_property prop) {
 }
 
 int64_t wz_property_get_long(wz_property prop) {
+  wz_clear_error();
   if (!prop) {
     set_error_null("wz_property_get_long");
     return 0;
@@ -631,6 +703,7 @@ int64_t wz_property_get_long(wz_property prop) {
 }
 
 float wz_property_get_float(wz_property prop) {
+  wz_clear_error();
   if (!prop) {
     set_error_null("wz_property_get_float");
     return 0.0f;
@@ -639,6 +712,7 @@ float wz_property_get_float(wz_property prop) {
 }
 
 double wz_property_get_double(wz_property prop) {
+  wz_clear_error();
   if (!prop) {
     set_error_null("wz_property_get_double");
     return 0.0;
@@ -647,6 +721,7 @@ double wz_property_get_double(wz_property prop) {
 }
 
 const char* wz_property_get_string(wz_property prop) {
+  wz_clear_error();
   if (!prop) {
     set_error_null("wz_property_get_string");
     return nullptr;
@@ -659,6 +734,7 @@ const char* wz_property_get_string(wz_property prop) {
 size_t wz_property_get_bytes(wz_property prop,
                              uint8_t* buffer,
                              size_t buffer_size) {
+  wz_clear_error();
   if (!prop) {
     set_error_null("wz_property_get_bytes");
     return 0;
@@ -691,6 +767,7 @@ int32_t wz_int_get_value(wz_property prop) {
 }
 
 void wz_int_set_value(wz_property prop, int32_t value) {
+  wz_clear_error();
   if (!prop) {
     set_error_null("wz_int_set_value");
     return;
@@ -783,15 +860,14 @@ int wz_string_save_to_file(wz_property prop, const char* file_path) {
     set_error_wrong_type("wz_string_save_to_file");
     return 0;
   }
-  return static_cast<wz::WzStringProperty*>(unwrap_prop(prop))
-                 ->SaveToFile(file_path)
-             ? 1
-             : 0;
+  return return_result(static_cast<wz::WzStringProperty*>(unwrap_prop(prop))
+                           ->SaveToFile(file_path));
 }
 
 // ==================== WzPngProperty ====================
 
 int wz_png_width(wz_png_property png) {
+  wz_clear_error();
   if (!png) {
     set_error_null("wz_png_width");
     return 0;
@@ -800,6 +876,7 @@ int wz_png_width(wz_png_property png) {
 }
 
 int wz_png_height(wz_png_property png) {
+  wz_clear_error();
   if (!png) {
     set_error_null("wz_png_height");
     return 0;
@@ -808,6 +885,7 @@ int wz_png_height(wz_png_property png) {
 }
 
 int wz_png_format(wz_png_property png) {
+  wz_clear_error();
   if (!png) {
     set_error_null("wz_png_format");
     return 0;
@@ -816,6 +894,7 @@ int wz_png_format(wz_png_property png) {
 }
 
 int wz_png_is_list_wz_used(wz_png_property png) {
+  wz_clear_error();
   if (!png) {
     set_error_null("wz_png_is_list_wz_used");
     return 0;
@@ -874,8 +953,8 @@ int wz_png_save_to_file(wz_png_property png, const char* file_path) {
     set_error_null("wz_png_save_to_file");
     return 0;
   }
-  return reinterpret_cast<wz::WzPngProperty*>(png)->SaveToFile(file_path) ? 1
-                                                                          : 0;
+  return return_result(
+      reinterpret_cast<wz::WzPngProperty*>(png)->SaveToFile(file_path));
 }
 
 // ==================== WzCanvasProperty ====================
@@ -940,7 +1019,8 @@ int wz_canvas_save_to_file(wz_property canvas_prop, const char* file_path) {
     set_error_wrong_type("wz_canvas_save_to_file");
     return 0;
   }
-  return static_cast<wz::WzCanvasProperty*>(p)->SaveToFile(file_path) ? 1 : 0;
+  return return_result(
+      static_cast<wz::WzCanvasProperty*>(p)->SaveToFile(file_path));
 }
 
 wz_property wz_canvas_get_linked_wz_image_property(wz_property canvas_prop) {
@@ -1089,7 +1169,8 @@ int wz_lua_save_to_file(wz_property lua_prop, const char* file_path) {
     set_error_wrong_type("wz_lua_save_to_file");
     return 0;
   }
-  return static_cast<wz::WzLuaProperty*>(p)->SaveToFile(file_path) ? 1 : 0;
+  return return_result(
+      static_cast<wz::WzLuaProperty*>(p)->SaveToFile(file_path));
 }
 
 // ==================== WzBinaryProperty ====================
@@ -1217,7 +1298,8 @@ int wz_binary_save_to_file(wz_property binary_prop, const char* file_path) {
     set_error_wrong_type("wz_binary_save_to_file");
     return 0;
   }
-  return static_cast<wz::WzBinaryProperty*>(p)->SaveToFile(file_path) ? 1 : 0;
+  return return_result(
+      static_cast<wz::WzBinaryProperty*>(p)->SaveToFile(file_path));
 }
 
 // ==================== WzRawDataProperty ====================
@@ -1276,7 +1358,8 @@ int wz_rawdata_save_to_file(wz_property raw_prop, const char* file_path) {
     set_error_wrong_type("wz_rawdata_save_to_file");
     return 0;
   }
-  return static_cast<wz::WzRawDataProperty*>(p)->SaveToFile(file_path) ? 1 : 0;
+  return return_result(
+      static_cast<wz::WzRawDataProperty*>(p)->SaveToFile(file_path));
 }
 
 // ==================== WzVideoProperty ====================
@@ -1323,12 +1406,13 @@ int wz_video_save_to_file(wz_property video_prop, const char* file_path) {
     return 0;
   }
   auto* vp = static_cast<wz::WzVideoProperty*>(p);
-  return vp->SaveToFile(file_path) ? 1 : 0;
+  return return_result(vp->SaveToFile(file_path));
 }
 
 // ==================== Utility ====================
 
 const char* wz_get_error_description(wz_parse_status status) {
+  wz_clear_error();
   static thread_local std::string s;
   s = wz::GetErrorDescription(static_cast<wz::WzFileParseStatus>(status));
   return s.c_str();
@@ -1336,6 +1420,12 @@ const char* wz_get_error_description(wz_parse_status status) {
 
 wz_maple_version wz_detect_maple_version(const char* file_path,
                                          int16_t* out_version) {
+  wz_clear_error();
+  if (!file_path) {
+    set_error(wz::ErrorCode::InvalidArgument,
+              "wz_detect_maple_version: file_path is null");
+    return WZ_UNKNOWN;
+  }
   int16_t ver = 0;
   auto mv = wz::WzTool::DetectMapleVersion(file_path, &ver);
   if (out_version) *out_version = ver;
@@ -1343,6 +1433,7 @@ wz_maple_version wz_detect_maple_version(const char* file_path,
 }
 
 const uint8_t* wz_get_iv_for_version(wz_maple_version ver) {
+  wz_clear_error();
   static thread_local std::array<uint8_t, 4> iv;
   iv = wz::WzTool::GetIvByMapleVersion(static_cast<wz::WzMapleVersion>(ver));
   return iv.data();

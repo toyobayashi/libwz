@@ -30,7 +30,7 @@ class WzPngProperty : public WzImageProperty {
   Result<std::vector<uint8_t>> GetRawImage(bool saveInMemory);
   void ParsePng(bool saveInMemory);
 
-  bool SaveToFile(const std::string& filePath);
+  Result<void> SaveToFile(const std::string& filePath);
 
   WzBinaryReader* Reader() const { return wzReader_; }
 

@@ -51,7 +51,7 @@ class WzImage final : public WzObject, public IPropertyContainer {
   void ClearProperties() override;
 
   WzImageProperty* GetFromPath(const std::string& path);
-  bool ParseImage();
+  Result<bool> ParseImage();
 
   WzImageProperty* operator[](const std::string& name);
 

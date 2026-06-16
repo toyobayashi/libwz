@@ -26,15 +26,19 @@ std::vector<uint8_t> WzLuaProperty::EncodeDecode(
   return result;
 }
 
-bool WzLuaProperty::SaveToFile(const std::string& filePath) {
+Result<void> WzLuaProperty::SaveToFile(const std::string& filePath) {
   std::string str = GetString();
+  auto outPath = wz::to_path(filePath);
+  auto parentPath = outPath.parent_path();
   std::error_code ec;
-  std::filesystem::create_directories(wz::to_path(filePath).parent_path(), ec);
-  if (ec) return false;
-  std::ofstream out(wz::to_path(filePath));
-  if (!out) return false;
+  if (!parentPath.empty()) {
+    std::filesystem::create_directories(parentPath, ec);
+    if (ec) return Error::IoError(ec.message());
+  }
+  std::ofstream out(outPath);
+  if (!out) return Error::IoError("Failed to open file for writing");
   out << str;
-  return true;
+  return {};
 }
 
 }  // namespace wz

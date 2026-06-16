@@ -75,17 +75,21 @@ Result<std::vector<uint8_t>> WzRawDataProperty::GetBytes(bool saveInMemory) {
   return result;
 }
 
-bool WzRawDataProperty::SaveToFile(const std::string& filePath) {
+Result<void> WzRawDataProperty::SaveToFile(const std::string& filePath) {
   auto result = GetBytes(false);
-  if (!result.is_ok()) return false;
+  if (!result.is_ok()) return result.err();
   auto& bytes = result.ok();
+  auto outPath = wz::to_path(filePath);
+  auto parentPath = outPath.parent_path();
   std::error_code ec;
-  std::filesystem::create_directories(wz::to_path(filePath).parent_path(), ec);
-  if (ec) return false;
-  std::ofstream out(wz::to_path(filePath), std::ios::binary);
-  if (!out) return false;
+  if (!parentPath.empty()) {
+    std::filesystem::create_directories(parentPath, ec);
+    if (ec) return Error::IoError(ec.message());
+  }
+  std::ofstream out(outPath, std::ios::binary);
+  if (!out) return Error::IoError("Failed to open file for writing");
   out.write(reinterpret_cast<const char*>(bytes.data()), bytes.size());
-  return true;
+  return {};
 }
 
 }  // namespace wz

@@ -142,7 +142,7 @@ WzImageProperty* WzImage::GetFromPath(const std::string& path) {
   return ret;
 }
 
-bool WzImage::ParseImage() {
+Result<bool> WzImage::ParseImage() {
   if (Parsed()) return true;
   if (Changed()) {
     SetParsed(true);
@@ -176,7 +176,7 @@ bool WzImage::ParseImage() {
   }
 
   auto r = WzImageProperty::ParsePropertyList(offset_, reader_, this, this);
-  if (r.is_err()) return false;
+  if (r.is_err()) return r.err();
   for (auto* p : r.ok()) {
     properties_.Add(p);
   }
