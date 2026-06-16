@@ -80,9 +80,12 @@ typedef enum {
   WZ_ERROR_INDEX_OUT_OF_RANGE,
 } wz_error_code;
 
-void wz_clear_error(void);
-wz_error_code wz_get_last_error(void);
-const char* wz_get_last_error_message(void);
+typedef struct wz_last_error_info {
+  wz_error_code code;
+  const char* message;
+} wz_last_error_info;
+
+wz_error_code wz_get_last_error_info(const wz_last_error_info** info);
 
 // ==================== WzFile ====================
 
