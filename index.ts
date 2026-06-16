@@ -125,7 +125,9 @@ interface NodePathModule {
 function loadNative(): NativeBinding {
   const path = require("node:path") as NodePathModule;
   const candidates = [
+    path.join(__dirname, "build", "Release", "wz.node"),
     path.join(__dirname, "build", "Release", "libwz.node"),
+    path.join(__dirname, "build", "Debug", "wz.node"),
     path.join(__dirname, "build", "Debug", "libwz.node"),
   ];
   for (const candidate of candidates) {

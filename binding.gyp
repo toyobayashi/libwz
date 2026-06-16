@@ -1,6 +1,62 @@
 {
   "targets": [
     {
+      "target_name": "tiny_aes",
+      "type": "static_library",
+      "sources": [
+        "deps/tiny-aes/aes.c"
+      ],
+      "include_dirs": [
+        "deps/tiny-aes"
+      ],
+      "defines": [
+        "AES256=1"
+      ]
+    },
+    {
+      "target_name": "zlibstatic",
+      "type": "static_library",
+      "sources": [
+        "deps/zlib/adler32.c",
+        "deps/zlib/compress.c",
+        "deps/zlib/crc32.c",
+        "deps/zlib/deflate.c",
+        "deps/zlib/gzclose.c",
+        "deps/zlib/gzlib.c",
+        "deps/zlib/gzread.c",
+        "deps/zlib/gzwrite.c",
+        "deps/zlib/infback.c",
+        "deps/zlib/inffast.c",
+        "deps/zlib/inflate.c",
+        "deps/zlib/inftrees.c",
+        "deps/zlib/trees.c",
+        "deps/zlib/uncompr.c",
+        "deps/zlib/zutil.c"
+      ],
+      "include_dirs": [
+        "deps/zlib"
+      ],
+      "conditions": [
+        [
+          "OS=='win'",
+          {
+            "defines": [
+              "_CRT_SECURE_NO_DEPRECATE",
+              "_CRT_NONSTDC_NO_DEPRECATE"
+            ]
+          }
+        ],
+        [
+          "OS!='win'",
+          {
+            "defines": [
+              "HAVE_UNISTD_H"
+            ]
+          }
+        ]
+      ]
+    },
+    {
       "target_name": "libwz",
       "sources": [
         "src/node/binding.cpp",
@@ -36,23 +92,7 @@
         "src/WzImageProperty.cpp",
         "src/WzObject.cpp",
         "src/WzPropertyCollection.cpp",
-        "src/WzFileManager.cpp",
-        "deps/tiny-aes/aes.c",
-        "deps/zlib/adler32.c",
-        "deps/zlib/compress.c",
-        "deps/zlib/crc32.c",
-        "deps/zlib/deflate.c",
-        "deps/zlib/gzclose.c",
-        "deps/zlib/gzlib.c",
-        "deps/zlib/gzread.c",
-        "deps/zlib/gzwrite.c",
-        "deps/zlib/infback.c",
-        "deps/zlib/inffast.c",
-        "deps/zlib/inflate.c",
-        "deps/zlib/inftrees.c",
-        "deps/zlib/trees.c",
-        "deps/zlib/uncompr.c",
-        "deps/zlib/zutil.c"
+        "src/WzFileManager.cpp"
       ],
       "include_dirs": [
         "<!@(node -p \"require('node-addon-api').include\")",
@@ -62,7 +102,9 @@
         "deps/zlib"
       ],
       "dependencies": [
-        "<!(node -p \"require('node-addon-api').gyp\")"
+        "<!(node -p \"require('node-addon-api').gyp\")",
+        "tiny_aes",
+        "zlibstatic"
       ],
       "defines": [
         "NAPI_DISABLE_CPP_EXCEPTIONS",

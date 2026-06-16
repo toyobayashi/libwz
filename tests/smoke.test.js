@@ -13,6 +13,34 @@ const sampleWz = path.join(
   "TamingMob_GMS_87.wz"
 );
 
+const commonWzDir = path.join(
+  __dirname,
+  "..",
+  "Harepacker-resurrected",
+  "UnitTest_WzFile",
+  "WzFiles",
+  "Common"
+);
+
+const legacyWzFiles = [
+  ["TamingMob_000_KMS_359.wz", wz.MapleVersion.BMS],
+  ["TamingMob_000_GMS_237.wz", wz.MapleVersion.BMS],
+  ["TamingMob_GMS_146.wz", wz.MapleVersion.BMS],
+  ["TamingMob_GMS_176.wz", wz.MapleVersion.BMS],
+  ["TamingMob_GMS_230.wz", wz.MapleVersion.BMS],
+  ["TamingMob_GMS_75.wz", wz.MapleVersion.GMS],
+  ["TamingMob_GMS_87.wz", wz.MapleVersion.GMS],
+  ["TamingMob_GMS_95.wz", wz.MapleVersion.GMS],
+  ["TamingMob_SEA_135.wz", wz.MapleVersion.BMS],
+  ["TamingMob_SEA_160.wz", wz.MapleVersion.BMS],
+  ["TamingMob_SEA_211.wz", wz.MapleVersion.BMS],
+  ["TamingMob_SEA_212.wz", wz.MapleVersion.BMS],
+  ["TamingMob_000_SEA218.wz", wz.MapleVersion.BMS],
+  ["TamingMob_ThaiMS_3.wz", wz.MapleVersion.BMS],
+  ["TamingMob_TMS_113.wz", wz.MapleVersion.EMS],
+  ["TMS_113_Item.wz", wz.MapleVersion.EMS],
+];
+
 test("exports Java-parallel enums and classes", () => {
   assert.equal(wz.MapleVersion.GMS, 0);
   assert.equal(wz.ParseStatus.SUCCESS, 1);
@@ -71,4 +99,17 @@ test("WzFile participates in explicit resource management", () => {
     assert.equal(file.parseWzFile(), wz.ParseStatus.SUCCESS);
   }
   assert.throws(() => fileRef.getName(), /disposed/i);
+});
+
+test("parses the same legacy WZ files covered by UnitTest_WzFile", () => {
+  for (const [fileName, mapleVersion] of legacyWzFiles) {
+    const file = new wz.WzFile(path.join(commonWzDir, fileName), mapleVersion);
+    try {
+      assert.equal(file.parseWzFile(), wz.ParseStatus.SUCCESS, fileName);
+      assert.equal(file.getName(), fileName);
+      assert.ok(file.getWzDirectory() instanceof wz.WzDirectory, fileName);
+    } finally {
+      file.close();
+    }
+  }
 });
