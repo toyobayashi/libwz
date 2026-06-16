@@ -3,6 +3,7 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
+#include "../capi/wz_api_compat.hpp"
 #include "wz/WzDirectory.h"
 #include "wz/WzFile.h"
 #include "wz/WzFileManager.h"

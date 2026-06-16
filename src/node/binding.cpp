@@ -3,6 +3,7 @@
 #include <cstring>
 #include <string>
 #include <vector>
+#include "../capi/wz_api_compat.hpp"
 #include "wz/wz_api.h"
 
 namespace {
@@ -142,11 +143,13 @@ Napi::Value FileWzDirectory(const Napi::CallbackInfo& info) {
   return dir ? ToHandle(env, dir) : env.Null();
 }
 
-Napi::Value FileBool(const Napi::CallbackInfo& info, int (*fn)(wz_file)) {
+Napi::Value FileBool(const Napi::CallbackInfo& info,
+                     wz_error_code (*fn)(wz_file, int*)) {
   Napi::Env env = info.Env();
-  bool result = fn(FromHandle<wz_file>(info[0])) != 0;
+  int result = 0;
+  fn(FromHandle<wz_file>(info[0]), &result);
   ThrowIfError(env);
-  return Napi::Boolean::New(env, result);
+  return Napi::Boolean::New(env, result != 0);
 }
 
 Napi::Value FileVersionHash(const Napi::CallbackInfo& info) {
@@ -223,16 +226,20 @@ Napi::Value DirGetDirectoryByName(const Napi::CallbackInfo& info) {
   return dir ? ToHandle(env, dir) : env.Null();
 }
 
-Napi::Value DirInt64(const Napi::CallbackInfo& info, int64_t (*fn)(wz_dir)) {
+Napi::Value DirInt64(const Napi::CallbackInfo& info,
+                     wz_error_code (*fn)(wz_dir, int64_t*)) {
   Napi::Env env = info.Env();
-  auto v = fn(FromHandle<wz_dir>(info[0]));
+  int64_t v = 0;
+  fn(FromHandle<wz_dir>(info[0]), &v);
   ThrowIfError(env);
   return Napi::BigInt::New(env, v);
 }
 
-Napi::Value DirInt(const Napi::CallbackInfo& info, int (*fn)(wz_dir)) {
+Napi::Value DirInt(const Napi::CallbackInfo& info,
+                   wz_error_code (*fn)(wz_dir, int*)) {
   Napi::Env env = info.Env();
-  int v = fn(FromHandle<wz_dir>(info[0]));
+  int v = 0;
+  fn(FromHandle<wz_dir>(info[0]), &v);
   ThrowIfError(env);
   return Napi::Number::New(env, v);
 }
@@ -242,16 +249,20 @@ Napi::Value ImageName(const Napi::CallbackInfo& info) {
                         wz_image_name(FromHandle<wz_image>(info[0])));
 }
 
-Napi::Value ImageBool(const Napi::CallbackInfo& info, int (*fn)(wz_image)) {
+Napi::Value ImageBool(const Napi::CallbackInfo& info,
+                      wz_error_code (*fn)(wz_image, int*)) {
   Napi::Env env = info.Env();
-  bool result = fn(FromHandle<wz_image>(info[0])) != 0;
+  int result = 0;
+  fn(FromHandle<wz_image>(info[0]), &result);
   ThrowIfError(env);
-  return Napi::Boolean::New(env, result);
+  return Napi::Boolean::New(env, result != 0);
 }
 
-Napi::Value ImageInt(const Napi::CallbackInfo& info, int (*fn)(wz_image)) {
+Napi::Value ImageInt(const Napi::CallbackInfo& info,
+                     wz_error_code (*fn)(wz_image, int*)) {
   Napi::Env env = info.Env();
-  int v = fn(FromHandle<wz_image>(info[0]));
+  int v = 0;
+  fn(FromHandle<wz_image>(info[0]), &v);
   ThrowIfError(env);
   return Napi::Number::New(env, v);
 }
@@ -453,9 +464,10 @@ Napi::Value PropLinked(const Napi::CallbackInfo& info) {
 }
 
 Napi::Value ScalarValue(const Napi::CallbackInfo& info,
-                        int32_t (*fn)(wz_property)) {
+                        wz_error_code (*fn)(wz_property, int32_t*)) {
   Napi::Env env = info.Env();
-  auto v = fn(FromHandle<wz_property>(info[0]));
+  int32_t v = 0;
+  fn(FromHandle<wz_property>(info[0]), &v);
   ThrowIfError(env);
   return Napi::Number::New(env, v);
 }
@@ -529,11 +541,13 @@ Napi::Value CanvasPng(const Napi::CallbackInfo& info) {
   return png ? ToHandle(env, png) : env.Null();
 }
 
-Napi::Value CanvasBool(const Napi::CallbackInfo& info, int (*fn)(wz_property)) {
+Napi::Value CanvasBool(const Napi::CallbackInfo& info,
+                       wz_error_code (*fn)(wz_property, int*)) {
   Napi::Env env = info.Env();
-  bool v = fn(FromHandle<wz_property>(info[0])) != 0;
+  int v = 0;
+  fn(FromHandle<wz_property>(info[0]), &v);
   ThrowIfError(env);
-  return Napi::Boolean::New(env, v);
+  return Napi::Boolean::New(env, v != 0);
 }
 
 Napi::Value CanvasLinked(const Napi::CallbackInfo& info) {
@@ -585,9 +599,11 @@ Napi::Value BinaryWav(const Napi::CallbackInfo& info) {
   return ReadBytes(info, wz_binary_get_wav_playback);
 }
 
-Napi::Value BinaryInt(const Napi::CallbackInfo& info, int (*fn)(wz_property)) {
+Napi::Value BinaryInt(const Napi::CallbackInfo& info,
+                      wz_error_code (*fn)(wz_property, int*)) {
   Napi::Env env = info.Env();
-  int v = fn(FromHandle<wz_property>(info[0]));
+  int v = 0;
+  fn(FromHandle<wz_property>(info[0]), &v);
   ThrowIfError(env);
   return Napi::Number::New(env, v);
 }
@@ -756,9 +772,11 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
   exports.Set("intSetValue", Napi::Function::New(env, SetIntValue));
   exports.Set("shortValue",
               Napi::Function::New(env, [](const Napi::CallbackInfo& i) {
-                return ScalarValue(i, [](wz_property p) {
-                  return static_cast<int32_t>(wz_short_get_value(p));
-                });
+                Napi::Env env = i.Env();
+                int32_t v = static_cast<int32_t>(
+                    wz_short_get_value(FromHandle<wz_property>(i[0])));
+                ThrowIfError(env);
+                return Napi::Number::New(env, v);
               }));
   exports.Set("longValue", Napi::Function::New(env, LongValue));
   exports.Set("floatValue", Napi::Function::New(env, FloatValue));

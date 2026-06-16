@@ -1,62 +1,88 @@
 #include "wz/wz_api.h"
+
+#include <array>
 #include <cstring>
+#include <string>
+
 #include "wz/wz.h"
 
 static thread_local wz_error_code g_last_error = WZ_ERROR_NONE;
 static thread_local std::string g_last_error_msg;
 
-static void set_error(wz::ErrorCode code, const std::string& msg) {
+static wz_error_code set_error_code(wz_error_code code,
+                                    const std::string& msg) {
+  g_last_error = code;
+  g_last_error_msg = msg;
+  return code;
+}
+
+static wz_error_code set_error(wz::ErrorCode code, const std::string& msg) {
   switch (code) {
     case wz::ErrorCode::Ok:
-      g_last_error = WZ_ERROR_NONE;
-      break;
+      return set_error_code(WZ_ERROR_NONE, msg);
     case wz::ErrorCode::NotImplemented:
-      g_last_error = WZ_ERROR_NOT_IMPLEMENTED;
-      break;
+      return set_error_code(WZ_ERROR_NOT_IMPLEMENTED, msg);
     case wz::ErrorCode::InvalidArgument:
-      g_last_error = WZ_ERROR_INVALID_ARGUMENT;
-      break;
+      return set_error_code(WZ_ERROR_INVALID_ARGUMENT, msg);
     case wz::ErrorCode::ParseError:
-      g_last_error = WZ_ERROR_PARSE_ERROR;
-      break;
+      return set_error_code(WZ_ERROR_PARSE_ERROR, msg);
     case wz::ErrorCode::IoError:
-      g_last_error = WZ_ERROR_IO_ERROR;
-      break;
+      return set_error_code(WZ_ERROR_IO_ERROR, msg);
     case wz::ErrorCode::DataError:
-      g_last_error = WZ_ERROR_DATA_ERROR;
-      break;
+      return set_error_code(WZ_ERROR_DATA_ERROR, msg);
     case wz::ErrorCode::NotFound:
-      g_last_error = WZ_ERROR_NOT_FOUND;
-      break;
+      return set_error_code(WZ_ERROR_NOT_FOUND, msg);
     default:
-      g_last_error = WZ_ERROR_NOT_IMPLEMENTED;
-      break;
+      return set_error_code(WZ_ERROR_NOT_IMPLEMENTED, msg);
   }
-  g_last_error_msg = msg;
 }
 
-static void set_error_null(const char* fn) {
-  g_last_error = WZ_ERROR_NULL_HANDLE;
-  g_last_error_msg = std::string(fn) + ": null handle";
+static wz_error_code set_error_null(const char* fn) {
+  return set_error_code(WZ_ERROR_NULL_HANDLE,
+                        std::string(fn) + ": null handle");
 }
 
-static void set_error_wrong_type(const char* fn) {
-  g_last_error = WZ_ERROR_WRONG_TYPE;
-  g_last_error_msg = std::string(fn) + ": wrong property type";
+static wz_error_code set_error_invalid_arg(const char* fn,
+                                           const char* arg_name) {
+  return set_error_code(WZ_ERROR_INVALID_ARGUMENT,
+                        std::string(fn) + ": " + arg_name + " is null");
 }
 
-static void set_error_idx(const char* fn, int idx, size_t size) {
-  g_last_error = WZ_ERROR_INDEX_OUT_OF_RANGE;
-  g_last_error_msg = std::string(fn) + ": index " + std::to_string(idx) +
-                     " out of range [0, " + std::to_string(size) + ")";
+static wz_error_code set_error_wrong_type(const char* fn) {
+  return set_error_code(WZ_ERROR_WRONG_TYPE,
+                        std::string(fn) + ": wrong property type");
 }
 
-static int return_result(const wz::Result<void>& result) {
+static wz_error_code set_error_idx(const char* fn, int idx, size_t size) {
+  return set_error_code(WZ_ERROR_INDEX_OUT_OF_RANGE,
+                        std::string(fn) + ": index " + std::to_string(idx) +
+                            " out of range [0, " + std::to_string(size) + ")");
+}
+
+template <typename T>
+static wz_error_code init_out(const char* fn, T* out) {
+  if (!out) return set_error_invalid_arg(fn, "out");
+  *out = T{};
+  return WZ_ERROR_NONE;
+}
+
+static wz_error_code result_void(const wz::Result<void>& result) {
   if (result.is_err()) {
-    set_error(result.err().code(), result.err().message());
-    return 0;
+    return set_error(result.err().code(), result.err().message());
   }
-  return 1;
+  return WZ_ERROR_NONE;
+}
+
+static wz_error_code result_bool(const wz::Result<bool>& result,
+                                 int* out_value) {
+  if (auto ec = init_out("result_bool", out_value); ec != WZ_ERROR_NONE) {
+    return ec;
+  }
+  if (result.is_err()) {
+    return set_error(result.err().code(), result.err().message());
+  }
+  *out_value = result.ok() ? 1 : 0;
+  return WZ_ERROR_NONE;
 }
 
 static wz::WzImageProperty* unwrap_prop(wz_property p) {
@@ -82,1361 +108,1441 @@ const char* wz_get_last_error_message(void) {
   return g_last_error_msg.c_str();
 }
 
-// ==================== WzFile ====================
-
-wz_file wz_open_file(const char* file_path,
-                     int16_t game_version,
-                     wz_maple_version version) {
+wz_error_code wz_open_file(const char* file_path,
+                           int16_t game_version,
+                           wz_maple_version version,
+                           wz_file* out_file) {
   wz_clear_error();
-  if (!file_path) {
-    set_error(wz::ErrorCode::InvalidArgument,
-              "wz_open_file: file_path is null");
-    return nullptr;
+  if (auto ec = init_out("wz_open_file", out_file); ec != WZ_ERROR_NONE) {
+    return ec;
   }
+  if (!file_path) return set_error_invalid_arg("wz_open_file", "file_path");
   auto* f = new wz::WzFile(
       file_path, game_version, static_cast<wz::WzMapleVersion>(version));
-  return reinterpret_cast<wz_file>(f);
+  *out_file = reinterpret_cast<wz_file>(f);
+  return WZ_ERROR_NONE;
 }
 
-wz_file wz_open_file_with_iv(const char* file_path, const uint8_t iv[4]) {
+wz_error_code wz_open_file_with_iv(const char* file_path,
+                                   const uint8_t iv[4],
+                                   wz_file* out_file) {
   wz_clear_error();
+  if (auto ec = init_out("wz_open_file_with_iv", out_file);
+      ec != WZ_ERROR_NONE) {
+    return ec;
+  }
   if (!file_path) {
-    set_error(wz::ErrorCode::InvalidArgument,
-              "wz_open_file_with_iv: file_path is null");
-    return nullptr;
+    return set_error_invalid_arg("wz_open_file_with_iv", "file_path");
   }
-  if (!iv) {
-    set_error(wz::ErrorCode::InvalidArgument,
-              "wz_open_file_with_iv: iv is null");
-    return nullptr;
-  }
-  std::array<uint8_t, 4> ivArr = {iv[0], iv[1], iv[2], iv[3]};
-  auto* f = new wz::WzFile(file_path, ivArr);
-  return reinterpret_cast<wz_file>(f);
+  if (!iv) return set_error_invalid_arg("wz_open_file_with_iv", "iv");
+  std::array<uint8_t, 4> iv_arr = {iv[0], iv[1], iv[2], iv[3]};
+  auto* f = new wz::WzFile(file_path, iv_arr);
+  *out_file = reinterpret_cast<wz_file>(f);
+  return WZ_ERROR_NONE;
 }
 
-wz_parse_status wz_parse(wz_file file) {
+wz_error_code wz_parse(wz_file file, wz_parse_status* out_status) {
   wz_clear_error();
-  if (!file) {
-    set_error_null("wz_parse");
-    return WZ_PARSE_PATH_IS_NULL;
+  if (auto ec = init_out("wz_parse", out_status); ec != WZ_ERROR_NONE) {
+    return ec;
   }
-  auto* f = reinterpret_cast<wz::WzFile*>(file);
-  auto status = f->ParseWzFile();
+  if (!file) return set_error_null("wz_parse");
+  auto status = reinterpret_cast<wz::WzFile*>(file)->ParseWzFile();
+  *out_status = static_cast<wz_parse_status>(status);
   if (status != wz::WzFileParseStatus::Success) {
-    set_error(wz::ErrorCode::ParseError, wz::GetErrorDescription(status));
+    return set_error(wz::ErrorCode::ParseError,
+                     wz::GetErrorDescription(status));
   }
-  return static_cast<wz_parse_status>(status);
+  return WZ_ERROR_NONE;
 }
 
-void wz_close_file(wz_file file) {
+wz_error_code wz_close_file(wz_file file) {
   wz_clear_error();
-  if (!file) return;
-  auto* f = reinterpret_cast<wz::WzFile*>(file);
-  delete f;
+  if (!file) return WZ_ERROR_NONE;
+  delete reinterpret_cast<wz::WzFile*>(file);
+  return WZ_ERROR_NONE;
 }
 
-const char* wz_file_name(wz_file file) {
+wz_error_code wz_file_name(wz_file file, const char** out_name) {
   wz_clear_error();
-  if (!file) {
-    set_error_null("wz_file_name");
-    return nullptr;
+  if (auto ec = init_out("wz_file_name", out_name); ec != WZ_ERROR_NONE) {
+    return ec;
   }
+  if (!file) return set_error_null("wz_file_name");
   static thread_local std::string s;
   s = reinterpret_cast<wz::WzFile*>(file)->Name();
-  return s.c_str();
+  *out_name = s.c_str();
+  return WZ_ERROR_NONE;
 }
 
-const char* wz_file_path(wz_file file) {
+wz_error_code wz_file_path(wz_file file, const char** out_path) {
   wz_clear_error();
-  if (!file) {
-    set_error_null("wz_file_path");
-    return nullptr;
+  if (auto ec = init_out("wz_file_path", out_path); ec != WZ_ERROR_NONE) {
+    return ec;
   }
+  if (!file) return set_error_null("wz_file_path");
   static thread_local std::string s;
   s = reinterpret_cast<wz::WzFile*>(file)->FilePath();
-  return s.c_str();
+  *out_path = s.c_str();
+  return WZ_ERROR_NONE;
 }
 
-int16_t wz_file_version(wz_file file) {
+wz_error_code wz_file_version(wz_file file, int16_t* out_version) {
   wz_clear_error();
-  if (!file) {
-    set_error_null("wz_file_version");
-    return 0;
+  if (auto ec = init_out("wz_file_version", out_version); ec != WZ_ERROR_NONE) {
+    return ec;
   }
-  return reinterpret_cast<wz::WzFile*>(file)->Version();
+  if (!file) return set_error_null("wz_file_version");
+  *out_version = reinterpret_cast<wz::WzFile*>(file)->Version();
+  return WZ_ERROR_NONE;
 }
 
-wz_maple_version wz_file_maple_version(wz_file file) {
+wz_error_code wz_file_maple_version(wz_file file,
+                                    wz_maple_version* out_version) {
   wz_clear_error();
-  if (!file) {
-    set_error_null("wz_file_maple_version");
-    return WZ_UNKNOWN;
+  if (auto ec = init_out("wz_file_maple_version", out_version);
+      ec != WZ_ERROR_NONE) {
+    return ec;
   }
-  return static_cast<wz_maple_version>(
+  if (!file) return set_error_null("wz_file_maple_version");
+  *out_version = static_cast<wz_maple_version>(
       reinterpret_cast<wz::WzFile*>(file)->MapleVersion());
+  return WZ_ERROR_NONE;
 }
 
-wz_dir wz_file_get_wz_directory(wz_file file) {
+wz_error_code wz_file_get_wz_directory(wz_file file, wz_dir* out_dir) {
   wz_clear_error();
-  if (!file) {
-    set_error_null("wz_file_get_wz_directory");
-    return nullptr;
+  if (auto ec = init_out("wz_file_get_wz_directory", out_dir);
+      ec != WZ_ERROR_NONE) {
+    return ec;
   }
-  return reinterpret_cast<wz_dir>(
+  if (!file) return set_error_null("wz_file_get_wz_directory");
+  *out_dir = reinterpret_cast<wz_dir>(
       reinterpret_cast<wz::WzFile*>(file)->GetWzDirectory());
+  return WZ_ERROR_NONE;
 }
 
-int wz_file_is_64bit(wz_file file) {
+wz_error_code wz_file_is_64bit(wz_file file, int* out_is_64bit) {
   wz_clear_error();
-  if (!file) {
-    set_error_null("wz_file_is_64bit");
-    return 0;
+  if (auto ec = init_out("wz_file_is_64bit", out_is_64bit);
+      ec != WZ_ERROR_NONE) {
+    return ec;
   }
-  return reinterpret_cast<wz::WzFile*>(file)->Is64BitWzFile() ? 1 : 0;
+  if (!file) return set_error_null("wz_file_is_64bit");
+  *out_is_64bit = reinterpret_cast<wz::WzFile*>(file)->Is64BitWzFile() ? 1 : 0;
+  return WZ_ERROR_NONE;
 }
 
-int wz_file_is_unloaded(wz_file file) {
+wz_error_code wz_file_is_unloaded(wz_file file, int* out_is_unloaded) {
   wz_clear_error();
-  if (!file) {
-    set_error_null("wz_file_is_unloaded");
-    return 1;
+  if (auto ec = init_out("wz_file_is_unloaded", out_is_unloaded);
+      ec != WZ_ERROR_NONE) {
+    return ec;
   }
-  return reinterpret_cast<wz::WzFile*>(file)->IsUnloaded() ? 1 : 0;
+  if (!file) return set_error_null("wz_file_is_unloaded");
+  *out_is_unloaded = reinterpret_cast<wz::WzFile*>(file)->IsUnloaded() ? 1 : 0;
+  return WZ_ERROR_NONE;
 }
 
-uint32_t wz_file_version_hash(wz_file file) {
+wz_error_code wz_file_version_hash(wz_file file, uint32_t* out_hash) {
   wz_clear_error();
-  if (!file) {
-    set_error_null("wz_file_version_hash");
-    return 0;
+  if (auto ec = init_out("wz_file_version_hash", out_hash);
+      ec != WZ_ERROR_NONE) {
+    return ec;
   }
-  return reinterpret_cast<wz::WzFile*>(file)->VersionHash();
+  if (!file) return set_error_null("wz_file_version_hash");
+  *out_hash = reinterpret_cast<wz::WzFile*>(file)->VersionHash();
+  return WZ_ERROR_NONE;
 }
 
-wz_object wz_file_get_object_from_path(wz_file file,
-                                       const char* path,
-                                       int checkFirstDirectoryName) {
+wz_error_code wz_file_get_object_from_path(wz_file file,
+                                           const char* path,
+                                           int check_first_directory_name,
+                                           wz_object* out_object) {
   wz_clear_error();
-  if (!file) {
-    set_error_null("wz_file_get_object_from_path");
-    return nullptr;
+  if (auto ec = init_out("wz_file_get_object_from_path", out_object);
+      ec != WZ_ERROR_NONE) {
+    return ec;
   }
+  if (!file) return set_error_null("wz_file_get_object_from_path");
   if (!path) {
-    set_error_null("wz_file_get_object_from_path");
-    return nullptr;
+    return set_error_invalid_arg("wz_file_get_object_from_path", "path");
   }
-  return reinterpret_cast<wz_object>(
+  *out_object = reinterpret_cast<wz_object>(
       reinterpret_cast<wz::WzFile*>(file)->GetObjectFromPath(
-          path, checkFirstDirectoryName != 0));
+          path, check_first_directory_name != 0));
+  return WZ_ERROR_NONE;
 }
 
-// ==================== WzDirectory ====================
-
-const char* wz_dir_name(wz_dir dir) {
+wz_error_code wz_dir_name(wz_dir dir, const char** out_name) {
   wz_clear_error();
-  if (!dir) {
-    set_error_null("wz_dir_name");
-    return nullptr;
+  if (auto ec = init_out("wz_dir_name", out_name); ec != WZ_ERROR_NONE) {
+    return ec;
   }
+  if (!dir) return set_error_null("wz_dir_name");
   static thread_local std::string s;
   s = reinterpret_cast<wz::WzDirectory*>(dir)->Name();
-  return s.c_str();
+  *out_name = s.c_str();
+  return WZ_ERROR_NONE;
 }
 
-int wz_dir_count_images(wz_dir dir) {
+wz_error_code wz_dir_count_images(wz_dir dir, int* out_count) {
   wz_clear_error();
-  if (!dir) {
-    set_error_null("wz_dir_count_images");
-    return 0;
+  if (auto ec = init_out("wz_dir_count_images", out_count);
+      ec != WZ_ERROR_NONE) {
+    return ec;
   }
-  return static_cast<int>(
+  if (!dir) return set_error_null("wz_dir_count_images");
+  *out_count = static_cast<int>(
       reinterpret_cast<wz::WzDirectory*>(dir)->WzImages().size());
+  return WZ_ERROR_NONE;
 }
 
-int wz_dir_count_directories(wz_dir dir) {
+wz_error_code wz_dir_count_directories(wz_dir dir, int* out_count) {
   wz_clear_error();
-  if (!dir) {
-    set_error_null("wz_dir_count_directories");
-    return 0;
+  if (auto ec = init_out("wz_dir_count_directories", out_count);
+      ec != WZ_ERROR_NONE) {
+    return ec;
   }
-  return static_cast<int>(
+  if (!dir) return set_error_null("wz_dir_count_directories");
+  *out_count = static_cast<int>(
       reinterpret_cast<wz::WzDirectory*>(dir)->WzDirectories().size());
+  return WZ_ERROR_NONE;
 }
 
-int wz_dir_count_images_total(wz_dir dir) {
+wz_error_code wz_dir_count_images_total(wz_dir dir, int* out_count) {
   wz_clear_error();
-  if (!dir) {
-    set_error_null("wz_dir_count_images_total");
-    return 0;
+  if (auto ec = init_out("wz_dir_count_images_total", out_count);
+      ec != WZ_ERROR_NONE) {
+    return ec;
   }
-  return reinterpret_cast<wz::WzDirectory*>(dir)->CountImages();
+  if (!dir) return set_error_null("wz_dir_count_images_total");
+  *out_count = reinterpret_cast<wz::WzDirectory*>(dir)->CountImages();
+  return WZ_ERROR_NONE;
 }
 
-wz_image wz_dir_get_image(wz_dir dir, int index) {
+wz_error_code wz_dir_get_image(wz_dir dir, int index, wz_image* out_image) {
   wz_clear_error();
-  if (!dir) {
-    set_error_null("wz_dir_get_image");
-    return nullptr;
+  if (auto ec = init_out("wz_dir_get_image", out_image); ec != WZ_ERROR_NONE) {
+    return ec;
   }
+  if (!dir) return set_error_null("wz_dir_get_image");
   auto* d = reinterpret_cast<wz::WzDirectory*>(dir);
   size_t sz = d->WzImages().size();
   if (index < 0 || index >= static_cast<int>(sz)) {
-    set_error_idx("wz_dir_get_image", index, sz);
-    return nullptr;
+    return set_error_idx("wz_dir_get_image", index, sz);
   }
-  return reinterpret_cast<wz_image>(d->WzImages()[static_cast<size_t>(index)]);
+  *out_image =
+      reinterpret_cast<wz_image>(d->WzImages()[static_cast<size_t>(index)]);
+  return WZ_ERROR_NONE;
 }
 
-wz_image wz_dir_get_image_by_name(wz_dir dir, const char* name) {
+wz_error_code wz_dir_get_image_by_name(wz_dir dir,
+                                       const char* name,
+                                       wz_image* out_image) {
   wz_clear_error();
-  if (!dir) {
-    set_error_null("wz_dir_get_image_by_name");
-    return nullptr;
+  if (auto ec = init_out("wz_dir_get_image_by_name", out_image);
+      ec != WZ_ERROR_NONE) {
+    return ec;
   }
-  if (!name) {
-    set_error_null("wz_dir_get_image_by_name");
-    return nullptr;
-  }
-  return reinterpret_cast<wz_image>(
+  if (!dir) return set_error_null("wz_dir_get_image_by_name");
+  if (!name) return set_error_invalid_arg("wz_dir_get_image_by_name", "name");
+  *out_image = reinterpret_cast<wz_image>(
       reinterpret_cast<wz::WzDirectory*>(dir)->GetImageByName(name));
+  return WZ_ERROR_NONE;
 }
 
-wz_dir wz_dir_get_directory(wz_dir dir, int index) {
+wz_error_code wz_dir_get_directory(wz_dir dir, int index, wz_dir* out_dir) {
   wz_clear_error();
-  if (!dir) {
-    set_error_null("wz_dir_get_directory");
-    return nullptr;
+  if (auto ec = init_out("wz_dir_get_directory", out_dir);
+      ec != WZ_ERROR_NONE) {
+    return ec;
   }
+  if (!dir) return set_error_null("wz_dir_get_directory");
   auto* d = reinterpret_cast<wz::WzDirectory*>(dir);
   size_t sz = d->WzDirectories().size();
   if (index < 0 || index >= static_cast<int>(sz)) {
-    set_error_idx("wz_dir_get_directory", index, sz);
-    return nullptr;
+    return set_error_idx("wz_dir_get_directory", index, sz);
   }
-  return reinterpret_cast<wz_dir>(
-      d->WzDirectories()[static_cast<size_t>(index)]);
+  *out_dir =
+      reinterpret_cast<wz_dir>(d->WzDirectories()[static_cast<size_t>(index)]);
+  return WZ_ERROR_NONE;
 }
 
-wz_dir wz_dir_get_directory_by_name(wz_dir dir, const char* name) {
+wz_error_code wz_dir_get_directory_by_name(wz_dir dir,
+                                           const char* name,
+                                           wz_dir* out_dir) {
   wz_clear_error();
-  if (!dir) {
-    set_error_null("wz_dir_get_directory_by_name");
-    return nullptr;
+  if (auto ec = init_out("wz_dir_get_directory_by_name", out_dir);
+      ec != WZ_ERROR_NONE) {
+    return ec;
   }
+  if (!dir) return set_error_null("wz_dir_get_directory_by_name");
   if (!name) {
-    set_error_null("wz_dir_get_directory_by_name");
-    return nullptr;
+    return set_error_invalid_arg("wz_dir_get_directory_by_name", "name");
   }
-  return reinterpret_cast<wz_dir>(
+  *out_dir = reinterpret_cast<wz_dir>(
       reinterpret_cast<wz::WzDirectory*>(dir)->GetDirectoryByName(name));
+  return WZ_ERROR_NONE;
 }
 
-int wz_dir_block_size(wz_dir dir) {
+wz_error_code wz_dir_block_size(wz_dir dir, int* out_block_size) {
   wz_clear_error();
-  if (!dir) {
-    set_error_null("wz_dir_block_size");
-    return 0;
+  if (auto ec = init_out("wz_dir_block_size", out_block_size);
+      ec != WZ_ERROR_NONE) {
+    return ec;
   }
-  return reinterpret_cast<wz::WzDirectory*>(dir)->BlockSize();
+  if (!dir) return set_error_null("wz_dir_block_size");
+  *out_block_size = reinterpret_cast<wz::WzDirectory*>(dir)->BlockSize();
+  return WZ_ERROR_NONE;
 }
 
-int wz_dir_checksum(wz_dir dir) {
+wz_error_code wz_dir_checksum(wz_dir dir, int* out_checksum) {
   wz_clear_error();
-  if (!dir) {
-    set_error_null("wz_dir_checksum");
-    return 0;
+  if (auto ec = init_out("wz_dir_checksum", out_checksum);
+      ec != WZ_ERROR_NONE) {
+    return ec;
   }
-  return reinterpret_cast<wz::WzDirectory*>(dir)->Checksum();
+  if (!dir) return set_error_null("wz_dir_checksum");
+  *out_checksum = reinterpret_cast<wz::WzDirectory*>(dir)->Checksum();
+  return WZ_ERROR_NONE;
 }
 
-int64_t wz_dir_offset(wz_dir dir) {
+wz_error_code wz_dir_offset(wz_dir dir, int64_t* out_offset) {
   wz_clear_error();
-  if (!dir) {
-    set_error_null("wz_dir_offset");
-    return 0;
+  if (auto ec = init_out("wz_dir_offset", out_offset); ec != WZ_ERROR_NONE) {
+    return ec;
   }
-  return reinterpret_cast<wz::WzDirectory*>(dir)->Offset();
+  if (!dir) return set_error_null("wz_dir_offset");
+  *out_offset = reinterpret_cast<wz::WzDirectory*>(dir)->Offset();
+  return WZ_ERROR_NONE;
 }
 
-// ==================== WzImage ====================
-
-const char* wz_image_name(wz_image img) {
+wz_error_code wz_image_name(wz_image img, const char** out_name) {
   wz_clear_error();
-  if (!img) {
-    set_error_null("wz_image_name");
-    return nullptr;
+  if (auto ec = init_out("wz_image_name", out_name); ec != WZ_ERROR_NONE) {
+    return ec;
   }
+  if (!img) return set_error_null("wz_image_name");
   static thread_local std::string s;
   s = reinterpret_cast<wz::WzImage*>(img)->Name();
-  return s.c_str();
+  *out_name = s.c_str();
+  return WZ_ERROR_NONE;
 }
 
-int wz_image_is_parsed(wz_image img) {
+wz_error_code wz_image_is_parsed(wz_image img, int* out_is_parsed) {
   wz_clear_error();
-  if (!img) {
-    set_error_null("wz_image_is_parsed");
-    return 0;
+  if (auto ec = init_out("wz_image_is_parsed", out_is_parsed);
+      ec != WZ_ERROR_NONE) {
+    return ec;
   }
-  return reinterpret_cast<wz::WzImage*>(img)->Parsed() ? 1 : 0;
+  if (!img) return set_error_null("wz_image_is_parsed");
+  *out_is_parsed = reinterpret_cast<wz::WzImage*>(img)->Parsed() ? 1 : 0;
+  return WZ_ERROR_NONE;
 }
 
-int wz_image_is_changed(wz_image img) {
+wz_error_code wz_image_is_changed(wz_image img, int* out_is_changed) {
   wz_clear_error();
-  if (!img) {
-    set_error_null("wz_image_is_changed");
-    return 0;
+  if (auto ec = init_out("wz_image_is_changed", out_is_changed);
+      ec != WZ_ERROR_NONE) {
+    return ec;
   }
-  return reinterpret_cast<wz::WzImage*>(img)->Changed() ? 1 : 0;
+  if (!img) return set_error_null("wz_image_is_changed");
+  *out_is_changed = reinterpret_cast<wz::WzImage*>(img)->Changed() ? 1 : 0;
+  return WZ_ERROR_NONE;
 }
 
-int wz_image_block_size(wz_image img) {
+wz_error_code wz_image_block_size(wz_image img, int* out_block_size) {
   wz_clear_error();
-  if (!img) {
-    set_error_null("wz_image_block_size");
-    return 0;
+  if (auto ec = init_out("wz_image_block_size", out_block_size);
+      ec != WZ_ERROR_NONE) {
+    return ec;
   }
-  return reinterpret_cast<wz::WzImage*>(img)->BlockSize();
+  if (!img) return set_error_null("wz_image_block_size");
+  *out_block_size = reinterpret_cast<wz::WzImage*>(img)->BlockSize();
+  return WZ_ERROR_NONE;
 }
 
-int wz_image_checksum(wz_image img) {
+wz_error_code wz_image_checksum(wz_image img, int* out_checksum) {
   wz_clear_error();
-  if (!img) {
-    set_error_null("wz_image_checksum");
-    return 0;
+  if (auto ec = init_out("wz_image_checksum", out_checksum);
+      ec != WZ_ERROR_NONE) {
+    return ec;
   }
-  return reinterpret_cast<wz::WzImage*>(img)->Checksum();
+  if (!img) return set_error_null("wz_image_checksum");
+  *out_checksum = reinterpret_cast<wz::WzImage*>(img)->Checksum();
+  return WZ_ERROR_NONE;
 }
 
-int64_t wz_image_offset(wz_image img) {
+wz_error_code wz_image_offset(wz_image img, int64_t* out_offset) {
   wz_clear_error();
-  if (!img) {
-    set_error_null("wz_image_offset");
-    return 0;
+  if (auto ec = init_out("wz_image_offset", out_offset); ec != WZ_ERROR_NONE) {
+    return ec;
   }
-  return reinterpret_cast<wz::WzImage*>(img)->Offset();
+  if (!img) return set_error_null("wz_image_offset");
+  *out_offset = reinterpret_cast<wz::WzImage*>(img)->Offset();
+  return WZ_ERROR_NONE;
 }
 
-int wz_image_is_lua_wz_image(wz_image img) {
+wz_error_code wz_image_is_lua_wz_image(wz_image img, int* out_is_lua) {
   wz_clear_error();
-  if (!img) {
-    set_error_null("wz_image_is_lua_wz_image");
-    return 0;
+  if (auto ec = init_out("wz_image_is_lua_wz_image", out_is_lua);
+      ec != WZ_ERROR_NONE) {
+    return ec;
   }
-  return reinterpret_cast<wz::WzImage*>(img)->IsLuaWzImage() ? 1 : 0;
+  if (!img) return set_error_null("wz_image_is_lua_wz_image");
+  *out_is_lua = reinterpret_cast<wz::WzImage*>(img)->IsLuaWzImage() ? 1 : 0;
+  return WZ_ERROR_NONE;
 }
 
-void wz_image_parse(wz_image img) {
+wz_error_code wz_image_parse(wz_image img, int* out_parsed) {
   wz_clear_error();
-  if (!img) {
-    set_error_null("wz_image_parse");
-    return;
+  if (auto ec = init_out("wz_image_parse", out_parsed); ec != WZ_ERROR_NONE) {
+    return ec;
   }
-  auto result = reinterpret_cast<wz::WzImage*>(img)->ParseImage();
-  if (result.is_err()) {
-    set_error(result.err().code(), result.err().message());
-    return;
-  }
-  if (!result.ok()) {
-    set_error(wz::ErrorCode::ParseError, "wz_image_parse: parse failed");
-  }
+  if (!img) return set_error_null("wz_image_parse");
+  return result_bool(reinterpret_cast<wz::WzImage*>(img)->ParseImage(),
+                     out_parsed);
 }
 
-int wz_image_count_properties(wz_image img) {
+wz_error_code wz_image_count_properties(wz_image img, int* out_count) {
   wz_clear_error();
-  if (!img) {
-    set_error_null("wz_image_count_properties");
-    return 0;
+  if (auto ec = init_out("wz_image_count_properties", out_count);
+      ec != WZ_ERROR_NONE) {
+    return ec;
   }
-  auto* p = reinterpret_cast<wz::WzImage*>(img)->WzProperties();
-  return p ? static_cast<int>(p->size()) : 0;
-}
-
-wz_property wz_image_get_property(wz_image img, int index) {
-  wz_clear_error();
-  if (!img) {
-    set_error_null("wz_image_get_property");
-    return nullptr;
-  }
+  if (!img) return set_error_null("wz_image_count_properties");
   auto* props = reinterpret_cast<wz::WzImage*>(img)->WzProperties();
-  if (!props) {
-    set_error_null("wz_image_get_property");
-    return nullptr;
+  *out_count = props ? static_cast<int>(props->size()) : 0;
+  return WZ_ERROR_NONE;
+}
+
+wz_error_code wz_image_get_property(wz_image img,
+                                    int index,
+                                    wz_property* out_property) {
+  wz_clear_error();
+  if (auto ec = init_out("wz_image_get_property", out_property);
+      ec != WZ_ERROR_NONE) {
+    return ec;
   }
+  if (!img) return set_error_null("wz_image_get_property");
+  auto* props = reinterpret_cast<wz::WzImage*>(img)->WzProperties();
+  if (!props) return WZ_ERROR_NONE;
   size_t sz = props->size();
   if (index < 0 || index >= static_cast<int>(sz)) {
-    set_error_idx("wz_image_get_property", index, sz);
-    return nullptr;
+    return set_error_idx("wz_image_get_property", index, sz);
   }
-  return wrap_prop((*props)[static_cast<size_t>(index)]);
+  *out_property = wrap_prop((*props)[static_cast<size_t>(index)]);
+  return WZ_ERROR_NONE;
 }
 
-wz_property wz_image_get_from_path(wz_image img, const char* path) {
+wz_error_code wz_image_get_from_path(wz_image img,
+                                     const char* path,
+                                     wz_property* out_property) {
   wz_clear_error();
-  if (!img) {
-    set_error_null("wz_image_get_from_path");
-    return nullptr;
+  if (auto ec = init_out("wz_image_get_from_path", out_property);
+      ec != WZ_ERROR_NONE) {
+    return ec;
   }
-  if (!path) {
-    set_error_null("wz_image_get_from_path");
-    return nullptr;
-  }
-  return wrap_prop(reinterpret_cast<wz::WzImage*>(img)->GetFromPath(path));
+  if (!img) return set_error_null("wz_image_get_from_path");
+  if (!path) return set_error_invalid_arg("wz_image_get_from_path", "path");
+  *out_property =
+      wrap_prop(reinterpret_cast<wz::WzImage*>(img)->GetFromPath(path));
+  return WZ_ERROR_NONE;
 }
 
-// ==================== WzObject ====================
-
-wz_object_type wz_get_object_type(wz_object obj) {
+wz_error_code wz_get_object_type(wz_object obj, wz_object_type* out_type) {
   wz_clear_error();
-  if (!obj) {
-    set_error_null("wz_get_object_type");
-    return WZ_OBJECT_FILE;
+  if (auto ec = init_out("wz_get_object_type", out_type); ec != WZ_ERROR_NONE) {
+    return ec;
   }
-  return static_cast<wz_object_type>(
+  if (!obj) return set_error_null("wz_get_object_type");
+  *out_type = static_cast<wz_object_type>(
       reinterpret_cast<wz::WzObject*>(obj)->ObjectType());
+  return WZ_ERROR_NONE;
 }
 
-const char* wz_object_name(wz_object obj) {
+wz_error_code wz_object_name(wz_object obj, const char** out_name) {
   wz_clear_error();
-  if (!obj) {
-    set_error_null("wz_object_name");
-    return nullptr;
+  if (auto ec = init_out("wz_object_name", out_name); ec != WZ_ERROR_NONE) {
+    return ec;
   }
+  if (!obj) return set_error_null("wz_object_name");
   static thread_local std::string s;
   s = reinterpret_cast<wz::WzObject*>(obj)->Name();
-  return s.c_str();
+  *out_name = s.c_str();
+  return WZ_ERROR_NONE;
 }
 
-wz_object wz_object_get_parent(wz_object obj) {
+wz_error_code wz_object_get_parent(wz_object obj, wz_object* out_parent) {
   wz_clear_error();
-  if (!obj) {
-    set_error_null("wz_object_get_parent");
-    return nullptr;
+  if (auto ec = init_out("wz_object_get_parent", out_parent);
+      ec != WZ_ERROR_NONE) {
+    return ec;
   }
-  return reinterpret_cast<wz_object>(
+  if (!obj) return set_error_null("wz_object_get_parent");
+  *out_parent = reinterpret_cast<wz_object>(
       reinterpret_cast<wz::WzObject*>(obj)->Parent());
+  return WZ_ERROR_NONE;
 }
 
-const char* wz_object_full_path(wz_object obj) {
+wz_error_code wz_object_full_path(wz_object obj, const char** out_path) {
   wz_clear_error();
-  if (!obj) {
-    set_error_null("wz_object_full_path");
-    return nullptr;
+  if (auto ec = init_out("wz_object_full_path", out_path);
+      ec != WZ_ERROR_NONE) {
+    return ec;
   }
+  if (!obj) return set_error_null("wz_object_full_path");
   static thread_local std::string s;
   s = reinterpret_cast<wz::WzObject*>(obj)->FullPath();
-  return s.c_str();
+  *out_path = s.c_str();
+  return WZ_ERROR_NONE;
 }
 
-wz_file wz_object_get_wz_file_parent(wz_object obj) {
+wz_error_code wz_object_get_wz_file_parent(wz_object obj, wz_file* out_file) {
   wz_clear_error();
-  if (!obj) {
-    set_error_null("wz_object_get_wz_file_parent");
-    return nullptr;
+  if (auto ec = init_out("wz_object_get_wz_file_parent", out_file);
+      ec != WZ_ERROR_NONE) {
+    return ec;
   }
-  return reinterpret_cast<wz_file>(
+  if (!obj) return set_error_null("wz_object_get_wz_file_parent");
+  *out_file = reinterpret_cast<wz_file>(
       reinterpret_cast<wz::WzObject*>(obj)->WzFileParent());
+  return WZ_ERROR_NONE;
 }
 
-wz_object wz_object_get_top_most_wz_directory(wz_object obj) {
+wz_error_code wz_object_get_top_most_wz_directory(wz_object obj,
+                                                  wz_object* out_object) {
   wz_clear_error();
-  if (!obj) {
-    set_error_null("wz_object_get_top_most_wz_directory");
-    return nullptr;
+  if (auto ec = init_out("wz_object_get_top_most_wz_directory", out_object);
+      ec != WZ_ERROR_NONE) {
+    return ec;
   }
-  return reinterpret_cast<wz_object>(
+  if (!obj) return set_error_null("wz_object_get_top_most_wz_directory");
+  *out_object = reinterpret_cast<wz_object>(
       reinterpret_cast<wz::WzObject*>(obj)->GetTopMostWzDirectory());
+  return WZ_ERROR_NONE;
 }
 
-wz_object wz_object_get_top_most_wz_image(wz_object obj) {
+wz_error_code wz_object_get_top_most_wz_image(wz_object obj,
+                                              wz_object* out_object) {
   wz_clear_error();
-  if (!obj) {
-    set_error_null("wz_object_get_top_most_wz_image");
-    return nullptr;
+  if (auto ec = init_out("wz_object_get_top_most_wz_image", out_object);
+      ec != WZ_ERROR_NONE) {
+    return ec;
   }
-  return reinterpret_cast<wz_object>(
+  if (!obj) return set_error_null("wz_object_get_top_most_wz_image");
+  *out_object = reinterpret_cast<wz_object>(
       reinterpret_cast<wz::WzObject*>(obj)->GetTopMostWzImage());
+  return WZ_ERROR_NONE;
 }
 
-wz_object wz_object_at(wz_object obj, const char* name) {
+wz_error_code wz_object_at(wz_object obj,
+                           const char* name,
+                           wz_object* out_object) {
   wz_clear_error();
-  if (!obj) {
-    set_error_null("wz_object_at");
-    return nullptr;
+  if (auto ec = init_out("wz_object_at", out_object); ec != WZ_ERROR_NONE) {
+    return ec;
   }
-  if (!name) {
-    set_error_null("wz_object_at");
-    return nullptr;
-  }
-  return reinterpret_cast<wz_object>(
+  if (!obj) return set_error_null("wz_object_at");
+  if (!name) return set_error_invalid_arg("wz_object_at", "name");
+  *out_object = reinterpret_cast<wz_object>(
       (*reinterpret_cast<wz::WzObject*>(obj))[name]);
+  return WZ_ERROR_NONE;
 }
 
-// ==================== WzProperty ====================
-
-wz_property_type wz_property_get_type(wz_property prop) {
+wz_error_code wz_property_get_type(wz_property prop,
+                                   wz_property_type* out_type) {
   wz_clear_error();
-  if (!prop) {
-    set_error_null("wz_property_get_type");
-    return WZ_PROP_NULL;
+  if (auto ec = init_out("wz_property_get_type", out_type);
+      ec != WZ_ERROR_NONE) {
+    return ec;
   }
-  return static_cast<wz_property_type>(unwrap_prop(prop)->PropertyType());
+  if (!prop) return set_error_null("wz_property_get_type");
+  *out_type = static_cast<wz_property_type>(unwrap_prop(prop)->PropertyType());
+  return WZ_ERROR_NONE;
 }
 
-int wz_property_is_raw_data(wz_property prop) {
+wz_error_code wz_property_is_raw_data(wz_property prop, int* out_is_raw) {
   wz_clear_error();
-  if (!prop) {
-    set_error_null("wz_property_is_raw_data");
-    return 0;
+  if (auto ec = init_out("wz_property_is_raw_data", out_is_raw);
+      ec != WZ_ERROR_NONE) {
+    return ec;
   }
-  return unwrap_prop(prop)->IsRawDataProperty() ? 1 : 0;
+  if (!prop) return set_error_null("wz_property_is_raw_data");
+  *out_is_raw = unwrap_prop(prop)->IsRawDataProperty() ? 1 : 0;
+  return WZ_ERROR_NONE;
 }
 
-int wz_property_is_video(wz_property prop) {
+wz_error_code wz_property_is_video(wz_property prop, int* out_is_video) {
   wz_clear_error();
-  if (!prop) {
-    set_error_null("wz_property_is_video");
-    return 0;
+  if (auto ec = init_out("wz_property_is_video", out_is_video);
+      ec != WZ_ERROR_NONE) {
+    return ec;
   }
-  return unwrap_prop(prop)->IsVideoProperty() ? 1 : 0;
+  if (!prop) return set_error_null("wz_property_is_video");
+  *out_is_video = unwrap_prop(prop)->IsVideoProperty() ? 1 : 0;
+  return WZ_ERROR_NONE;
 }
 
-const char* wz_property_name(wz_property prop) {
+wz_error_code wz_property_name(wz_property prop, const char** out_name) {
   wz_clear_error();
-  if (!prop) {
-    set_error_null("wz_property_name");
-    return nullptr;
+  if (auto ec = init_out("wz_property_name", out_name); ec != WZ_ERROR_NONE) {
+    return ec;
   }
+  if (!prop) return set_error_null("wz_property_name");
   static thread_local std::string s;
   s = unwrap_prop(prop)->Name();
-  return s.c_str();
+  *out_name = s.c_str();
+  return WZ_ERROR_NONE;
 }
 
-int wz_property_count_children(wz_property prop) {
+wz_error_code wz_property_count_children(wz_property prop, int* out_count) {
   wz_clear_error();
-  if (!prop) {
-    set_error_null("wz_property_count_children");
-    return 0;
+  if (auto ec = init_out("wz_property_count_children", out_count);
+      ec != WZ_ERROR_NONE) {
+    return ec;
   }
+  if (!prop) return set_error_null("wz_property_count_children");
   auto* wps = unwrap_prop(prop)->WzProperties();
-  return wps ? static_cast<int>(wps->size()) : 0;
+  *out_count = wps ? static_cast<int>(wps->size()) : 0;
+  return WZ_ERROR_NONE;
 }
 
-wz_property wz_property_get_child(wz_property prop, int index) {
+wz_error_code wz_property_get_child(wz_property prop,
+                                    int index,
+                                    wz_property* out_property) {
   wz_clear_error();
-  if (!prop) {
-    set_error_null("wz_property_get_child");
-    return nullptr;
+  if (auto ec = init_out("wz_property_get_child", out_property);
+      ec != WZ_ERROR_NONE) {
+    return ec;
   }
+  if (!prop) return set_error_null("wz_property_get_child");
   auto* wps = unwrap_prop(prop)->WzProperties();
-  if (!wps) {
-    set_error_null("wz_property_get_child");
-    return nullptr;
-  }
+  if (!wps) return WZ_ERROR_NONE;
   size_t sz = wps->size();
   if (index < 0 || index >= static_cast<int>(sz)) {
-    set_error_idx("wz_property_get_child", index, sz);
-    return nullptr;
+    return set_error_idx("wz_property_get_child", index, sz);
   }
-  return wrap_prop((*wps)[static_cast<size_t>(index)]);
+  *out_property = wrap_prop((*wps)[static_cast<size_t>(index)]);
+  return WZ_ERROR_NONE;
 }
 
-wz_property wz_property_get_child_by_name(wz_property prop, const char* name) {
+wz_error_code wz_property_get_child_by_name(wz_property prop,
+                                            const char* name,
+                                            wz_property* out_property) {
   wz_clear_error();
-  if (!prop) {
-    set_error_null("wz_property_get_child_by_name");
-    return nullptr;
+  if (auto ec = init_out("wz_property_get_child_by_name", out_property);
+      ec != WZ_ERROR_NONE) {
+    return ec;
   }
+  if (!prop) return set_error_null("wz_property_get_child_by_name");
   if (!name) {
-    set_error_null("wz_property_get_child_by_name");
-    return nullptr;
+    return set_error_invalid_arg("wz_property_get_child_by_name", "name");
   }
   auto* wps = unwrap_prop(prop)->WzProperties();
-  if (!wps) {
-    set_error_null("wz_property_get_child_by_name");
-    return nullptr;
+  if (!wps) return WZ_ERROR_NONE;
+  for (auto* child : *wps) {
+    if (child && child->Name() == name) {
+      *out_property = wrap_prop(child);
+      break;
+    }
   }
-  for (auto* c : *wps) {
-    if (c && c->Name() == name) return wrap_prop(c);
-  }
-  return nullptr;
+  return WZ_ERROR_NONE;
 }
 
-wz_property wz_property_get_from_path(wz_property prop, const char* path) {
+wz_error_code wz_property_get_from_path(wz_property prop,
+                                        const char* path,
+                                        wz_property* out_property) {
   wz_clear_error();
-  if (!prop) {
-    set_error_null("wz_property_get_from_path");
-    return nullptr;
+  if (auto ec = init_out("wz_property_get_from_path", out_property);
+      ec != WZ_ERROR_NONE) {
+    return ec;
   }
-  if (!path) {
-    set_error_null("wz_property_get_from_path");
-    return nullptr;
-  }
-  return wrap_prop(unwrap_prop(prop)->GetFromPath(path));
+  if (!prop) return set_error_null("wz_property_get_from_path");
+  if (!path) return set_error_invalid_arg("wz_property_get_from_path", "path");
+  *out_property = wrap_prop(unwrap_prop(prop)->GetFromPath(path));
+  return WZ_ERROR_NONE;
 }
 
-int32_t wz_property_get_int(wz_property prop) {
+wz_error_code wz_property_get_int(wz_property prop, int32_t* out_value) {
   wz_clear_error();
-  if (!prop) {
-    set_error_null("wz_property_get_int");
-    return 0;
+  if (auto ec = init_out("wz_property_get_int", out_value);
+      ec != WZ_ERROR_NONE) {
+    return ec;
   }
-  return unwrap_prop(prop)->GetInt();
+  if (!prop) return set_error_null("wz_property_get_int");
+  *out_value = unwrap_prop(prop)->GetInt();
+  return WZ_ERROR_NONE;
 }
 
-int16_t wz_property_get_short(wz_property prop) {
+wz_error_code wz_property_get_short(wz_property prop, int16_t* out_value) {
   wz_clear_error();
-  if (!prop) {
-    set_error_null("wz_property_get_short");
-    return 0;
+  if (auto ec = init_out("wz_property_get_short", out_value);
+      ec != WZ_ERROR_NONE) {
+    return ec;
   }
-  return unwrap_prop(prop)->GetShort();
+  if (!prop) return set_error_null("wz_property_get_short");
+  *out_value = unwrap_prop(prop)->GetShort();
+  return WZ_ERROR_NONE;
 }
 
-int64_t wz_property_get_long(wz_property prop) {
+wz_error_code wz_property_get_long(wz_property prop, int64_t* out_value) {
   wz_clear_error();
-  if (!prop) {
-    set_error_null("wz_property_get_long");
-    return 0;
+  if (auto ec = init_out("wz_property_get_long", out_value);
+      ec != WZ_ERROR_NONE) {
+    return ec;
   }
-  return unwrap_prop(prop)->GetLong();
+  if (!prop) return set_error_null("wz_property_get_long");
+  *out_value = unwrap_prop(prop)->GetLong();
+  return WZ_ERROR_NONE;
 }
 
-float wz_property_get_float(wz_property prop) {
+wz_error_code wz_property_get_float(wz_property prop, float* out_value) {
   wz_clear_error();
-  if (!prop) {
-    set_error_null("wz_property_get_float");
-    return 0.0f;
+  if (auto ec = init_out("wz_property_get_float", out_value);
+      ec != WZ_ERROR_NONE) {
+    return ec;
   }
-  return unwrap_prop(prop)->GetFloat();
+  if (!prop) return set_error_null("wz_property_get_float");
+  *out_value = unwrap_prop(prop)->GetFloat();
+  return WZ_ERROR_NONE;
 }
 
-double wz_property_get_double(wz_property prop) {
+wz_error_code wz_property_get_double(wz_property prop, double* out_value) {
   wz_clear_error();
-  if (!prop) {
-    set_error_null("wz_property_get_double");
-    return 0.0;
+  if (auto ec = init_out("wz_property_get_double", out_value);
+      ec != WZ_ERROR_NONE) {
+    return ec;
   }
-  return unwrap_prop(prop)->GetDouble();
+  if (!prop) return set_error_null("wz_property_get_double");
+  *out_value = unwrap_prop(prop)->GetDouble();
+  return WZ_ERROR_NONE;
 }
 
-const char* wz_property_get_string(wz_property prop) {
+wz_error_code wz_property_get_string(wz_property prop, const char** out_value) {
   wz_clear_error();
-  if (!prop) {
-    set_error_null("wz_property_get_string");
-    return nullptr;
+  if (auto ec = init_out("wz_property_get_string", out_value);
+      ec != WZ_ERROR_NONE) {
+    return ec;
   }
+  if (!prop) return set_error_null("wz_property_get_string");
   static thread_local std::string s;
   s = unwrap_prop(prop)->GetString();
-  return s.c_str();
+  *out_value = s.c_str();
+  return WZ_ERROR_NONE;
 }
 
-size_t wz_property_get_bytes(wz_property prop,
-                             uint8_t* buffer,
-                             size_t buffer_size) {
+wz_error_code wz_property_get_bytes(wz_property prop,
+                                    uint8_t* buffer,
+                                    size_t buffer_size,
+                                    size_t* out_size) {
   wz_clear_error();
-  if (!prop) {
-    set_error_null("wz_property_get_bytes");
-    return 0;
+  if (auto ec = init_out("wz_property_get_bytes", out_size);
+      ec != WZ_ERROR_NONE) {
+    return ec;
   }
+  if (!prop) return set_error_null("wz_property_get_bytes");
   auto result = unwrap_prop(prop)->GetBytes();
   if (result.is_err()) {
-    set_error(result.err().code(), result.err().message());
-    return 0;
+    return set_error(result.err().code(), result.err().message());
   }
   auto data = result.ok();
+  *out_size = data.size();
   if (buffer && buffer_size >= data.size()) {
     std::memcpy(buffer, data.data(), data.size());
   }
-  return data.size();
+  return WZ_ERROR_NONE;
 }
 
-// ==================== Scalar Properties ====================
-
-int32_t wz_int_get_value(wz_property prop) {
+wz_error_code wz_int_get_value(wz_property prop, int32_t* out_value) {
   wz_clear_error();
-  if (!prop) {
-    set_error_null("wz_int_get_value");
-    return 0;
+  if (auto ec = init_out("wz_int_get_value", out_value); ec != WZ_ERROR_NONE) {
+    return ec;
   }
+  if (!prop) return set_error_null("wz_int_get_value");
   if (unwrap_prop(prop)->PropertyType() != wz::WzPropertyType::Int) {
-    set_error_wrong_type("wz_int_get_value");
-    return 0;
+    return set_error_wrong_type("wz_int_get_value");
   }
-  return static_cast<wz::WzIntProperty*>(unwrap_prop(prop))->Value();
+  *out_value = static_cast<wz::WzIntProperty*>(unwrap_prop(prop))->Value();
+  return WZ_ERROR_NONE;
 }
 
-void wz_int_set_value(wz_property prop, int32_t value) {
+wz_error_code wz_int_set_value(wz_property prop, int32_t value) {
   wz_clear_error();
-  if (!prop) {
-    set_error_null("wz_int_set_value");
-    return;
-  }
+  if (!prop) return set_error_null("wz_int_set_value");
   if (unwrap_prop(prop)->PropertyType() != wz::WzPropertyType::Int) {
-    set_error_wrong_type("wz_int_set_value");
-    return;
+    return set_error_wrong_type("wz_int_set_value");
   }
   static_cast<wz::WzIntProperty*>(unwrap_prop(prop))->SetValue(value);
+  return WZ_ERROR_NONE;
 }
 
-int16_t wz_short_get_value(wz_property prop) {
+wz_error_code wz_short_get_value(wz_property prop, int16_t* out_value) {
   wz_clear_error();
-  if (!prop) {
-    set_error_null("wz_short_get_value");
-    return 0;
+  if (auto ec = init_out("wz_short_get_value", out_value);
+      ec != WZ_ERROR_NONE) {
+    return ec;
   }
+  if (!prop) return set_error_null("wz_short_get_value");
   if (unwrap_prop(prop)->PropertyType() != wz::WzPropertyType::Short) {
-    set_error_wrong_type("wz_short_get_value");
-    return 0;
+    return set_error_wrong_type("wz_short_get_value");
   }
-  return static_cast<wz::WzShortProperty*>(unwrap_prop(prop))->Value();
+  *out_value = static_cast<wz::WzShortProperty*>(unwrap_prop(prop))->Value();
+  return WZ_ERROR_NONE;
 }
 
-int64_t wz_long_get_value(wz_property prop) {
+wz_error_code wz_long_get_value(wz_property prop, int64_t* out_value) {
   wz_clear_error();
-  if (!prop) {
-    set_error_null("wz_long_get_value");
-    return 0;
+  if (auto ec = init_out("wz_long_get_value", out_value); ec != WZ_ERROR_NONE) {
+    return ec;
   }
+  if (!prop) return set_error_null("wz_long_get_value");
   if (unwrap_prop(prop)->PropertyType() != wz::WzPropertyType::Long) {
-    set_error_wrong_type("wz_long_get_value");
-    return 0;
+    return set_error_wrong_type("wz_long_get_value");
   }
-  return static_cast<wz::WzLongProperty*>(unwrap_prop(prop))->Value();
+  *out_value = static_cast<wz::WzLongProperty*>(unwrap_prop(prop))->Value();
+  return WZ_ERROR_NONE;
 }
 
-float wz_float_get_value(wz_property prop) {
+wz_error_code wz_float_get_value(wz_property prop, float* out_value) {
   wz_clear_error();
-  if (!prop) {
-    set_error_null("wz_float_get_value");
-    return 0.0f;
+  if (auto ec = init_out("wz_float_get_value", out_value);
+      ec != WZ_ERROR_NONE) {
+    return ec;
   }
+  if (!prop) return set_error_null("wz_float_get_value");
   if (unwrap_prop(prop)->PropertyType() != wz::WzPropertyType::Float) {
-    set_error_wrong_type("wz_float_get_value");
-    return 0.0f;
+    return set_error_wrong_type("wz_float_get_value");
   }
-  return static_cast<wz::WzFloatProperty*>(unwrap_prop(prop))->Value();
+  *out_value = static_cast<wz::WzFloatProperty*>(unwrap_prop(prop))->Value();
+  return WZ_ERROR_NONE;
 }
 
-double wz_double_get_value(wz_property prop) {
+wz_error_code wz_double_get_value(wz_property prop, double* out_value) {
   wz_clear_error();
-  if (!prop) {
-    set_error_null("wz_double_get_value");
-    return 0.0;
+  if (auto ec = init_out("wz_double_get_value", out_value);
+      ec != WZ_ERROR_NONE) {
+    return ec;
   }
+  if (!prop) return set_error_null("wz_double_get_value");
   if (unwrap_prop(prop)->PropertyType() != wz::WzPropertyType::Double) {
-    set_error_wrong_type("wz_double_get_value");
-    return 0.0;
+    return set_error_wrong_type("wz_double_get_value");
   }
-  return static_cast<wz::WzDoubleProperty*>(unwrap_prop(prop))->Value();
+  *out_value = static_cast<wz::WzDoubleProperty*>(unwrap_prop(prop))->Value();
+  return WZ_ERROR_NONE;
 }
 
-const char* wz_string_get_value(wz_property prop) {
+wz_error_code wz_string_get_value(wz_property prop, const char** out_value) {
   wz_clear_error();
-  if (!prop) {
-    set_error_null("wz_string_get_value");
-    return nullptr;
+  if (auto ec = init_out("wz_string_get_value", out_value);
+      ec != WZ_ERROR_NONE) {
+    return ec;
   }
+  if (!prop) return set_error_null("wz_string_get_value");
   if (unwrap_prop(prop)->PropertyType() != wz::WzPropertyType::String) {
-    set_error_wrong_type("wz_string_get_value");
-    return nullptr;
+    return set_error_wrong_type("wz_string_get_value");
   }
   static thread_local std::string s;
   s = static_cast<wz::WzStringProperty*>(unwrap_prop(prop))->Value();
-  return s.c_str();
+  *out_value = s.c_str();
+  return WZ_ERROR_NONE;
 }
 
-int wz_string_save_to_file(wz_property prop, const char* file_path) {
+wz_error_code wz_string_save_to_file(wz_property prop, const char* file_path) {
   wz_clear_error();
-  if (!prop) {
-    set_error_null("wz_string_save_to_file");
-    return 0;
-  }
+  if (!prop) return set_error_null("wz_string_save_to_file");
   if (!file_path) {
-    set_error_null("wz_string_save_to_file");
-    return 0;
+    return set_error_invalid_arg("wz_string_save_to_file", "file_path");
   }
   if (unwrap_prop(prop)->PropertyType() != wz::WzPropertyType::String) {
-    set_error_wrong_type("wz_string_save_to_file");
-    return 0;
+    return set_error_wrong_type("wz_string_save_to_file");
   }
-  return return_result(static_cast<wz::WzStringProperty*>(unwrap_prop(prop))
-                           ->SaveToFile(file_path));
+  return result_void(static_cast<wz::WzStringProperty*>(unwrap_prop(prop))
+                         ->SaveToFile(file_path));
 }
 
-// ==================== WzPngProperty ====================
-
-int wz_png_width(wz_png_property png) {
+wz_error_code wz_png_width(wz_png_property png, int* out_width) {
   wz_clear_error();
-  if (!png) {
-    set_error_null("wz_png_width");
-    return 0;
+  if (auto ec = init_out("wz_png_width", out_width); ec != WZ_ERROR_NONE) {
+    return ec;
   }
-  return reinterpret_cast<wz::WzPngProperty*>(png)->Width();
+  if (!png) return set_error_null("wz_png_width");
+  *out_width = reinterpret_cast<wz::WzPngProperty*>(png)->Width();
+  return WZ_ERROR_NONE;
 }
 
-int wz_png_height(wz_png_property png) {
+wz_error_code wz_png_height(wz_png_property png, int* out_height) {
   wz_clear_error();
-  if (!png) {
-    set_error_null("wz_png_height");
-    return 0;
+  if (auto ec = init_out("wz_png_height", out_height); ec != WZ_ERROR_NONE) {
+    return ec;
   }
-  return reinterpret_cast<wz::WzPngProperty*>(png)->Height();
+  if (!png) return set_error_null("wz_png_height");
+  *out_height = reinterpret_cast<wz::WzPngProperty*>(png)->Height();
+  return WZ_ERROR_NONE;
 }
 
-int wz_png_format(wz_png_property png) {
+wz_error_code wz_png_format(wz_png_property png, int* out_format) {
   wz_clear_error();
-  if (!png) {
-    set_error_null("wz_png_format");
-    return 0;
+  if (auto ec = init_out("wz_png_format", out_format); ec != WZ_ERROR_NONE) {
+    return ec;
   }
-  return static_cast<int>(reinterpret_cast<wz::WzPngProperty*>(png)->Format());
+  if (!png) return set_error_null("wz_png_format");
+  *out_format =
+      static_cast<int>(reinterpret_cast<wz::WzPngProperty*>(png)->Format());
+  return WZ_ERROR_NONE;
 }
 
-int wz_png_is_list_wz_used(wz_png_property png) {
+wz_error_code wz_png_is_list_wz_used(wz_png_property png, int* out_is_used) {
   wz_clear_error();
-  if (!png) {
-    set_error_null("wz_png_is_list_wz_used");
-    return 0;
+  if (auto ec = init_out("wz_png_is_list_wz_used", out_is_used);
+      ec != WZ_ERROR_NONE) {
+    return ec;
   }
-  return reinterpret_cast<wz::WzPngProperty*>(png)->ListWzUsed() ? 1 : 0;
+  if (!png) return set_error_null("wz_png_is_list_wz_used");
+  *out_is_used =
+      reinterpret_cast<wz::WzPngProperty*>(png)->ListWzUsed() ? 1 : 0;
+  return WZ_ERROR_NONE;
 }
 
-size_t wz_png_get_image(wz_png_property png,
-                        uint8_t* buffer,
-                        size_t buffer_size) {
+wz_error_code wz_png_get_image(wz_png_property png,
+                               uint8_t* buffer,
+                               size_t buffer_size,
+                               size_t* out_size) {
   wz_clear_error();
-  if (!png) {
-    set_error_null("wz_png_get_image");
-    return 0;
+  if (auto ec = init_out("wz_png_get_image", out_size); ec != WZ_ERROR_NONE) {
+    return ec;
   }
+  if (!png) return set_error_null("wz_png_get_image");
   auto result = reinterpret_cast<wz::WzPngProperty*>(png)->GetImage(false);
-  if (!result.is_ok()) {
-    set_error(result.err().code(), result.err().message());
-    return 0;
+  if (result.is_err()) {
+    return set_error(result.err().code(), result.err().message());
   }
   auto& data = result.ok();
+  *out_size = data.size();
   if (buffer && buffer_size >= data.size()) {
     std::memcpy(buffer, data.data(), data.size());
   }
-  return data.size();
+  return WZ_ERROR_NONE;
 }
 
-size_t wz_png_get_compressed_bytes(wz_png_property png,
-                                   uint8_t* buffer,
-                                   size_t buffer_size) {
+wz_error_code wz_png_get_compressed_bytes(wz_png_property png,
+                                          uint8_t* buffer,
+                                          size_t buffer_size,
+                                          size_t* out_size) {
   wz_clear_error();
-  if (!png) {
-    set_error_null("wz_png_get_compressed_bytes");
-    return 0;
+  if (auto ec = init_out("wz_png_get_compressed_bytes", out_size);
+      ec != WZ_ERROR_NONE) {
+    return ec;
   }
+  if (!png) return set_error_null("wz_png_get_compressed_bytes");
   auto result =
       reinterpret_cast<wz::WzPngProperty*>(png)->GetCompressedBytes(false);
-  if (!result.is_ok()) {
-    set_error(result.err().code(), result.err().message());
-    return 0;
+  if (result.is_err()) {
+    return set_error(result.err().code(), result.err().message());
   }
   auto& data = result.ok();
+  *out_size = data.size();
   if (buffer && buffer_size >= data.size()) {
     std::memcpy(buffer, data.data(), data.size());
   }
-  return data.size();
+  return WZ_ERROR_NONE;
 }
 
-int wz_png_save_to_file(wz_png_property png, const char* file_path) {
+wz_error_code wz_png_save_to_file(wz_png_property png, const char* file_path) {
   wz_clear_error();
-  if (!png) {
-    set_error_null("wz_png_save_to_file");
-    return 0;
-  }
+  if (!png) return set_error_null("wz_png_save_to_file");
   if (!file_path) {
-    set_error_null("wz_png_save_to_file");
-    return 0;
+    return set_error_invalid_arg("wz_png_save_to_file", "file_path");
   }
-  return return_result(
+  return result_void(
       reinterpret_cast<wz::WzPngProperty*>(png)->SaveToFile(file_path));
 }
 
-// ==================== WzCanvasProperty ====================
-
-wz_png_property wz_canvas_get_png(wz_property canvas_prop) {
+wz_error_code wz_canvas_get_png(wz_property canvas_prop,
+                                wz_png_property* out_png) {
   wz_clear_error();
+  if (auto ec = init_out("wz_canvas_get_png", out_png); ec != WZ_ERROR_NONE) {
+    return ec;
+  }
   auto* p = unwrap_prop(canvas_prop);
-  if (!p) {
-    set_error_null("wz_canvas_get_png");
-    return nullptr;
-  }
+  if (!p) return set_error_null("wz_canvas_get_png");
   if (p->PropertyType() != wz::WzPropertyType::Canvas) {
-    set_error_wrong_type("wz_canvas_get_png");
-    return nullptr;
+    return set_error_wrong_type("wz_canvas_get_png");
   }
-  return reinterpret_cast<wz_png_property>(
+  *out_png = reinterpret_cast<wz_png_property>(
       static_cast<wz::WzCanvasProperty*>(p)->PngProperty());
+  return WZ_ERROR_NONE;
 }
 
-int wz_canvas_contains_inlink(wz_property canvas_prop) {
+wz_error_code wz_canvas_contains_inlink(wz_property canvas_prop,
+                                        int* out_contains) {
   wz_clear_error();
-  auto* p = unwrap_prop(canvas_prop);
-  if (!p) {
-    set_error_null("wz_canvas_contains_inlink");
-    return 0;
+  if (auto ec = init_out("wz_canvas_contains_inlink", out_contains);
+      ec != WZ_ERROR_NONE) {
+    return ec;
   }
+  auto* p = unwrap_prop(canvas_prop);
+  if (!p) return set_error_null("wz_canvas_contains_inlink");
   if (p->PropertyType() != wz::WzPropertyType::Canvas) {
-    set_error_wrong_type("wz_canvas_contains_inlink");
-    return 0;
+    return set_error_wrong_type("wz_canvas_contains_inlink");
   }
-  return static_cast<wz::WzCanvasProperty*>(p)->ContainsInlinkProperty() ? 1
-                                                                         : 0;
+  *out_contains =
+      static_cast<wz::WzCanvasProperty*>(p)->ContainsInlinkProperty() ? 1 : 0;
+  return WZ_ERROR_NONE;
 }
 
-int wz_canvas_contains_outlink(wz_property canvas_prop) {
+wz_error_code wz_canvas_contains_outlink(wz_property canvas_prop,
+                                         int* out_contains) {
   wz_clear_error();
-  auto* p = unwrap_prop(canvas_prop);
-  if (!p) {
-    set_error_null("wz_canvas_contains_outlink");
-    return 0;
+  if (auto ec = init_out("wz_canvas_contains_outlink", out_contains);
+      ec != WZ_ERROR_NONE) {
+    return ec;
   }
+  auto* p = unwrap_prop(canvas_prop);
+  if (!p) return set_error_null("wz_canvas_contains_outlink");
   if (p->PropertyType() != wz::WzPropertyType::Canvas) {
-    set_error_wrong_type("wz_canvas_contains_outlink");
-    return 0;
+    return set_error_wrong_type("wz_canvas_contains_outlink");
   }
-  return static_cast<wz::WzCanvasProperty*>(p)->ContainsOutlinkProperty() ? 1
-                                                                          : 0;
+  *out_contains =
+      static_cast<wz::WzCanvasProperty*>(p)->ContainsOutlinkProperty() ? 1 : 0;
+  return WZ_ERROR_NONE;
 }
 
-int wz_canvas_save_to_file(wz_property canvas_prop, const char* file_path) {
+wz_error_code wz_canvas_save_to_file(wz_property canvas_prop,
+                                     const char* file_path) {
   wz_clear_error();
   auto* p = unwrap_prop(canvas_prop);
-  if (!p) {
-    set_error_null("wz_canvas_save_to_file");
-    return 0;
-  }
+  if (!p) return set_error_null("wz_canvas_save_to_file");
   if (!file_path) {
-    set_error_null("wz_canvas_save_to_file");
-    return 0;
+    return set_error_invalid_arg("wz_canvas_save_to_file", "file_path");
   }
   if (p->PropertyType() != wz::WzPropertyType::Canvas) {
-    set_error_wrong_type("wz_canvas_save_to_file");
-    return 0;
+    return set_error_wrong_type("wz_canvas_save_to_file");
   }
-  return return_result(
+  return result_void(
       static_cast<wz::WzCanvasProperty*>(p)->SaveToFile(file_path));
 }
 
-wz_property wz_canvas_get_linked_wz_image_property(wz_property canvas_prop) {
+wz_error_code wz_canvas_get_linked_wz_image_property(
+    wz_property canvas_prop, wz_property* out_property) {
   wz_clear_error();
-  auto* p = unwrap_prop(canvas_prop);
-  if (!p) {
-    set_error_null("wz_canvas_get_linked_wz_image_property");
-    return nullptr;
+  if (auto ec =
+          init_out("wz_canvas_get_linked_wz_image_property", out_property);
+      ec != WZ_ERROR_NONE) {
+    return ec;
   }
+  auto* p = unwrap_prop(canvas_prop);
+  if (!p) return set_error_null("wz_canvas_get_linked_wz_image_property");
   if (p->PropertyType() != wz::WzPropertyType::Canvas) {
-    set_error_wrong_type("wz_canvas_get_linked_wz_image_property");
-    return nullptr;
+    return set_error_wrong_type("wz_canvas_get_linked_wz_image_property");
   }
   auto* linked =
       static_cast<wz::WzCanvasProperty*>(p)->GetLinkedWzImageProperty();
-  return linked ? wrap_prop(linked) : nullptr;
+  *out_property = linked ? wrap_prop(linked) : nullptr;
+  return WZ_ERROR_NONE;
 }
 
-// ==================== WzUOLProperty ====================
-
-const char* wz_uol_get_value(wz_property uol_prop) {
+wz_error_code wz_uol_get_value(wz_property uol_prop, const char** out_value) {
   wz_clear_error();
-  auto* p = unwrap_prop(uol_prop);
-  if (!p) {
-    set_error_null("wz_uol_get_value");
-    return nullptr;
+  if (auto ec = init_out("wz_uol_get_value", out_value); ec != WZ_ERROR_NONE) {
+    return ec;
   }
+  auto* p = unwrap_prop(uol_prop);
+  if (!p) return set_error_null("wz_uol_get_value");
   if (p->PropertyType() != wz::WzPropertyType::UOL) {
-    set_error_wrong_type("wz_uol_get_value");
-    return nullptr;
+    return set_error_wrong_type("wz_uol_get_value");
   }
   static thread_local std::string s;
   s = static_cast<wz::WzUOLProperty*>(p)->Value();
-  return s.c_str();
+  *out_value = s.c_str();
+  return WZ_ERROR_NONE;
 }
 
-wz_object wz_uol_get_link_value(wz_property uol_prop) {
+wz_error_code wz_uol_get_link_value(wz_property uol_prop,
+                                    wz_object* out_object) {
   wz_clear_error();
+  if (auto ec = init_out("wz_uol_get_link_value", out_object);
+      ec != WZ_ERROR_NONE) {
+    return ec;
+  }
   auto* p = unwrap_prop(uol_prop);
-  if (!p) {
-    set_error_null("wz_uol_get_link_value");
-    return nullptr;
-  }
+  if (!p) return set_error_null("wz_uol_get_link_value");
   if (p->PropertyType() != wz::WzPropertyType::UOL) {
-    set_error_wrong_type("wz_uol_get_link_value");
-    return nullptr;
+    return set_error_wrong_type("wz_uol_get_link_value");
   }
-  return reinterpret_cast<wz_object>(
+  *out_object = reinterpret_cast<wz_object>(
       static_cast<wz::WzUOLProperty*>(p)->LinkValue());
+  return WZ_ERROR_NONE;
 }
 
-// ==================== Property Link Resolution ====================
-
-wz_property wz_property_get_linked_wz_image_property(wz_property prop) {
+wz_error_code wz_property_get_linked_wz_image_property(
+    wz_property prop, wz_property* out_property) {
   wz_clear_error();
-  if (!prop) {
-    set_error_null("wz_property_get_linked_wz_image_property");
-    return nullptr;
+  if (auto ec =
+          init_out("wz_property_get_linked_wz_image_property", out_property);
+      ec != WZ_ERROR_NONE) {
+    return ec;
   }
+  if (!prop) return set_error_null("wz_property_get_linked_wz_image_property");
   auto* linked = unwrap_prop(prop)->GetLinkedWzImageProperty();
-  return linked ? wrap_prop(linked) : nullptr;
+  *out_property = linked ? wrap_prop(linked) : nullptr;
+  return WZ_ERROR_NONE;
 }
 
-// ==================== WzVectorProperty ====================
-
-int32_t wz_vector_get_x(wz_property vec_prop) {
+wz_error_code wz_vector_get_x(wz_property vec_prop, int32_t* out_value) {
   wz_clear_error();
-  auto* p = unwrap_prop(vec_prop);
-  if (!p) {
-    set_error_null("wz_vector_get_x");
-    return 0;
+  if (auto ec = init_out("wz_vector_get_x", out_value); ec != WZ_ERROR_NONE) {
+    return ec;
   }
+  auto* p = unwrap_prop(vec_prop);
+  if (!p) return set_error_null("wz_vector_get_x");
   if (p->PropertyType() != wz::WzPropertyType::Vector) {
-    set_error_wrong_type("wz_vector_get_x");
-    return 0;
+    return set_error_wrong_type("wz_vector_get_x");
   }
   auto* vec = static_cast<wz::WzVectorProperty*>(p);
-  return vec->X ? vec->X->Value() : 0;
+  *out_value = vec->X ? vec->X->Value() : 0;
+  return WZ_ERROR_NONE;
 }
 
-int32_t wz_vector_get_y(wz_property vec_prop) {
+wz_error_code wz_vector_get_y(wz_property vec_prop, int32_t* out_value) {
   wz_clear_error();
-  auto* p = unwrap_prop(vec_prop);
-  if (!p) {
-    set_error_null("wz_vector_get_y");
-    return 0;
+  if (auto ec = init_out("wz_vector_get_y", out_value); ec != WZ_ERROR_NONE) {
+    return ec;
   }
+  auto* p = unwrap_prop(vec_prop);
+  if (!p) return set_error_null("wz_vector_get_y");
   if (p->PropertyType() != wz::WzPropertyType::Vector) {
-    set_error_wrong_type("wz_vector_get_y");
-    return 0;
+    return set_error_wrong_type("wz_vector_get_y");
   }
   auto* vec = static_cast<wz::WzVectorProperty*>(p);
-  return vec->Y ? vec->Y->Value() : 0;
+  *out_value = vec->Y ? vec->Y->Value() : 0;
+  return WZ_ERROR_NONE;
 }
 
-// ==================== WzLuaProperty ====================
-
-size_t wz_lua_get_data(wz_property lua_prop,
-                       uint8_t* buffer,
-                       size_t buffer_size) {
+wz_error_code wz_lua_get_data(wz_property lua_prop,
+                              uint8_t* buffer,
+                              size_t buffer_size,
+                              size_t* out_size) {
   wz_clear_error();
+  if (auto ec = init_out("wz_lua_get_data", out_size); ec != WZ_ERROR_NONE) {
+    return ec;
+  }
   auto* p = unwrap_prop(lua_prop);
-  if (!p) {
-    set_error_null("wz_lua_get_data");
-    return 0;
-  }
+  if (!p) return set_error_null("wz_lua_get_data");
   if (p->PropertyType() != wz::WzPropertyType::Lua) {
-    set_error_wrong_type("wz_lua_get_data");
-    return 0;
+    return set_error_wrong_type("wz_lua_get_data");
   }
   auto& data = static_cast<wz::WzLuaProperty*>(p)->Value();
+  *out_size = data.size();
   if (buffer && buffer_size >= data.size()) {
     std::memcpy(buffer, data.data(), data.size());
   }
-  return data.size();
+  return WZ_ERROR_NONE;
 }
 
-const char* wz_lua_get_string(wz_property lua_prop) {
+wz_error_code wz_lua_get_string(wz_property lua_prop, const char** out_value) {
   wz_clear_error();
-  auto* p = unwrap_prop(lua_prop);
-  if (!p) {
-    set_error_null("wz_lua_get_string");
-    return nullptr;
+  if (auto ec = init_out("wz_lua_get_string", out_value); ec != WZ_ERROR_NONE) {
+    return ec;
   }
+  auto* p = unwrap_prop(lua_prop);
+  if (!p) return set_error_null("wz_lua_get_string");
   if (p->PropertyType() != wz::WzPropertyType::Lua) {
-    set_error_wrong_type("wz_lua_get_string");
-    return nullptr;
+    return set_error_wrong_type("wz_lua_get_string");
   }
   static thread_local std::string s;
   s = static_cast<wz::WzLuaProperty*>(p)->GetString();
-  return s.c_str();
+  *out_value = s.c_str();
+  return WZ_ERROR_NONE;
 }
 
-int wz_lua_save_to_file(wz_property lua_prop, const char* file_path) {
+wz_error_code wz_lua_save_to_file(wz_property lua_prop, const char* file_path) {
   wz_clear_error();
   auto* p = unwrap_prop(lua_prop);
-  if (!p) {
-    set_error_null("wz_lua_save_to_file");
-    return 0;
-  }
+  if (!p) return set_error_null("wz_lua_save_to_file");
   if (!file_path) {
-    set_error_null("wz_lua_save_to_file");
-    return 0;
+    return set_error_invalid_arg("wz_lua_save_to_file", "file_path");
   }
   if (p->PropertyType() != wz::WzPropertyType::Lua) {
-    set_error_wrong_type("wz_lua_save_to_file");
-    return 0;
+    return set_error_wrong_type("wz_lua_save_to_file");
   }
-  return return_result(
-      static_cast<wz::WzLuaProperty*>(p)->SaveToFile(file_path));
+  return result_void(static_cast<wz::WzLuaProperty*>(p)->SaveToFile(file_path));
 }
 
-// ==================== WzBinaryProperty ====================
-
-size_t wz_binary_get_data(wz_property binary_prop,
-                          uint8_t* buffer,
-                          size_t buffer_size) {
+wz_error_code wz_binary_get_data(wz_property binary_prop,
+                                 uint8_t* buffer,
+                                 size_t buffer_size,
+                                 size_t* out_size) {
   wz_clear_error();
-  auto* p = unwrap_prop(binary_prop);
-  if (!p) {
-    set_error_null("wz_binary_get_data");
-    return 0;
+  if (auto ec = init_out("wz_binary_get_data", out_size); ec != WZ_ERROR_NONE) {
+    return ec;
   }
+  auto* p = unwrap_prop(binary_prop);
+  if (!p) return set_error_null("wz_binary_get_data");
   if (p->PropertyType() != wz::WzPropertyType::Sound) {
-    set_error_wrong_type("wz_binary_get_data");
-    return 0;
+    return set_error_wrong_type("wz_binary_get_data");
   }
   auto result = static_cast<wz::WzBinaryProperty*>(p)->GetBytes(false);
-  if (!result.is_ok()) {
-    set_error(result.err().code(), result.err().message());
-    return 0;
+  if (result.is_err()) {
+    return set_error(result.err().code(), result.err().message());
   }
   auto& data = result.ok();
+  *out_size = data.size();
   if (buffer && buffer_size >= data.size()) {
     std::memcpy(buffer, data.data(), data.size());
   }
-  return data.size();
+  return WZ_ERROR_NONE;
 }
 
-size_t wz_binary_get_wav_playback(wz_property binary_prop,
-                                  uint8_t* buffer,
-                                  size_t buffer_size) {
+wz_error_code wz_binary_get_wav_playback(wz_property binary_prop,
+                                         uint8_t* buffer,
+                                         size_t buffer_size,
+                                         size_t* out_size) {
   wz_clear_error();
-  auto* p = unwrap_prop(binary_prop);
-  if (!p) {
-    set_error_null("wz_binary_get_wav_playback");
-    return 0;
+  if (auto ec = init_out("wz_binary_get_wav_playback", out_size);
+      ec != WZ_ERROR_NONE) {
+    return ec;
   }
+  auto* p = unwrap_prop(binary_prop);
+  if (!p) return set_error_null("wz_binary_get_wav_playback");
   if (p->PropertyType() != wz::WzPropertyType::Sound) {
-    set_error_wrong_type("wz_binary_get_wav_playback");
-    return 0;
+    return set_error_wrong_type("wz_binary_get_wav_playback");
   }
   auto result =
       static_cast<wz::WzBinaryProperty*>(p)->GetBytesForWAVPlayback(false);
-  if (!result.is_ok()) {
-    set_error(result.err().code(), result.err().message());
-    return 0;
+  if (result.is_err()) {
+    return set_error(result.err().code(), result.err().message());
   }
   auto& data = result.ok();
+  *out_size = data.size();
   if (buffer && buffer_size >= data.size()) {
     std::memcpy(buffer, data.data(), data.size());
   }
-  return data.size();
+  return WZ_ERROR_NONE;
 }
 
-int wz_binary_get_length(wz_property binary_prop) {
+wz_error_code wz_binary_get_length(wz_property binary_prop, int* out_length) {
   wz_clear_error();
+  if (auto ec = init_out("wz_binary_get_length", out_length);
+      ec != WZ_ERROR_NONE) {
+    return ec;
+  }
   auto* p = unwrap_prop(binary_prop);
-  if (!p) {
-    set_error_null("wz_binary_get_length");
-    return 0;
-  }
+  if (!p) return set_error_null("wz_binary_get_length");
   if (p->PropertyType() != wz::WzPropertyType::Sound) {
-    set_error_wrong_type("wz_binary_get_length");
-    return 0;
+    return set_error_wrong_type("wz_binary_get_length");
   }
-  return static_cast<wz::WzBinaryProperty*>(p)->Length();
+  *out_length = static_cast<wz::WzBinaryProperty*>(p)->Length();
+  return WZ_ERROR_NONE;
 }
 
-int wz_binary_get_frequency(wz_property binary_prop) {
+wz_error_code wz_binary_get_frequency(wz_property binary_prop,
+                                      int* out_frequency) {
   wz_clear_error();
+  if (auto ec = init_out("wz_binary_get_frequency", out_frequency);
+      ec != WZ_ERROR_NONE) {
+    return ec;
+  }
   auto* p = unwrap_prop(binary_prop);
-  if (!p) {
-    set_error_null("wz_binary_get_frequency");
-    return 0;
-  }
+  if (!p) return set_error_null("wz_binary_get_frequency");
   if (p->PropertyType() != wz::WzPropertyType::Sound) {
-    set_error_wrong_type("wz_binary_get_frequency");
-    return 0;
+    return set_error_wrong_type("wz_binary_get_frequency");
   }
-  return static_cast<wz::WzBinaryProperty*>(p)->Frequency();
+  *out_frequency = static_cast<wz::WzBinaryProperty*>(p)->Frequency();
+  return WZ_ERROR_NONE;
 }
 
-wz_binary_type wz_binary_get_type(wz_property binary_prop) {
+wz_error_code wz_binary_get_type(wz_property binary_prop,
+                                 wz_binary_type* out_type) {
   wz_clear_error();
+  if (auto ec = init_out("wz_binary_get_type", out_type); ec != WZ_ERROR_NONE) {
+    return ec;
+  }
   auto* p = unwrap_prop(binary_prop);
-  if (!p) {
-    set_error_null("wz_binary_get_type");
-    return WZ_BINARY_RAW;
-  }
+  if (!p) return set_error_null("wz_binary_get_type");
   if (p->PropertyType() != wz::WzPropertyType::Sound) {
-    set_error_wrong_type("wz_binary_get_type");
-    return WZ_BINARY_RAW;
+    return set_error_wrong_type("wz_binary_get_type");
   }
-  return static_cast<wz_binary_type>(
+  *out_type = static_cast<wz_binary_type>(
       static_cast<wz::WzBinaryProperty*>(p)->Type());
+  return WZ_ERROR_NONE;
 }
 
-int wz_binary_is_header_encrypted(wz_property binary_prop) {
+wz_error_code wz_binary_is_header_encrypted(wz_property binary_prop,
+                                            int* out_is_encrypted) {
   wz_clear_error();
-  auto* p = unwrap_prop(binary_prop);
-  if (!p) {
-    set_error_null("wz_binary_is_header_encrypted");
-    return 0;
+  if (auto ec = init_out("wz_binary_is_header_encrypted", out_is_encrypted);
+      ec != WZ_ERROR_NONE) {
+    return ec;
   }
+  auto* p = unwrap_prop(binary_prop);
+  if (!p) return set_error_null("wz_binary_is_header_encrypted");
   if (p->PropertyType() != wz::WzPropertyType::Sound) {
-    set_error_wrong_type("wz_binary_is_header_encrypted");
-    return 0;
+    return set_error_wrong_type("wz_binary_is_header_encrypted");
   }
-  return static_cast<wz::WzBinaryProperty*>(p)->HeaderEncrypted() ? 1 : 0;
+  *out_is_encrypted =
+      static_cast<wz::WzBinaryProperty*>(p)->HeaderEncrypted() ? 1 : 0;
+  return WZ_ERROR_NONE;
 }
 
-int wz_binary_save_to_file(wz_property binary_prop, const char* file_path) {
+wz_error_code wz_binary_save_to_file(wz_property binary_prop,
+                                     const char* file_path) {
   wz_clear_error();
   auto* p = unwrap_prop(binary_prop);
-  if (!p) {
-    set_error_null("wz_binary_save_to_file");
-    return 0;
-  }
+  if (!p) return set_error_null("wz_binary_save_to_file");
   if (!file_path) {
-    set_error_null("wz_binary_save_to_file");
-    return 0;
+    return set_error_invalid_arg("wz_binary_save_to_file", "file_path");
   }
   if (p->PropertyType() != wz::WzPropertyType::Sound) {
-    set_error_wrong_type("wz_binary_save_to_file");
-    return 0;
+    return set_error_wrong_type("wz_binary_save_to_file");
   }
-  return return_result(
+  return result_void(
       static_cast<wz::WzBinaryProperty*>(p)->SaveToFile(file_path));
 }
 
-// ==================== WzRawDataProperty ====================
-
-size_t wz_rawdata_get_data(wz_property raw_prop,
-                           uint8_t* buffer,
-                           size_t buffer_size) {
+wz_error_code wz_rawdata_get_data(wz_property raw_prop,
+                                  uint8_t* buffer,
+                                  size_t buffer_size,
+                                  size_t* out_size) {
   wz_clear_error();
-  auto* p = unwrap_prop(raw_prop);
-  if (!p) {
-    set_error_null("wz_rawdata_get_data");
-    return 0;
+  if (auto ec = init_out("wz_rawdata_get_data", out_size);
+      ec != WZ_ERROR_NONE) {
+    return ec;
   }
+  auto* p = unwrap_prop(raw_prop);
+  if (!p) return set_error_null("wz_rawdata_get_data");
   if (!p->IsRawDataProperty()) {
-    set_error_wrong_type("wz_rawdata_get_data");
-    return 0;
+    return set_error_wrong_type("wz_rawdata_get_data");
   }
   auto result = static_cast<wz::WzRawDataProperty*>(p)->GetBytes(false);
-  if (!result.is_ok()) {
-    set_error(result.err().code(), result.err().message());
-    return 0;
+  if (result.is_err()) {
+    return set_error(result.err().code(), result.err().message());
   }
   auto& data = result.ok();
+  *out_size = data.size();
   if (buffer && buffer_size >= data.size()) {
     std::memcpy(buffer, data.data(), data.size());
   }
-  return data.size();
+  return WZ_ERROR_NONE;
 }
 
-int wz_rawdata_get_type(wz_property raw_prop) {
+wz_error_code wz_rawdata_get_type(wz_property raw_prop, int* out_type) {
   wz_clear_error();
-  auto* p = unwrap_prop(raw_prop);
-  if (!p) {
-    set_error_null("wz_rawdata_get_type");
-    return 0;
+  if (auto ec = init_out("wz_rawdata_get_type", out_type);
+      ec != WZ_ERROR_NONE) {
+    return ec;
   }
+  auto* p = unwrap_prop(raw_prop);
+  if (!p) return set_error_null("wz_rawdata_get_type");
   if (!p->IsRawDataProperty()) {
-    set_error_wrong_type("wz_rawdata_get_type");
-    return 0;
+    return set_error_wrong_type("wz_rawdata_get_type");
   }
-  return static_cast<int>(static_cast<wz::WzRawDataProperty*>(p)->Type());
+  *out_type = static_cast<int>(static_cast<wz::WzRawDataProperty*>(p)->Type());
+  return WZ_ERROR_NONE;
 }
 
-int wz_rawdata_save_to_file(wz_property raw_prop, const char* file_path) {
+wz_error_code wz_rawdata_save_to_file(wz_property raw_prop,
+                                      const char* file_path) {
   wz_clear_error();
   auto* p = unwrap_prop(raw_prop);
-  if (!p) {
-    set_error_null("wz_rawdata_save_to_file");
-    return 0;
-  }
+  if (!p) return set_error_null("wz_rawdata_save_to_file");
   if (!file_path) {
-    set_error_null("wz_rawdata_save_to_file");
-    return 0;
+    return set_error_invalid_arg("wz_rawdata_save_to_file", "file_path");
   }
   if (!p->IsRawDataProperty()) {
-    set_error_wrong_type("wz_rawdata_save_to_file");
-    return 0;
+    return set_error_wrong_type("wz_rawdata_save_to_file");
   }
-  return return_result(
+  return result_void(
       static_cast<wz::WzRawDataProperty*>(p)->SaveToFile(file_path));
 }
 
-// ==================== WzVideoProperty ====================
-
-size_t wz_video_get_data(wz_property video_prop,
-                         uint8_t* buffer,
-                         size_t buffer_size) {
+wz_error_code wz_video_get_data(wz_property video_prop,
+                                uint8_t* buffer,
+                                size_t buffer_size,
+                                size_t* out_size) {
   wz_clear_error();
+  if (auto ec = init_out("wz_video_get_data", out_size); ec != WZ_ERROR_NONE) {
+    return ec;
+  }
   auto* p = unwrap_prop(video_prop);
-  if (!p) {
-    set_error_null("wz_video_get_data");
-    return 0;
-  }
+  if (!p) return set_error_null("wz_video_get_data");
   if (!p->IsVideoProperty()) {
-    set_error_wrong_type("wz_video_get_data");
-    return 0;
+    return set_error_wrong_type("wz_video_get_data");
   }
-  auto* vp = static_cast<wz::WzVideoProperty*>(p);
-  auto result = vp->GetBytes(false);
-  if (!result.is_ok()) {
-    set_error(result.err().code(), result.err().message());
-    return 0;
+  auto result = static_cast<wz::WzVideoProperty*>(p)->GetBytes(false);
+  if (result.is_err()) {
+    return set_error(result.err().code(), result.err().message());
   }
   auto& data = result.ok();
+  *out_size = data.size();
   if (buffer && buffer_size >= data.size()) {
     std::memcpy(buffer, data.data(), data.size());
   }
-  return data.size();
+  return WZ_ERROR_NONE;
 }
 
-int wz_video_save_to_file(wz_property video_prop, const char* file_path) {
+wz_error_code wz_video_save_to_file(wz_property video_prop,
+                                    const char* file_path) {
   wz_clear_error();
   auto* p = unwrap_prop(video_prop);
-  if (!p) {
-    set_error_null("wz_video_save_to_file");
-    return 0;
-  }
+  if (!p) return set_error_null("wz_video_save_to_file");
   if (!file_path) {
-    set_error_null("wz_video_save_to_file");
-    return 0;
+    return set_error_invalid_arg("wz_video_save_to_file", "file_path");
   }
   if (!p->IsVideoProperty()) {
-    set_error_wrong_type("wz_video_save_to_file");
-    return 0;
+    return set_error_wrong_type("wz_video_save_to_file");
   }
-  auto* vp = static_cast<wz::WzVideoProperty*>(p);
-  return return_result(vp->SaveToFile(file_path));
+  return result_void(
+      static_cast<wz::WzVideoProperty*>(p)->SaveToFile(file_path));
 }
 
-// ==================== Utility ====================
-
-const char* wz_get_error_description(wz_parse_status status) {
+wz_error_code wz_get_error_description(wz_parse_status status,
+                                       const char** out_description) {
   wz_clear_error();
+  if (auto ec = init_out("wz_get_error_description", out_description);
+      ec != WZ_ERROR_NONE) {
+    return ec;
+  }
   static thread_local std::string s;
   s = wz::GetErrorDescription(static_cast<wz::WzFileParseStatus>(status));
-  return s.c_str();
+  *out_description = s.c_str();
+  return WZ_ERROR_NONE;
 }
 
-wz_maple_version wz_detect_maple_version(const char* file_path,
-                                         int16_t* out_version) {
+wz_error_code wz_detect_maple_version(const char* file_path,
+                                      wz_maple_version* out_maple_version,
+                                      int16_t* out_version) {
   wz_clear_error();
+  if (auto ec = init_out("wz_detect_maple_version", out_maple_version);
+      ec != WZ_ERROR_NONE) {
+    return ec;
+  }
+  if (auto ec = init_out("wz_detect_maple_version", out_version);
+      ec != WZ_ERROR_NONE) {
+    return ec;
+  }
   if (!file_path) {
-    set_error(wz::ErrorCode::InvalidArgument,
-              "wz_detect_maple_version: file_path is null");
-    return WZ_UNKNOWN;
+    return set_error_invalid_arg("wz_detect_maple_version", "file_path");
   }
   int16_t ver = 0;
   auto mv = wz::WzTool::DetectMapleVersion(file_path, &ver);
-  if (out_version) *out_version = ver;
-  return static_cast<wz_maple_version>(mv);
+  *out_maple_version = static_cast<wz_maple_version>(mv);
+  *out_version = ver;
+  return WZ_ERROR_NONE;
 }
 
-const uint8_t* wz_get_iv_for_version(wz_maple_version ver) {
+wz_error_code wz_get_iv_for_version(wz_maple_version ver,
+                                    const uint8_t** out_iv) {
   wz_clear_error();
+  if (auto ec = init_out("wz_get_iv_for_version", out_iv);
+      ec != WZ_ERROR_NONE) {
+    return ec;
+  }
   static thread_local std::array<uint8_t, 4> iv;
   iv = wz::WzTool::GetIvByMapleVersion(static_cast<wz::WzMapleVersion>(ver));
-  return iv.data();
+  *out_iv = iv.data();
+  return WZ_ERROR_NONE;
 }
 
 }  // extern "C"
