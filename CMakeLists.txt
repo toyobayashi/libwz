@@ -58,6 +58,8 @@ if(MSVC)
         _CRT_SECURE_NO_DEPRECATE
         _CRT_NONSTDC_NO_DEPRECATE
     )
+elseif(UNIX)
+    target_compile_definitions(zlibstatic PRIVATE HAVE_UNISTD_H)
 endif()
 
 set(WZ_SOURCES
