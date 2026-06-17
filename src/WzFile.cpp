@@ -4,6 +4,7 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <memory>
 #include "wz/Properties/WzCanvasProperty.h"
 #include "wz/Properties/WzConvexProperty.h"
 #include "wz/Properties/WzSubProperty.h"
@@ -51,13 +52,11 @@ WzFile::~WzFile() {
     delete wzDir_;
     wzDir_ = nullptr;
   }
-  if (fileReader_) {
+  if (fileReader_.has_value()) {
     fileReader_->Close();
-    delete fileReader_;
-    fileReader_ = nullptr;
+    fileReader_.reset();
   }
-  delete fileStream_;
-  fileStream_ = nullptr;
+  if (fileStream_.is_open()) fileStream_.close();
   path_.clear();
   name_.clear();
 }
@@ -113,12 +112,11 @@ bool WzFile::TryDecodeWithWZVersionNumber(WzBinaryReader* reader,
   reader->SetHash(versionHash_);
   int64_t fallbackOffsetPosition = reader->Position();
 
-  WzDirectory* testDirectory = nullptr;
-  testDirectory = new WzDirectory(reader, name_, versionHash_, wz_iv_, this);
+  std::unique_ptr<WzDirectory> testDirectory =
+    std::make_unique<WzDirectory>(reader, name_, versionHash_, wz_iv_, this);
   auto parseResult = testDirectory->ParseDirectory();
   if (!parseResult.has_value()) {
     reader->SetPosition(fallbackOffsetPosition);
-    delete testDirectory;
     return false;
   }
 
@@ -131,23 +129,22 @@ bool WzFile::TryDecodeWithWZVersionNumber(WzBinaryReader* reader,
 
     if (checkByte == 0x73 || checkByte == 0x1b) {
       delete wzDir_;
-      wzDir_ = testDirectory;
+      wzDir_ = testDirectory.release();
       return true;
     }
     // C# returns true for any checkByte (0x30, 0x6C, 0xBC, etc.)
     reader->SetPosition(fallbackOffsetPosition);
     delete wzDir_;
-    wzDir_ = testDirectory;
+    wzDir_ = testDirectory.release();
     return true;
   } else {
     // No images - might be Base.wz
     if (Is64BitWzFile() && mapleStoryPatchVersion_ == 113) {
       reader->SetPosition(fallbackOffsetPosition);
-      delete testDirectory;
       return false;
     }
     delete wzDir_;
-    wzDir_ = testDirectory;
+    wzDir_ = testDirectory.release();
     return true;
   }
 }
@@ -157,28 +154,33 @@ WzFileParseStatus WzFile::ParseMainWzDirectory() {
     return WzFileParseStatus::Path_Is_Null;
   }
 
-  fileStream_ = new std::ifstream(wz::to_path(path_), std::ios::binary);
-  if (!fileStream_->is_open()) {
-    delete fileStream_;
-    fileStream_ = nullptr;
+  if (wzDir_) {
+    delete wzDir_;
+    wzDir_ = nullptr;
+  }
+  fileReader_.reset();
+  if (fileStream_.is_open()) fileStream_.close();
+  fileStream_ = std::ifstream(wz::to_path(path_), std::ios::binary);
+  if (!fileStream_.is_open()) {
     return WzFileParseStatus::Failed_Unknown;
   }
 
-  fileReader_ = new WzBinaryReader(fileStream_, wz_iv_);
+  fileReader_.emplace(fileStream_, wz_iv_);
+  WzBinaryReader& fileReader = *fileReader_;
 
-  header_.SetIdent(fileReader_->ReadString(4));
-  header_.SetFSize(fileReader_->ReadUInt64());
-  header_.SetFStart(fileReader_->ReadUInt32());
+  header_.SetIdent(fileReader.ReadString(4));
+  header_.SetFSize(fileReader.ReadUInt64());
+  header_.SetFStart(fileReader.ReadUInt32());
   header_.SetCopyright(
-      fileReader_->ReadString(static_cast<size_t>(header_.FStart() - 17U)));
+      fileReader.ReadString(static_cast<size_t>(header_.FStart() - 17U)));
 
-  fileReader_->ReadByte();  // unk1
-  fileReader_->ReadBytes(static_cast<int>(
-      header_.FStart() - static_cast<uint64_t>(fileReader_->Position())));
-  fileReader_->SetHeader(&header_);
+  fileReader.ReadByte();  // unk1
+  fileReader.ReadBytes(static_cast<int>(
+      header_.FStart() - static_cast<uint64_t>(fileReader.Position())));
+  fileReader.SetHeader(&header_);
 
-  Check64BitClient(fileReader_);
-  wzVersionHeader_ = wz_withEncryptVersionHeader_ ? fileReader_->ReadUInt16()
+  Check64BitClient(&fileReader);
+  wzVersionHeader_ = wz_withEncryptVersionHeader_ ? fileReader.ReadUInt16()
                                                   : wzVersionHeader64bit_start;
 
   if (mapleStoryPatchVersion_ == -1) {
@@ -187,7 +189,7 @@ WzFileParseStatus WzFile::ParseMainWzDirectory() {
       for (uint16_t v = wzVersionHeader64bit_start;
            v < wzVersionHeader64bit_start + 10;
            v++) {
-        if (TryDecodeWithWZVersionNumber(fileReader_, wzVersionHeader_, v)) {
+        if (TryDecodeWithWZVersionNumber(&fileReader, wzVersionHeader_, v)) {
           return WzFileParseStatus::Success;
         }
       }
@@ -195,7 +197,7 @@ WzFileParseStatus WzFile::ParseMainWzDirectory() {
     // Brute-force versions
     const int16_t MAX_PATCH_VERSION = 2000;
     for (int j = 0; j < MAX_PATCH_VERSION; j++) {
-      if (TryDecodeWithWZVersionNumber(fileReader_, wzVersionHeader_, j)) {
+      if (TryDecodeWithWZVersionNumber(&fileReader, wzVersionHeader_, j)) {
         return WzFileParseStatus::Success;
       }
     }
@@ -203,9 +205,9 @@ WzFileParseStatus WzFile::ParseMainWzDirectory() {
   } else {
     versionHash_ =
         CheckAndGetVersionHash(wzVersionHeader_, mapleStoryPatchVersion_);
-    fileReader_->SetHash(versionHash_);
+    fileReader.SetHash(versionHash_);
 
-    wzDir_ = new WzDirectory(fileReader_, name_, versionHash_, wz_iv_, this);
+    wzDir_ = new WzDirectory(&fileReader, name_, versionHash_, wz_iv_, this);
     auto parseResult = wzDir_->ParseDirectory();
     if (!parseResult.has_value()) {
       delete wzDir_;

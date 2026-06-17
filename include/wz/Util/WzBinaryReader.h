@@ -16,7 +16,7 @@ namespace wz {
 
 class WzBinaryReader {
  public:
-  WzBinaryReader(std::ifstream* input,
+  WzBinaryReader(std::ifstream& input,
                  const std::array<uint8_t, 4>& WzIv,
                  int64_t startOffset = 0);
   ~WzBinaryReader();

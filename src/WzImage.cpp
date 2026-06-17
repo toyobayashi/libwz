@@ -26,7 +26,7 @@ WzImage::WzImage(const std::string& name,
     : dataStream_(std::move(dataStream)), properties_(this) {
   SetName(name);
   auto iv = WzTool::GetIvByMapleVersion(mapleVersion);
-  ownedReader_.emplace(&dataStream_, iv);
+  ownedReader_.emplace(dataStream_, iv);
   reader_ = &ownedReader_.value();
 }
 

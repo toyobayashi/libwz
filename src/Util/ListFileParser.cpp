@@ -19,7 +19,7 @@ std::vector<std::string> ListFileParser::ParseListFile(
   std::ifstream fs(wz::to_path(filePath), std::ios::binary);
   if (!fs.is_open()) return listEntries;
 
-  WzBinaryReader reader(&fs, WzIv);
+  WzBinaryReader reader(fs, WzIv);
 
   while (reader.BaseStream().peek() != std::char_traits<char>::eof()) {
     int32_t len = reader.ReadInt32();

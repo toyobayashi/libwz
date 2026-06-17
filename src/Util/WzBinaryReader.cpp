@@ -26,10 +26,10 @@ static std::string Utf16ToUtf8(const std::u16string& utf16) {
   return result;
 }
 
-WzBinaryReader::WzBinaryReader(std::ifstream* input,
+WzBinaryReader::WzBinaryReader(std::ifstream& input,
                                const std::array<uint8_t, 4>& WzIv,
                                int64_t startOffset)
-    : input_(input),
+    : input_(&input),
       wzKey_(WzKeyGenerator::GenerateWzKey(WzIv)),
       startOffset_(startOffset) {}
 

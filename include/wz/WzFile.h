@@ -1,18 +1,20 @@
 #ifndef WZ_WZFILE_H_
 #define WZ_WZFILE_H_
 #include <array>
+#include <fstream>
 #include <memory>
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <vector>
 #include "wz/Util/Defines.h"
+#include "wz/Util/WzBinaryReader.h"
 #include "wz/WzEnums.h"
 #include "wz/WzHeader.h"
 #include "wz/WzObject.h"
 
 namespace wz {
 
-class WzBinaryReader;
 class WzDirectory;
 class IPropertyContainer;
 
@@ -57,8 +59,8 @@ class WzFile final : public WzObject {
 
   std::string path_;
   WzDirectory* wzDir_ = nullptr;
-  WzBinaryReader* fileReader_ = nullptr;
-  std::ifstream* fileStream_ = nullptr;
+  std::ifstream fileStream_;
+  std::optional<WzBinaryReader> fileReader_;
   WzHeader header_;
   uint16_t wzVersionHeader_ = 0;
   uint32_t versionHash_ = 0;
