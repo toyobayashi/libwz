@@ -1,9 +1,11 @@
 #include "wz/Properties/WzPngProperty.h"
 #include <zlib.h>
 #include <algorithm>
+#include <array>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <mutex>
 #include "wz/PngUtility.h"
 #include "wz/Util/WzBinaryReader.h"
 #include "wz/Util/WzPath.h"
@@ -13,25 +15,25 @@ namespace wz {
 
 namespace {
 
-static bool png_crc32_table_initialized = false;
-static uint32_t png_crc32_table[256];
-
-static void PngCrc32Init() {
-  if (png_crc32_table_initialized) return;
-  for (uint32_t i = 0; i < 256; i++) {
-    uint32_t crc = i;
-    for (int j = 0; j < 8; j++)
-      crc = (crc >> 1) ^ ((crc & 1) ? 0xEDB88320u : 0);
-    png_crc32_table[i] = crc;
-  }
-  png_crc32_table_initialized = true;
+static const std::array<uint32_t, 256>& PngCrc32Table() {
+  static const std::array<uint32_t, 256> table = [] {
+    std::array<uint32_t, 256> result{};
+    for (uint32_t i = 0; i < result.size(); i++) {
+      uint32_t crc = i;
+      for (int j = 0; j < 8; j++)
+        crc = (crc >> 1) ^ ((crc & 1) ? 0xEDB88320u : 0);
+      result[i] = crc;
+    }
+    return result;
+  }();
+  return table;
 }
 
 static uint32_t PngCrc32(const uint8_t* data, size_t len) {
-  PngCrc32Init();
+  const auto& table = PngCrc32Table();
   uint32_t crc = 0xFFFFFFFFu;
   for (size_t i = 0; i < len; i++)
-    crc = png_crc32_table[(crc ^ data[i]) & 0xFF] ^ (crc >> 8);
+    crc = table[(crc ^ data[i]) & 0xFF] ^ (crc >> 8);
   return crc ^ 0xFFFFFFFFu;
 }
 
@@ -111,6 +113,9 @@ int WzPngProperty::GetUncompressedSize() const {
 
 Result<std::vector<uint8_t>> WzPngProperty::GetCompressedBytes(
     bool saveInMemory) {
+  std::unique_lock<std::recursive_mutex> lock;
+  if (wzReader_)
+    lock = std::unique_lock<std::recursive_mutex>(wzReader_->Mutex());
   if (compressedImageBytes_.empty()) {
     if (!wzReader_) {
       return std::unexpected(
@@ -174,6 +179,7 @@ Result<std::vector<uint8_t>> WzPngProperty::GetRawImage(bool saveInMemory) {
 
     std::vector<uint8_t> decryptedData;
     size_t pos = 0;
+    std::lock_guard<std::recursive_mutex> lock(wzReader_->Mutex());
     auto& wzKey = wzReader_->GetWzKey();
 
     while (pos < rawBytes.size()) {
@@ -346,6 +352,9 @@ Result<void> WzPngProperty::ParsePng(bool saveInMemory) {
 }
 
 Result<std::vector<uint8_t>> WzPngProperty::GetImage(bool saveInMemory) {
+  std::unique_lock<std::recursive_mutex> lock;
+  if (wzReader_)
+    lock = std::unique_lock<std::recursive_mutex>(wzReader_->Mutex());
   if (pngData_.empty()) {
     auto parseResult = ParsePng(saveInMemory);
     if (!parseResult.has_value()) return std::unexpected(parseResult.error());

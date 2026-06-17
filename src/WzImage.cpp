@@ -1,5 +1,6 @@
 #include "wz/WzImage.h"
 #include <algorithm>
+#include <mutex>
 #include <utility>
 #include "wz/Properties/WzLuaProperty.h"
 #include "wz/Util/WzBinaryReader.h"
@@ -160,6 +161,9 @@ Result<bool> WzImage::ParseImage() {
     return true;
   }
   if (!reader_) return false;
+
+  std::lock_guard<std::recursive_mutex> lock(reader_->Mutex());
+  if (Parsed()) return true;
 
   // int64_t originalPos = reader_->Position();
   reader_->SetPosition(offset_);

@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <filesystem>
 #include <fstream>
+#include <mutex>
 #include "wz/Util/WzBinaryReader.h"
 #include "wz/Util/WzPath.h"
 
@@ -59,6 +60,10 @@ Result<std::vector<uint8_t>> WzVideoProperty::GetBytes() {
 }
 
 Result<std::vector<uint8_t>> WzVideoProperty::GetBytes(bool saveInMemory) {
+  std::unique_lock<std::recursive_mutex> lock;
+  if (wzReader_) {
+    lock = std::unique_lock<std::recursive_mutex>(wzReader_->Mutex());
+  }
   if (!bytes_.empty()) return bytes_;
   if (!wzReader_)
     return std::unexpected(Error::DataError("No reader for video property"));

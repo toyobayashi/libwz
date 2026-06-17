@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <fstream>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <vector>
 #include "wz/Result.h"
@@ -25,6 +26,7 @@ class WzBinaryReader {
   WzBinaryReader& operator=(WzBinaryReader&& other) noexcept;
 
   WzMutableKey& GetWzKey() { return wzKey_; }
+  std::recursive_mutex& Mutex() const { return mutex_; }
   uint32_t Hash() const { return hash_; }
   void SetHash(uint32_t h) { hash_ = h; }
   WzHeader* GetHeader() { return header_; }
@@ -77,6 +79,7 @@ class WzBinaryReader {
   uint32_t hash_ = 0;
   WzHeader* header_ = nullptr;
   int64_t startOffset_ = 0;
+  mutable std::recursive_mutex mutex_;
 
   std::string DecodeUnicode(int length);
   std::string DecodeAscii(int length);
