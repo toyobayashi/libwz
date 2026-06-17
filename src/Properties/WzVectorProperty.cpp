@@ -2,11 +2,6 @@
 
 namespace wz {
 
-WzVectorProperty::~WzVectorProperty() {
-  delete X;
-  X = nullptr;
-  delete Y;
-  Y = nullptr;
-}
+WzVectorProperty::~WzVectorProperty() = default;
 
 }  // namespace wz

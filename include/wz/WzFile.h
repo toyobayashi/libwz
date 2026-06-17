@@ -9,13 +9,13 @@
 #include <vector>
 #include "wz/Util/Defines.h"
 #include "wz/Util/WzBinaryReader.h"
+#include "wz/WzDirectory.h"
 #include "wz/WzEnums.h"
 #include "wz/WzHeader.h"
 #include "wz/WzObject.h"
 
 namespace wz {
 
-class WzDirectory;
 class IPropertyContainer;
 
 class WzFile final : public WzObject {
@@ -35,8 +35,10 @@ class WzFile final : public WzObject {
   void SetParent(WzObject*) override {}
   WzFile* WzFileParent() const override { return const_cast<WzFile*>(this); }
 
-  WzDirectory* GetWzDirectory() const { return wzDir_; }
-  void SetWzDirectory(WzDirectory* dir) { wzDir_ = dir; }
+  WzDirectory* GetWzDirectory() const { return wzDir_.get(); }
+  void SetWzDirectory(std::unique_ptr<WzDirectory> dir) {
+    wzDir_ = std::move(dir);
+  }
 
   WzHeader* Header() { return &header_; }
   short Version() const { return mapleStoryPatchVersion_; }
@@ -58,7 +60,7 @@ class WzFile final : public WzObject {
   static constexpr uint16_t wzVersionHeader64bit_start = 770;
 
   std::string path_;
-  WzDirectory* wzDir_ = nullptr;
+  std::unique_ptr<WzDirectory> wzDir_;
   std::ifstream fileStream_;
   std::optional<WzBinaryReader> fileReader_;
   WzHeader header_;

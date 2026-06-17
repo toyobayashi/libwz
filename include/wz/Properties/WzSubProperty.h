@@ -16,7 +16,9 @@ class WzSubProperty : public WzImageProperty, public IPropertyContainer {
     return WzPropertyType::SubProperty;
   }
   WzPropertyCollection* WzProperties() override { return &properties_; }
+  using IPropertyContainer::AddProperty;
   void AddProperty(WzImageProperty* prop) override;
+  void AddProperty(std::unique_ptr<WzImageProperty> prop) override;
   void RemoveProperty(const std::string& propertyName) override;
   void RemoveProperty(WzImageProperty* prop) override;
   void ClearProperties() override;

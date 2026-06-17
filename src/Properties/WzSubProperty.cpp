@@ -10,23 +10,21 @@ WzSubProperty::WzSubProperty(const std::string& name) : properties_(this) {
   SetName(name);
 }
 
-WzSubProperty::~WzSubProperty() {
-  for (auto* prop : properties_) {
-    delete prop;
-  }
-  properties_.clear();
-}
+WzSubProperty::~WzSubProperty() = default;
 
 void WzSubProperty::AddProperty(WzImageProperty* prop) {
+  AddProperty(std::unique_ptr<WzImageProperty>(prop));
+}
+
+void WzSubProperty::AddProperty(std::unique_ptr<WzImageProperty> prop) {
   prop->SetParent(this);
-  properties_.Add(prop);
+  properties_.Add(std::move(prop));
 }
 
 void WzSubProperty::RemoveProperty(const std::string& propertyName) {
   for (size_t i = 0; i < properties_.size(); i++) {
     if (properties_[i]->Name() == propertyName) {
-      delete properties_[i];
-      properties_.erase(properties_.begin() + i);
+      properties_.erase_at(i);
       return;
     }
   }
@@ -36,14 +34,10 @@ void WzSubProperty::RemoveProperty(WzImageProperty* prop) {
   auto it = std::find(properties_.begin(), properties_.end(), prop);
   if (it != properties_.end()) {
     properties_.erase(it);
-    delete prop;
   }
 }
 
 void WzSubProperty::ClearProperties() {
-  for (auto* prop : properties_) {
-    delete prop;
-  }
   properties_.clear();
 }
 

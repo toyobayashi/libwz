@@ -39,10 +39,8 @@ class WzDirectory final : public WzObject {
   int64_t Offset() const { return offset_; }
   void SetOffset(int64_t v) { offset_ = v; }
 
-  std::vector<WzImage*>& WzImages() { return images_; }
-  const std::vector<WzImage*>& WzImages() const { return images_; }
-  std::vector<WzDirectory*>& WzDirectories() { return subDirs_; }
-  const std::vector<WzDirectory*>& WzDirectories() const { return subDirs_; }
+  std::vector<WzImage*> WzImages() const;
+  std::vector<WzDirectory*> WzDirectories() const;
 
   WzBinaryReader* Reader() const { return reader_; }
   void SetWzFile(WzFile* f) { wzFile_ = f; }
@@ -67,8 +65,8 @@ class WzDirectory final : public WzObject {
   void SetHash(uint32_t h) { hash_ = h; }
 
  private:
-  std::vector<WzImage*> images_;
-  std::vector<WzDirectory*> subDirs_;
+  std::vector<std::unique_ptr<WzImage>> images_;
+  std::vector<std::unique_ptr<WzDirectory>> subDirs_;
   WzBinaryReader* reader_ = nullptr;
   int64_t offset_ = 0;
   uint32_t hash_ = 0;

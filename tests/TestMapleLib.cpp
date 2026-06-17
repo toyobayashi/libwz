@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 #include <filesystem>
 #include <fstream>
+#include <memory>
 #include <vector>
 #include "wz/CRC32.h"
 #include "wz/Properties/WzCanvasProperty.h"
@@ -45,18 +46,16 @@ TEST(WzToolTest, GetIvByMapleVersion) {
 
 TEST(WzImageTest, AddPropertyRejectsDuplicateNameCaseInsensitive) {
   wz::WzImage image("Test.img");
-  auto* first = new wz::WzIntProperty("dup", 1);
-  auto* duplicate = new wz::WzIntProperty("DUP", 2);
+  auto first = std::make_unique<wz::WzIntProperty>("dup", 1);
+  auto* firstPtr = first.get();
+  auto duplicate = std::make_unique<wz::WzIntProperty>("DUP", 2);
 
-  image.AddProperty(first);
-  image.AddProperty(duplicate);
+  image.AddProperty(std::move(first));
+  image.AddProperty(std::move(duplicate));
 
   EXPECT_EQ(image.WzProperties()->size(), 1u);
-  EXPECT_EQ((*image.WzProperties())[0], first);
-  EXPECT_EQ(first->Parent(), &image);
-  EXPECT_EQ(duplicate->Parent(), nullptr);
-
-  delete duplicate;
+  EXPECT_EQ((*image.WzProperties())[0], firstPtr);
+  EXPECT_EQ(firstPtr->Parent(), &image);
 }
 
 TEST(WzImageTest, ParseImagePreservesNestedParseError) {
@@ -87,8 +86,7 @@ TEST(WzImageTest, ParseImagePreservesNestedParseError) {
 
   {
     std::ifstream stream(path, std::ios::binary);
-    wz::WzImage image("bad.img", std::move(stream),
-        wz::WzMapleVersion::GMS);
+    wz::WzImage image("bad.img", std::move(stream), wz::WzMapleVersion::GMS);
     auto result = image.ParseImage();
 
     ASSERT_FALSE(result.has_value());
@@ -117,34 +115,37 @@ TEST(WzPropertyTypeTest, RawDataAndVideoKeepRawTypeWithDistinctSubtypes) {
 
 TEST(WzPropertyPathTest, CanvasGetFromPathMatchesMapleLib) {
   wz::WzCanvasProperty canvas("canvas");
-  auto* child = new wz::WzStringProperty("child", "value");
-  auto* png = new wz::WzPngProperty();
+  auto child = std::make_unique<wz::WzStringProperty>("child", "value");
+  auto* childPtr = child.get();
+  auto png = std::make_unique<wz::WzPngProperty>();
+  auto* pngPtr = png.get();
 
-  canvas.AddProperty(child);
-  canvas.SetPngProperty(png);
+  canvas.AddProperty(std::move(child));
+  canvas.SetPngProperty(std::move(png));
 
-  EXPECT_EQ(canvas.GetFromPath("child"), child);
-  EXPECT_EQ(canvas.GetFromPath("PNG"), png);
+  EXPECT_EQ(canvas.GetFromPath("child"), childPtr);
+  EXPECT_EQ(canvas.GetFromPath("PNG"), pngPtr);
   EXPECT_EQ(canvas.GetFromPath("missing"), nullptr);
 }
 
 TEST(WzPropertyPathTest, ConvexGetFromPathMatchesMapleLib) {
   wz::WzConvexProperty convex("convex");
-  auto* child = new wz::WzStringProperty("child", "value");
+  auto child = std::make_unique<wz::WzStringProperty>("child", "value");
+  auto* childPtr = child.get();
 
-  convex.AddProperty(child);
+  convex.AddProperty(std::move(child));
 
-  EXPECT_EQ(convex.GetFromPath("child"), child);
+  EXPECT_EQ(convex.GetFromPath("child"), childPtr);
   EXPECT_EQ(convex.GetFromPath("missing"), nullptr);
 }
 
 TEST(WzImagePathTest, ScalarIntermediateDoesNotFallBackToRoot) {
   wz::WzImage image("Test.img");
-  auto* scalar = new wz::WzStringProperty("scalar", "value");
-  auto* other = new wz::WzStringProperty("other", "wrong");
+  auto scalar = std::make_unique<wz::WzStringProperty>("scalar", "value");
+  auto other = std::make_unique<wz::WzStringProperty>("other", "wrong");
 
-  image.AddProperty(scalar);
-  image.AddProperty(other);
+  image.AddProperty(std::move(scalar));
+  image.AddProperty(std::move(other));
 
   EXPECT_EQ(image.GetFromPath("scalar/other"), nullptr);
 }
@@ -174,16 +175,19 @@ TEST(WzStringPropertyTest, SaveToFileAllowsPathWithoutParentDirectory) {
 
 TEST(WzUOLPropertyTest, LeadingParentSegmentMatchesMapleLibResolution) {
   wz::WzImage image("Test.img");
-  auto* target = new wz::WzStringProperty("target", "hit");
-  auto* container = new wz::WzSubProperty("container");
-  auto* link = new wz::WzUOLProperty("link", "../target");
+  auto target = std::make_unique<wz::WzStringProperty>("target", "hit");
+  auto* targetPtr = target.get();
+  auto container = std::make_unique<wz::WzSubProperty>("container");
+  auto* containerPtr = container.get();
+  auto link = std::make_unique<wz::WzUOLProperty>("link", "../target");
+  auto* linkPtr = link.get();
 
-  image.AddProperty(target);
-  image.AddProperty(container);
-  container->AddProperty(link);
+  image.AddProperty(std::move(target));
+  image.AddProperty(std::move(container));
+  containerPtr->AddProperty(std::move(link));
 
-  EXPECT_EQ(link->LinkValue(), target);
-  EXPECT_EQ(link->GetString(), "hit");
+  EXPECT_EQ(linkPtr->LinkValue(), targetPtr);
+  EXPECT_EQ(linkPtr->GetString(), "hit");
 }
 
 TEST(WzFileManagerTest, LoadWzFile) {

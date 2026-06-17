@@ -1,6 +1,7 @@
 #include <cstdio>
 #include <filesystem>
 #include <iostream>
+#include <memory>
 #include <string>
 #include "wz/wz.h"
 
@@ -25,8 +26,8 @@ int main() {
 
   bool isStandalone =
       false;  // Set to true if loading single file without directory structure
-  wz::WzFileManager* manager =
-      new wz::WzFileManager(BASE_MAPLE_DIR.string(), isStandalone);
+  auto manager = std::make_unique<wz::WzFileManager>(BASE_MAPLE_DIR.string(),
+                                                     isStandalone);
   manager->BuildWzFileList();  // Scans and builds list of available .wz files
   const auto& map = manager->GetWzFilesList();
   for (const auto& [baseName, fileList] : map) {
@@ -38,10 +39,8 @@ int main() {
 
   auto filePath = (BASE_MAPLE_DIR / "UI.wz").string();
   auto wzFileResult = manager->LoadWzFile("UI.wz", version);
-  EXPECT_OK(wzFileResult.has_value(),
-            "Failed to load WzFile: %s",
-            filePath.c_str());
-  // wz::WzFile* wzFile = new wz::WzFile(filePath, version);
+  EXPECT_OK(
+      wzFileResult.has_value(), "Failed to load WzFile: %s", filePath.c_str());
   wz::WzFile* wzFile = wzFileResult.value();
   EXPECT_OK(wzFile->ParseWzFile() == wz::WzFileParseStatus::Success,
             "Failed to parse .wz file: %s",
@@ -85,12 +84,12 @@ int main() {
   manager->UnloadWzFile(wzFile);
 
   filePath = (BASE_MAPLE_DIR / "Sound.wz").string();
-  wzFile = new wz::WzFile(filePath, version);
-  EXPECT_OK(wzFile->ParseWzFile() == wz::WzFileParseStatus::Success,
+  wz::WzFile soundFile(filePath, version);
+  EXPECT_OK(soundFile.ParseWzFile() == wz::WzFileParseStatus::Success,
             "Failed to parse .wz file: %s",
             filePath.c_str());
 
-  img = wzFile->GetWzDirectory()->GetImageByName("Bgm00.img");
+  img = soundFile.GetWzDirectory()->GetImageByName("Bgm00.img");
   EXPECT_OK(img, "Failed to find image 'Bgm00' in file: %s", filePath.c_str());
 
   wz::WzBinaryProperty* sound =
@@ -110,8 +109,6 @@ int main() {
                 prop->Name().c_str());
     }
   }
-  manager->UnloadWzFile(wzFile);
-
   // --- Export Mob.wz canvas images ---
   std::filesystem::create_directories("tmp");
   auto exportMobCanvas = [&](const std::string& imgName,
@@ -142,7 +139,5 @@ int main() {
   exportMobCanvas("1210101.img", "stand/0", "tmp/1210101_stand_0.png");
   exportMobCanvas("8220004.img", "stand/0", "tmp/8220004_stand_0.png");
 
-  delete wzFile;
-  delete manager;
   return 0;
 }

@@ -1,5 +1,6 @@
 #ifndef WZ_WZIMAGEPROPERTY_H_
 #define WZ_WZIMAGEPROPERTY_H_
+#include <concepts>
 #include <memory>
 #include <string>
 #include <vector>
@@ -15,11 +16,18 @@ class WzBinaryReader;
 class WzBinaryWriter;
 class WzImage;
 class WzFile;
+class WzImageProperty;
 
 class IPropertyContainer {
  public:
   virtual ~IPropertyContainer() = default;
   virtual void AddProperty(WzImageProperty* prop) = 0;
+  virtual void AddProperty(std::unique_ptr<WzImageProperty> prop) = 0;
+  template <typename T>
+    requires std::derived_from<T, WzImageProperty>
+  void AddProperty(std::unique_ptr<T> prop) {
+    AddProperty(std::unique_ptr<WzImageProperty>(std::move(prop)));
+  }
   virtual void AddProperties(WzPropertyCollection& props);
   virtual void RemoveProperty(const std::string& propertyName) = 0;
   virtual void RemoveProperty(WzImageProperty* prop) = 0;
@@ -58,11 +66,12 @@ class WzImageProperty : public WzObject {
                                                         WzBinaryReader* reader,
                                                         WzObject* parent,
                                                         WzImage* parentImg);
-  static Result<WzImageProperty*> ParseExtendedProp(int64_t offset,
-                                                    WzBinaryReader* reader,
-                                                    const std::string& name,
-                                                    WzObject* parent,
-                                                    WzImage* parentImg);
+  static Result<std::unique_ptr<WzImageProperty>> ParseExtendedProp(
+      int64_t offset,
+      WzBinaryReader* reader,
+      const std::string& name,
+      WzObject* parent,
+      WzImage* parentImg);
 };
 
 }  // namespace wz

@@ -82,8 +82,8 @@ void WzImageProperty::SetValue(const std::vector<uint8_t>& value) {
 }
 
 void IPropertyContainer::AddProperties(WzPropertyCollection& props) {
-  for (auto* prop : props) {
-    AddProperty(prop);
+  for (auto& prop : props.TakeItems()) {
+    AddProperty(std::move(prop));
   }
 }
 
@@ -94,12 +94,10 @@ Result<WzPropertyCollection> WzImageProperty::ParsePropertyList(
     WzImage* parentImg) {
   int entryCount = reader->ReadCompressedInt();
   WzPropertyCollection properties(parent);
-  std::vector<std::unique_ptr<WzImageProperty>> ownedProperties;
 
   auto addOwnedProperty = [&](std::unique_ptr<WzImageProperty> prop) {
     prop->SetParent(parent);
-    properties.Add(prop.get());
-    ownedProperties.push_back(std::move(prop));
+    properties.Add(std::move(prop));
   };
 
   for (int i = 0; i < entryCount; i++) {
@@ -149,7 +147,7 @@ Result<WzPropertyCollection> WzImageProperty::ParsePropertyList(
         auto exProp =
             ParseExtendedProp(offset, reader, name, parent, parentImg);
         if (!exProp.has_value()) return std::unexpected(exProp.error());
-        addOwnedProperty(std::unique_ptr<WzImageProperty>(exProp.value()));
+        addOwnedProperty(std::move(exProp.value()));
         if (reader->Position() != eob) {
           reader->SetPosition(eob);
         }
@@ -161,13 +159,10 @@ Result<WzPropertyCollection> WzImageProperty::ParsePropertyList(
             std::to_string(ptype)));
     }
   }
-  for (auto& prop : ownedProperties) {
-    prop.release();
-  }
   return properties;
 }
 
-Result<WzImageProperty*> WzImageProperty::ParseExtendedProp(
+Result<std::unique_ptr<WzImageProperty>> WzImageProperty::ParseExtendedProp(
     int64_t offset,
     WzBinaryReader* reader,
     const std::string& name,
@@ -195,8 +190,8 @@ Result<WzImageProperty*> WzImageProperty::ParseExtendedProp(
     reader->SetPosition(reader->Position() + 2);
     auto r = ParsePropertyList(offset, reader, subProp.get(), parentImg);
     if (!r.has_value()) return std::unexpected(r.error());
-    for (auto* p : r.value()) subProp->AddProperty(p);
-    return subProp.release();
+    subProp->AddProperties(r.value());
+    return subProp;
   } else if (iname == "Canvas") {
     auto canvasProp = std::make_unique<WzCanvasProperty>(name);
     canvasProp->SetParent(parent);
@@ -205,21 +200,23 @@ Result<WzImageProperty*> WzImageProperty::ParseExtendedProp(
       reader->SetPosition(reader->Position() + 2);
       auto r = ParsePropertyList(offset, reader, canvasProp.get(), parentImg);
       if (!r.has_value()) return std::unexpected(r.error());
-      for (auto* p : r.value()) canvasProp->AddProperty(p);
+      canvasProp->AddProperties(r.value());
     }
     auto png =
         std::make_unique<WzPngProperty>(reader, parentImg->ParseEverything());
     png->SetParent(canvasProp.get());
-    canvasProp->SetPngProperty(png.release());
-    return canvasProp.release();
+    canvasProp->SetPngProperty(std::move(png));
+    return canvasProp;
   } else if (iname == "Shape2D#Vector2D") {
     auto vecProp = std::make_unique<WzVectorProperty>(name);
     vecProp->SetParent(parent);
-    vecProp->X = new WzIntProperty("X", reader->ReadCompressedInt());
+    vecProp->X =
+        std::make_unique<WzIntProperty>("X", reader->ReadCompressedInt());
     vecProp->X->SetParent(vecProp.get());
-    vecProp->Y = new WzIntProperty("Y", reader->ReadCompressedInt());
+    vecProp->Y =
+        std::make_unique<WzIntProperty>("Y", reader->ReadCompressedInt());
     vecProp->Y->SetParent(vecProp.get());
-    return vecProp.release();
+    return vecProp;
   } else if (iname == "Shape2D#Convex2D") {
     auto convexProp = std::make_unique<WzConvexProperty>(name);
     convexProp->SetParent(parent);
@@ -230,14 +227,14 @@ Result<WzImageProperty*> WzImageProperty::ParseExtendedProp(
       if (!entryProp.has_value()) {
         return std::unexpected(entryProp.error());
       }
-      convexProp->AddProperty(entryProp.value());
+      convexProp->AddProperty(std::move(entryProp.value()));
     }
-    return convexProp.release();
+    return convexProp;
   } else if (iname == "Sound_DX8") {
     auto soundProp = std::make_unique<WzBinaryProperty>(
         name, reader, parentImg->ParseEverything());
     soundProp->SetParent(parent);
-    return soundProp.release();
+    return soundProp;
   } else if (iname == "UOL") {
     reader->ReadByte();
     uint8_t uolType = reader->ReadByte();
@@ -245,12 +242,12 @@ Result<WzImageProperty*> WzImageProperty::ParseExtendedProp(
       auto uolProp =
           std::make_unique<WzUOLProperty>(name, reader->ReadString());
       uolProp->SetParent(parent);
-      return uolProp.release();
+      return uolProp;
     } else if (uolType == 1) {
       auto uolProp = std::make_unique<WzUOLProperty>(
           name, reader->ReadStringAtOffset(offset + reader->ReadInt32()));
       uolProp->SetParent(parent);
-      return uolProp.release();
+      return uolProp;
     }
     return std::unexpected(Error::ParseError("Unsupported UOL type"));
   } else if (iname == WzRawDataProperty::RAW_DATA_HEADER) {
@@ -262,11 +259,11 @@ Result<WzImageProperty*> WzImageProperty::ParseExtendedProp(
         reader->SetPosition(reader->Position() + 2);
         auto r = ParsePropertyList(offset, reader, rawProp.get(), parentImg);
         if (!r.has_value()) return std::unexpected(r.error());
-        for (auto* p : r.value()) rawProp->AddProperty(p);
+        rawProp->AddProperties(r.value());
       }
     }
     rawProp->Parse(parentImg->ParseEverything());
-    return rawProp.release();
+    return rawProp;
   } else if (iname == WzVideoProperty::CANVAS_VIDEO_HEADER) {
     auto videoProp = std::make_unique<WzVideoProperty>(name, reader);
     videoProp->SetParent(parent);
@@ -275,10 +272,10 @@ Result<WzImageProperty*> WzImageProperty::ParseExtendedProp(
       reader->SetPosition(reader->Position() + 2);
       auto r = ParsePropertyList(offset, reader, videoProp.get(), parentImg);
       if (!r.has_value()) return std::unexpected(r.error());
-      for (auto* p : r.value()) videoProp->AddProperty(p);
+      videoProp->AddProperties(r.value());
     }
     videoProp->Parse(parentImg->ParseEverything());
-    return videoProp.release();
+    return videoProp;
   } else {
     return std::unexpected(Error::ParseError("Unknown iname: " + iname));
   }

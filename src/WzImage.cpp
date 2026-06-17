@@ -32,9 +32,6 @@ WzImage::WzImage(const std::string& name,
 
 WzImage::~WzImage() {
   name_.clear();
-  for (auto* prop : properties_) {
-    delete prop;
-  }
   properties_.clear();
   ownedReader_.reset();
   reader_ = nullptr;
@@ -72,6 +69,10 @@ Result<WzPropertyCollection*> WzImage::WzPropertiesResult() {
 }
 
 void WzImage::AddProperty(WzImageProperty* prop) {
+  AddProperty(std::unique_ptr<WzImageProperty>(prop));
+}
+
+void WzImage::AddProperty(std::unique_ptr<WzImageProperty> prop) {
   // Check for duplicate name (case-insensitive) matching C#
   auto existing = GetPropertyByName(prop->Name());
   if (existing.has_value() && existing.value() != nullptr) {
@@ -79,7 +80,7 @@ void WzImage::AddProperty(WzImageProperty* prop) {
   }
   auto parseResult = EnsureParsed();
   if (!parseResult.has_value()) return;
-  properties_.Add(prop);
+  properties_.Add(std::move(prop));
   SetChanged(true);
 }
 
@@ -100,14 +101,10 @@ void WzImage::RemoveProperty(WzImageProperty* prop) {
   auto parseResult = EnsureParsed();
   if (!parseResult.has_value()) return;
   properties_.erase(it);
-  delete prop;
   SetChanged(true);
 }
 
 void WzImage::ClearProperties() {
-  for (auto* prop : properties_) {
-    delete prop;
-  }
   properties_.clear();
   SetChanged(true);
 }
@@ -173,9 +170,9 @@ Result<bool> WzImage::ParseImage() {
       if (IsLuaWzImage()) {
         int length = reader_->ReadCompressedInt();
         auto rawEncBytes = reader_->ReadBytes(length);
-        auto* lua = new WzLuaProperty("Script", rawEncBytes);
+        auto lua = std::make_unique<WzLuaProperty>("Script", rawEncBytes);
         lua->SetParent(this);
-        properties_.Add(lua);
+        properties_.Add(std::move(lua));
         parsed_ = true;
         return true;
       }
@@ -191,8 +188,8 @@ Result<bool> WzImage::ParseImage() {
 
   auto r = WzImageProperty::ParsePropertyList(offset_, reader_, this, this);
   if (!r.has_value()) return std::unexpected(r.error());
-  for (auto* p : r.value()) {
-    properties_.Add(p);
+  for (auto& prop : r.value().TakeItems()) {
+    properties_.Add(std::move(prop));
   }
   parsed_ = true;
   return true;

@@ -22,14 +22,22 @@ WzDirectory::WzDirectory(WzBinaryReader* reader,
 WzDirectory::~WzDirectory() {
   name_.clear();
   reader_ = nullptr;
-  for (auto* img : images_) {
-    delete img;
-  }
-  for (auto* dir : subDirs_) {
-    delete dir;
-  }
   images_.clear();
   subDirs_.clear();
+}
+
+std::vector<WzImage*> WzDirectory::WzImages() const {
+  std::vector<WzImage*> result;
+  result.reserve(images_.size());
+  for (const auto& img : images_) result.push_back(img.get());
+  return result;
+}
+
+std::vector<WzDirectory*> WzDirectory::WzDirectories() const {
+  std::vector<WzDirectory*> result;
+  result.reserve(subDirs_.size());
+  for (const auto& dir : subDirs_) result.push_back(dir.get());
+  return result;
 }
 
 void WzDirectory::Remove() {
@@ -88,22 +96,23 @@ Result<void> WzDirectory::ParseDirectory() {
     woffset = reader_->ReadOffset();
 
     if (type == static_cast<uint8_t>(WzDirectoryType::WzDirectory_3)) {
-      auto* subDir = new WzDirectory(reader_, fname, hash_, wz_iv_, wzFile_);
+      auto subDir =
+          std::make_unique<WzDirectory>(reader_, fname, hash_, wz_iv_, wzFile_);
       subDir->SetBlockSize(fsize);
       subDir->SetChecksum(checksum);
       subDir->SetOffset(woffset);
       subDir->SetParent(this);
-      subDirs_.push_back(subDir);
+      subDirs_.push_back(std::move(subDir));
     } else {
-      auto* img = new WzImage(fname, *reader_, checksum);
+      auto img = std::make_unique<WzImage>(fname, *reader_, checksum);
       img->SetBlockSize(fsize);
       img->SetOffset(woffset);
       img->SetParent(this);
-      images_.push_back(img);
+      images_.push_back(std::move(img));
     }
   }
 
-  for (auto* subdir : subDirs_) {
+  for (auto& subdir : subDirs_) {
     reader_->SetPosition(subdir->Offset());
     auto parseResult = subdir->ParseDirectory();
     if (!parseResult.has_value()) return std::unexpected(parseResult.error());
@@ -112,14 +121,14 @@ Result<void> WzDirectory::ParseDirectory() {
 }
 
 Result<void> WzDirectory::ParseImages() {
-  for (auto* img : images_) {
+  for (auto& img : images_) {
     if (img->Reader() && img->Reader()->Position() != img->Offset()) {
       img->Reader()->SetPosition(img->Offset());
     }
     auto parseResult = img->ParseImage();
     if (!parseResult.has_value()) return std::unexpected(parseResult.error());
   }
-  for (auto* subdir : subDirs_) {
+  for (auto& subdir : subDirs_) {
     if (subdir->Reader() && subdir->Reader()->Position() != subdir->Offset()) {
       subdir->Reader()->SetPosition(subdir->Offset());
     }
@@ -130,27 +139,21 @@ Result<void> WzDirectory::ParseImages() {
 }
 
 void WzDirectory::AddImage(WzImage* img) {
-  images_.push_back(img);
   img->SetParent(this);
+  images_.push_back(std::unique_ptr<WzImage>(img));
 }
 
 void WzDirectory::AddDirectory(WzDirectory* dir) {
-  subDirs_.push_back(dir);
   dir->SetWzFile(wzFile_);
   dir->SetParent(this);
+  subDirs_.push_back(std::unique_ptr<WzDirectory>(dir));
 }
 
 void WzDirectory::ClearImages() {
-  for (auto* img : images_) {
-    delete img;
-  }
   images_.clear();
 }
 
 void WzDirectory::ClearDirectories() {
-  for (auto* dir : subDirs_) {
-    delete dir;
-  }
   subDirs_.clear();
 }
 
@@ -164,39 +167,41 @@ static std::string ToLower(const std::string& s) {
 
 WzImage* WzDirectory::GetImageByName(const std::string& name) {
   std::string lower = ToLower(name);
-  for (auto* img : images_) {
-    if (ToLower(img->Name()) == lower) return img;
+  for (auto& img : images_) {
+    if (ToLower(img->Name()) == lower) return img.get();
   }
   return nullptr;
 }
 
 WzDirectory* WzDirectory::GetDirectoryByName(const std::string& name) {
   std::string lower = ToLower(name);
-  for (auto* dir : subDirs_) {
-    if (ToLower(dir->Name()) == lower) return dir;
+  for (auto& dir : subDirs_) {
+    if (ToLower(dir->Name()) == lower) return dir.get();
   }
   return nullptr;
 }
 
 void WzDirectory::RemoveImage(WzImage* image) {
-  auto it = std::find(images_.begin(), images_.end(), image);
+  auto it = std::find_if(images_.begin(), images_.end(), [image](auto& img) {
+    return img.get() == image;
+  });
   if (it != images_.end()) {
     images_.erase(it);
-    delete image;
   }
 }
 
 void WzDirectory::RemoveDirectory(WzDirectory* dir) {
-  auto it = std::find(subDirs_.begin(), subDirs_.end(), dir);
+  auto it = std::find_if(subDirs_.begin(), subDirs_.end(), [dir](auto& subDir) {
+    return subDir.get() == dir;
+  });
   if (it != subDirs_.end()) {
     subDirs_.erase(it);
-    delete dir;
   }
 }
 
 int WzDirectory::CountImages() const {
   int count = static_cast<int>(images_.size());
-  for (auto* dir : subDirs_) {
+  for (auto& dir : subDirs_) {
     count += dir->CountImages();
   }
   return count;
@@ -204,11 +209,11 @@ int WzDirectory::CountImages() const {
 
 WzObject* WzDirectory::operator[](const std::string& name) const {
   std::string lower = ToLower(name);
-  for (auto* img : images_) {
-    if (ToLower(img->Name()) == lower) return img;
+  for (auto& img : images_) {
+    if (ToLower(img->Name()) == lower) return img.get();
   }
-  for (auto* dir : subDirs_) {
-    if (ToLower(dir->Name()) == lower) return dir;
+  for (auto& dir : subDirs_) {
+    if (ToLower(dir->Name()) == lower) return dir.get();
   }
   return nullptr;
 }

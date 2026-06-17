@@ -92,7 +92,8 @@ class WzFileManager final {
 
   static const std::vector<std::string>& ExcludedDirectories();
 
-  const std::unordered_map<std::string, WzFile*>& GetWzFiles() const {
+  const std::unordered_map<std::string, std::unique_ptr<WzFile>>& GetWzFiles()
+      const {
     return wzFiles_;
   }
   const std::unordered_map<std::string, std::vector<std::string>>&
@@ -111,8 +112,8 @@ class WzFileManager final {
   bool is_pre_bb_data_wz_format_ = false;
   bool built_wz_file_directory_list_ = false;
 
-  std::unordered_map<std::string, WzFile*> wzFiles_;
-  std::unordered_map<std::string, WzImage*> wzImages_;
+  std::unordered_map<std::string, std::unique_ptr<WzFile>> wzFiles_;
+  std::unordered_map<std::string, std::unique_ptr<WzImage>> wzImages_;
   std::unordered_map<std::string, WzDirectory*> wzDirs_;
 
   std::unordered_map<std::string, std::vector<std::string>> wzFilesList_;

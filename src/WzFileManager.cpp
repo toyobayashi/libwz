@@ -453,7 +453,7 @@ Result<WzFile*> WzFileManager::LoadWzFile(const std::string& baseName,
   }
 
   WzFile* result = wzf.get();
-  wzFiles_[key] = wzf.release();
+  wzFiles_[key] = std::move(wzf);
   if (result->GetWzDirectory()) {
     wzDirs_[key] = result->GetWzDirectory();
   }
@@ -490,7 +490,7 @@ bool WzFileManager::LoadLegacyDataWzFile(const std::string& baseName,
       wzDirs_[ToLower(subDir->Name())] = subDir;
     }
   }
-  wzFiles_[key] = wzf.release();
+  wzFiles_[key] = std::move(wzf);
   return true;
 }
 
@@ -512,19 +512,19 @@ Result<WzImage*> WzFileManager::LoadDataWzHotfixFile(
   std::string key = ToLower(basePath);
   auto existing = wzImages_.find(key);
   if (existing != wzImages_.end()) {
-    return existing->second;
+    return existing->second.get();
   }
 
   auto fname = wz::to_path(filePath).filename().string();
-  auto* img = new WzImage(fname, std::move(fstream), encVersion);
+  auto img = std::make_unique<WzImage>(fname, std::move(fstream), encVersion);
   auto parseResult = img->ParseImage();
   if (!parseResult.has_value()) {
-    delete img;
     return std::unexpected(parseResult.error());
   }
 
-  wzImages_[key] = img;
-  return img;
+  auto* result = img.get();
+  wzImages_[key] = std::move(img);
+  return result;
 }
 
 Result<void> WzFileManager::LoadCanvasSection(const std::string& canvasFolder,
@@ -611,7 +611,7 @@ void WzFileManager::UnloadWzFile(WzFile* wzFile) {
 
   std::string keyFound;
   for (auto& pair : wzFiles_) {
-    if (pair.second == wzFile) {
+    if (pair.second.get() == wzFile) {
       keyFound = pair.first;
       break;
     }
@@ -627,7 +627,6 @@ void WzFileManager::UnloadWzFile(WzFile* wzFile) {
       ++it;
     }
   }
-  delete wzFile;
 }
 
 void WzFileManager::UnloadWzImgFile(WzImage* wzImage) {
@@ -635,7 +634,7 @@ void WzFileManager::UnloadWzImgFile(WzImage* wzImage) {
 
   std::string keyFound;
   for (auto& pair : wzImages_) {
-    if (pair.second == wzImage) {
+    if (pair.second.get() == wzImage) {
       keyFound = pair.first;
       break;
     }
@@ -643,7 +642,6 @@ void WzFileManager::UnloadWzImgFile(WzImage* wzImage) {
   if (!keyFound.empty()) {
     wzImages_.erase(keyFound);
   }
-  delete wzImage;
 }
 
 WzFileManager::~WzFileManager() {
@@ -654,12 +652,6 @@ WzFileManager::~WzFileManager() {
 }
 
 void WzFileManager::Clear() {
-  for (auto& pair : wzFiles_) {
-    delete pair.second;
-  }
-  for (auto& pair : wzImages_) {
-    delete pair.second;
-  }
   wzFiles_.clear();
   wzImages_.clear();
   wzDirs_.clear();

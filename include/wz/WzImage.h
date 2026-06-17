@@ -46,9 +46,11 @@ class WzImage final : public WzObject, public IPropertyContainer {
   void SetParseEverything(bool v) { parseEverything_ = v; }
   bool IsLuaWzImage() const;
 
+  using IPropertyContainer::AddProperty;
   WzPropertyCollection* WzProperties() override;
   Result<WzPropertyCollection*> WzPropertiesResult();
   void AddProperty(WzImageProperty* prop) override;
+  void AddProperty(std::unique_ptr<WzImageProperty> prop) override;
   void RemoveProperty(const std::string& propertyName) override;
   void RemoveProperty(WzImageProperty* prop) override;
   void ClearProperties() override;

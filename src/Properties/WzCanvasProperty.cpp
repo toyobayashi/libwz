@@ -18,25 +18,21 @@ WzCanvasProperty::WzCanvasProperty(const std::string& name)
   SetName(name);
 }
 
-WzCanvasProperty::~WzCanvasProperty() {
-  delete imageProp_;
-  imageProp_ = nullptr;
-  for (auto* prop : properties_) {
-    delete prop;
-  }
-  properties_.clear();
-}
+WzCanvasProperty::~WzCanvasProperty() = default;
 
 void WzCanvasProperty::AddProperty(WzImageProperty* prop) {
+  AddProperty(std::unique_ptr<WzImageProperty>(prop));
+}
+
+void WzCanvasProperty::AddProperty(std::unique_ptr<WzImageProperty> prop) {
   prop->SetParent(this);
-  properties_.Add(prop);
+  properties_.Add(std::move(prop));
 }
 
 void WzCanvasProperty::RemoveProperty(const std::string& propertyName) {
   for (size_t i = 0; i < properties_.size(); i++) {
     if (properties_[i]->Name() == propertyName) {
-      delete properties_[i];
-      properties_.erase(properties_.begin() + i);
+      properties_.erase_at(i);
       return;
     }
   }
@@ -46,14 +42,10 @@ void WzCanvasProperty::RemoveProperty(WzImageProperty* prop) {
   auto it = std::find(properties_.begin(), properties_.end(), prop);
   if (it != properties_.end()) {
     properties_.erase(it);
-    delete prop;
   }
 }
 
 void WzCanvasProperty::ClearProperties() {
-  for (auto* prop : properties_) {
-    delete prop;
-  }
   properties_.clear();
 }
 
@@ -72,7 +64,7 @@ bool WzCanvasProperty::ContainsOutlinkProperty() const {
 }
 
 WzImageProperty* WzCanvasProperty::operator[](const std::string& name) {
-  if (name == "PNG") return imageProp_;
+  if (name == "PNG") return imageProp_.get();
 
   std::string lower = name;
   std::transform(
@@ -123,7 +115,7 @@ WzImageProperty* WzCanvasProperty::GetFromPath(const std::string& path) {
 
   WzImageProperty* ret = this;
   for (const auto& seg : segments) {
-    if (seg == "PNG") return imageProp_;
+    if (seg == "PNG") return imageProp_.get();
     if (!ret || !ret->WzProperties()) return nullptr;
 
     WzImageProperty* found = nullptr;

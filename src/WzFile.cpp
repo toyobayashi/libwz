@@ -23,7 +23,7 @@ WzFile::WzFile(int16_t gameVersion, WzMapleVersion version)
     : mapleStoryPatchVersion_(gameVersion), maplepLocalVersion_(version) {
   header_ = WzHeader::GetDefault();
   wz_iv_ = WzTool::GetIvByMapleVersion(version);
-  wzDir_ = new WzDirectory(nullptr, "", 0, wz_iv_, this);
+  wzDir_ = std::make_unique<WzDirectory>(nullptr, "", 0, wz_iv_, this);
 }
 
 WzFile::WzFile(const std::string& filePath, WzMapleVersion version)
@@ -48,10 +48,7 @@ WzFile::WzFile(const std::string& filePath, const std::array<uint8_t, 4>& wzIv)
 
 WzFile::~WzFile() {
   isUnloaded_ = true;
-  if (wzDir_) {
-    delete wzDir_;
-    wzDir_ = nullptr;
-  }
+  wzDir_.reset();
   if (fileReader_.has_value()) {
     fileReader_->Close();
     fileReader_.reset();
@@ -128,14 +125,12 @@ bool WzFile::TryDecodeWithWZVersionNumber(WzBinaryReader* reader,
     reader->SetPosition(fallbackOffsetPosition);
 
     if (checkByte == 0x73 || checkByte == 0x1b) {
-      delete wzDir_;
-      wzDir_ = testDirectory.release();
+      wzDir_ = std::move(testDirectory);
       return true;
     }
     // C# returns true for any checkByte (0x30, 0x6C, 0xBC, etc.)
     reader->SetPosition(fallbackOffsetPosition);
-    delete wzDir_;
-    wzDir_ = testDirectory.release();
+    wzDir_ = std::move(testDirectory);
     return true;
   } else {
     // No images - might be Base.wz
@@ -143,8 +138,7 @@ bool WzFile::TryDecodeWithWZVersionNumber(WzBinaryReader* reader,
       reader->SetPosition(fallbackOffsetPosition);
       return false;
     }
-    delete wzDir_;
-    wzDir_ = testDirectory.release();
+    wzDir_ = std::move(testDirectory);
     return true;
   }
 }
@@ -154,10 +148,7 @@ WzFileParseStatus WzFile::ParseMainWzDirectory() {
     return WzFileParseStatus::Path_Is_Null;
   }
 
-  if (wzDir_) {
-    delete wzDir_;
-    wzDir_ = nullptr;
-  }
+  wzDir_.reset();
   fileReader_.reset();
   if (fileStream_.is_open()) fileStream_.close();
   fileStream_ = std::ifstream(wz::to_path(path_), std::ios::binary);
@@ -207,11 +198,11 @@ WzFileParseStatus WzFile::ParseMainWzDirectory() {
         CheckAndGetVersionHash(wzVersionHeader_, mapleStoryPatchVersion_);
     fileReader.SetHash(versionHash_);
 
-    wzDir_ = new WzDirectory(&fileReader, name_, versionHash_, wz_iv_, this);
+    wzDir_ = std::make_unique<WzDirectory>(
+        &fileReader, name_, versionHash_, wz_iv_, this);
     auto parseResult = wzDir_->ParseDirectory();
     if (!parseResult.has_value()) {
-      delete wzDir_;
-      wzDir_ = nullptr;
+      wzDir_.reset();
       return WzFileParseStatus::Failed_Unknown;
     }
   }
@@ -229,7 +220,7 @@ WzObject* WzFile::GetObjectFromPath(const std::string& path,
 
   if (!checkFirstDirectoryName) {
     // C# checkFirstDirectoryName=false: start from own WzDirectory
-    WzObject* curObj = wzDir_;
+    WzObject* curObj = wzDir_.get();
     std::string remaining = path;
     while (!remaining.empty()) {
       size_t pos = remaining.find('/');
@@ -253,7 +244,7 @@ WzObject* WzFile::GetObjectFromPath(const std::string& path,
   if (!mgr) return nullptr;
 
   size_t firstSep = path.find('/');
-  if (firstSep == std::string::npos) return wzDir_;
+  if (firstSep == std::string::npos) return wzDir_.get();
 
   std::string firstComponent = path.substr(0, firstSep);
   std::string remaining = path.substr(firstSep + 1);

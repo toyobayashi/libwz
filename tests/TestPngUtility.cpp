@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 #include <cmath>
+#include <memory>
 #include <vector>
 #include "wz/PngUtility.h"
 #include "wz/Properties/WzCanvasProperty.h"
@@ -59,11 +60,11 @@ TEST(PropertyType, AllTypes) {
   EXPECT_EQ(str.Value(), "hello");
   wz::WzSubProperty sub("sub");
   EXPECT_EQ(sub.PropertyType(), wz::WzPropertyType::SubProperty);
-  sub.AddProperty(new wz::WzIntProperty("c", 100));
+  sub.AddProperty(std::make_unique<wz::WzIntProperty>("c", 100));
   EXPECT_EQ(sub.WzProperties()->size(), 1u);
   wz::WzVectorProperty vec("vec");
-  vec.X = new wz::WzIntProperty("X", 10);
-  vec.Y = new wz::WzIntProperty("Y", 20);
+  vec.X = std::make_unique<wz::WzIntProperty>("X", 10);
+  vec.Y = std::make_unique<wz::WzIntProperty>("Y", 20);
   EXPECT_EQ(vec.PropertyType(), wz::WzPropertyType::Vector);
   EXPECT_EQ(vec.X->Value(), 10);
   EXPECT_EQ(vec.Y->Value(), 20);

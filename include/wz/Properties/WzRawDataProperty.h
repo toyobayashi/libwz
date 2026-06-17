@@ -20,7 +20,9 @@ class WzRawDataProperty : public WzImageProperty, public IPropertyContainer {
   WzPropertyType PropertyType() const override { return WzPropertyType::Raw; }
   bool IsRawDataProperty() const override { return true; }
   WzPropertyCollection* WzProperties() override { return &properties_; }
+  using IPropertyContainer::AddProperty;
   void AddProperty(WzImageProperty* prop) override;
+  void AddProperty(std::unique_ptr<WzImageProperty> prop) override;
   void RemoveProperty(const std::string& propertyName) override;
   void RemoveProperty(WzImageProperty* prop) override;
   void ClearProperties() override;
