@@ -1080,8 +1080,14 @@ wz_error_code wz_canvas_get_linked_wz_image_property(
   if (p->PropertyType() != wz::WzPropertyType::Canvas) {
     return set_error_wrong_type("wz_canvas_get_linked_wz_image_property");
   }
-  auto* linked =
+  auto linked_result =
       static_cast<wz::WzCanvasProperty*>(p)->GetLinkedWzImageProperty();
+  if (!linked_result.has_value()) {
+    return wz_set_last_error(
+        static_cast<wz_error_code>(linked_result.error().code()),
+        linked_result.error().message());
+  }
+  auto* linked = linked_result.value();
   *out_property = linked ? wrap_prop(linked) : nullptr;
   return wz_clear_last_error();
 }

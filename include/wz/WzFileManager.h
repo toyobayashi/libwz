@@ -1,5 +1,6 @@
 #ifndef WZ_WZFILEMANAGER_H_
 #define WZ_WZFILEMANAGER_H_
+#include <memory>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -54,14 +55,16 @@ class WzFileManager final {
 
   void BuildWzFileList();
 
-  WzFile* LoadWzFile(const std::string& baseName, WzMapleVersion encVersion);
-  WzFile* LoadWzFile(const std::string& baseName, WzFile* wzf);
+  Result<WzFile*> LoadWzFile(const std::string& baseName,
+                             WzMapleVersion encVersion);
+  Result<WzFile*> LoadWzFile(const std::string& baseName,
+                             std::unique_ptr<WzFile> wzf);
   bool LoadLegacyDataWzFile(const std::string& baseName,
                             WzMapleVersion encVersion);
   Result<WzImage*> LoadDataWzHotfixFile(const std::string& basePath,
                                         WzMapleVersion encVersion);
-  void LoadCanvasSection(const std::string& canvasFolder,
-                         WzMapleVersion encVersion);
+  Result<void> LoadCanvasSection(const std::string& canvasFolder,
+                                 WzMapleVersion encVersion);
   bool LoadListWzFile(WzMapleVersion fileVersion);
 
   void UnloadWzFile(WzFile* wzFile);

@@ -64,7 +64,7 @@
       ]
     },
     {
-      "target_name": "libwz",
+      "target_name": "wz",
       "sources": [
         "src/node/binding.cpp",
         "src/capi/wz_api.cpp",

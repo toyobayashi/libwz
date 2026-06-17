@@ -415,8 +415,8 @@ void WzFileManager::BuildWzFileList() {
   }
 }
 
-WzFile* WzFileManager::LoadWzFile(const std::string& baseName,
-                                  WzMapleVersion encVersion) {
+Result<WzFile*> WzFileManager::LoadWzFile(const std::string& baseName,
+                                          WzMapleVersion encVersion) {
   std::string filePath = GetWzFilePath(baseName);
   if (filePath.empty()) return nullptr;
 
@@ -425,27 +425,40 @@ WzFile* WzFileManager::LoadWzFile(const std::string& baseName,
 
   WzFileParseStatus status = wzf->ParseWzFile();
   if (status != WzFileParseStatus::Success) {
-    return nullptr;
+    return std::unexpected(
+        Error::ParseError("Error parsing " + baseName + ".wz (" +
+                          GetErrorDescription(status) + ")"));
   }
 
-  return LoadWzFile(baseName, wzf.release());
+  auto loadResult = LoadWzFile(baseName, std::move(wzf));
+  if (!loadResult.has_value()) return nullptr;
+  return loadResult.value();
 }
 
-WzFile* WzFileManager::LoadWzFile(const std::string& baseName, WzFile* wzf) {
+Result<WzFile*> WzFileManager::LoadWzFile(const std::string& baseName,
+                                          std::unique_ptr<WzFile> wzf) {
+  if (!wzf) {
+    return std::unexpected(Error::InvalidArgument("wzf is null"));
+  }
+
   std::string key = ToLower(baseName);
   auto dotWz = key.find(".wz");
   if (dotWz != std::string::npos && dotWz == key.size() - 3) {
     key = key.substr(0, key.size() - 3);
   }
 
-  if (wzFiles_.find(key) != wzFiles_.end()) return wzf;
-
-  wzFiles_[key] = wzf;
-  if (wzf->GetWzDirectory()) {
-    wzDirs_[key] = wzf->GetWzDirectory();
+  if (wzFiles_.find(key) != wzFiles_.end()) {
+    return std::unexpected(
+        Error::InvalidArgument("WZ file has already been loaded: " + key));
   }
 
-  return wzf;
+  WzFile* result = wzf.get();
+  wzFiles_[key] = wzf.release();
+  if (result->GetWzDirectory()) {
+    wzDirs_[key] = result->GetWzDirectory();
+  }
+
+  return result;
 }
 
 bool WzFileManager::LoadLegacyDataWzFile(const std::string& baseName,
@@ -508,16 +521,16 @@ Result<WzImage*> WzFileManager::LoadDataWzHotfixFile(
   return img;
 }
 
-void WzFileManager::LoadCanvasSection(const std::string& canvasFolder,
-                                      WzMapleVersion encVersion) {
+Result<void> WzFileManager::LoadCanvasSection(const std::string& canvasFolder,
+                                              WzMapleVersion encVersion) {
   if (wzCanvasSectionLoaded_.find(canvasFolder) != wzCanvasSectionLoaded_.end())
-    return;
+    return {};
 
   const std::string& searchBase = WzBaseDirectory();
   fs::path canvasDir =
       wz::to_path(searchBase) / canvasFolder / CANVAS_DIRECTORY_NAME;
   std::error_code ec;
-  if (!fs::is_directory(canvasDir, ec) || ec) return;
+  if (!fs::is_directory(canvasDir, ec) || ec) return {};
 
   std::string iniFile;
   int wzFileIndex = -1;
@@ -537,7 +550,7 @@ void WzFileManager::LoadCanvasSection(const std::string& canvasFolder,
       break;
     }
   }
-  if (iniFile.empty()) return;
+  if (iniFile.empty()) return {};
 
   {
     std::ifstream iniStream(wz::to_path(iniFile));
@@ -551,7 +564,7 @@ void WzFileManager::LoadCanvasSection(const std::string& canvasFolder,
       }
     }
   }
-  if (wzFileIndex < 0) return;
+  if (wzFileIndex < 0) return {};
 
   std::string canvasLower = ToLower(CANVAS_DIRECTORY_NAME);
   std::string canvasBase =
@@ -561,11 +574,15 @@ void WzFileManager::LoadCanvasSection(const std::string& canvasFolder,
     snprintf(pad, sizeof(pad), "%02d", i);
     std::string canvasKey = canvasBase + std::string(pad);
     if (!IsWzFileLoaded(canvasKey)) {
-      LoadWzFile(canvasKey, encVersion);
+      auto result = LoadWzFile(canvasKey, encVersion);
+      if (!result.has_value()) {
+        return std::unexpected(result.error());
+      }
     }
   }
 
   wzCanvasSectionLoaded_.insert(canvasFolder);
+  return {};
 }
 
 bool WzFileManager::LoadListWzFile(WzMapleVersion fileVersion) {

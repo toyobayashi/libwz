@@ -141,7 +141,7 @@ Result<void> WzCanvasProperty::SaveToFile(const std::string& filePath) {
   return imageProp_->SaveToFile(filePath);
 }
 
-WzImageProperty* WzCanvasProperty::GetLinkedWzImageProperty() {
+Result<WzImageProperty*> WzCanvasProperty::GetLinkedWzImageProperty() {
   auto* inlinkProp = (*this)[InlinkPropertyName];
   std::string inlink =
       (inlinkProp && inlinkProp->PropertyType() == WzPropertyType::String)
@@ -202,8 +202,11 @@ WzImageProperty* WzCanvasProperty::GetLinkedWzImageProperty() {
           if (WzFileManager::ContainsCanvasDirectory(outlink)) {
             std::string canvasFolderBase =
                 WzFileManager::NormaliseWzCanvasDirectory(outlink);
-            WzFileManager::fileManager->LoadCanvasSection(
+            auto result = WzFileManager::fileManager->LoadCanvasSection(
                 canvasFolderBase, wzFileParent->MapleVersion());
+            if (!result.has_value()) {
+              return std::unexpected(result.error());
+            }
           }
         }
         foundProperty = wzFileParent->GetObjectFromPath(outlink);

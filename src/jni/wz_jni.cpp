@@ -1301,8 +1301,14 @@ JNIEXPORT jlong JNICALL JNI_FUNC(WzFileManager, nativeLoadWzFile)(
     JNIEnv* env, jclass, jlong ptr, jstring baseName, jint mapVersion) {
   auto* manager = reinterpret_cast<wz::WzFileManager*>(ptr);
   JniUtfString name(env, baseName);
-  wz::WzFile* file = manager->LoadWzFile(
+  wz::Result<wz::WzFile*> file_result = manager->LoadWzFile(
       name.c_str(), static_cast<wz::WzMapleVersion>(mapVersion));
+  if (!file_result.has_value()) {
+    jclass exClass = env->FindClass("java/lang/RuntimeException");
+    if (exClass) env->ThrowNew(exClass, file_result.error().message().c_str());
+    return 0;
+  }
+  wz::WzFile* file = file_result.value();
   if (!file) return 0;
   return reinterpret_cast<jlong>(file);
 }

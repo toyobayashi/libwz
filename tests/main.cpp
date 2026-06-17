@@ -37,8 +37,12 @@ int main() {
   }
 
   auto filePath = (BASE_MAPLE_DIR / "UI.wz").string();
-  wz::WzFile* wzFile = manager->LoadWzFile("UI.wz", version);
+  auto wzFileResult = manager->LoadWzFile("UI.wz", version);
+  EXPECT_OK(wzFileResult.has_value(),
+            "Failed to load WzFile: %s",
+            filePath.c_str());
   // wz::WzFile* wzFile = new wz::WzFile(filePath, version);
+  wz::WzFile* wzFile = wzFileResult.value();
   EXPECT_OK(wzFile->ParseWzFile() == wz::WzFileParseStatus::Success,
             "Failed to parse .wz file: %s",
             filePath.c_str());

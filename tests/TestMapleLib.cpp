@@ -86,8 +86,9 @@ TEST(WzImageTest, ParseImagePreservesNestedParseError) {
   }
 
   {
-    auto* stream = new std::ifstream(path, std::ios::binary);
-    wz::WzImage image("bad.img", stream, wz::WzMapleVersion::GMS);
+    std::ifstream stream(path, std::ios::binary);
+    wz::WzImage image("bad.img", std::move(stream),
+        wz::WzMapleVersion::GMS);
     auto result = image.ParseImage();
 
     ASSERT_FALSE(result.has_value());
@@ -196,8 +197,10 @@ TEST(WzFileManagerTest, LoadWzFile) {
   }
   if (testDir.empty()) GTEST_SKIP() << "Test WZ files not found";
   wz::WzFileManager mgr("", true);
-  auto* wzf =
+  auto wzf_result =
       mgr.LoadWzFile(testDir + "/TamingMob_GMS_87.wz", wz::WzMapleVersion::GMS);
+  ASSERT_TRUE(wzf_result.has_value());
+  auto* wzf = wzf_result.value();
   ASSERT_NE(wzf, nullptr);
   ASSERT_NE(wzf->GetWzDirectory(), nullptr);
   EXPECT_GT(wzf->GetWzDirectory()->WzImages().size(), 0u);
