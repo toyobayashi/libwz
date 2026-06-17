@@ -78,7 +78,8 @@ WzPngProperty::WzPngProperty(WzBinaryReader* reader, bool parseNow)
   if (len > 0) {
     if (parseNow) {
       compressedImageBytes_ = wzReader_->ReadBytes(len);
-      ParsePng(true);
+      auto parseResult = ParsePng(true);
+      (void)parseResult;
     } else {
       reader->SetPosition(reader->Position() + len);
     }
@@ -111,7 +112,10 @@ int WzPngProperty::GetUncompressedSize() const {
 Result<std::vector<uint8_t>> WzPngProperty::GetCompressedBytes(
     bool saveInMemory) {
   if (compressedImageBytes_.empty()) {
-    if (!wzReader_) return Error::DataError("No reader for compressed bytes");
+    if (!wzReader_) {
+      return std::unexpected(
+          Error::DataError("No reader for compressed bytes"));
+    }
 
     auto pos = wzReader_->Position();
     wzReader_->SetPosition(offs_);
@@ -119,8 +123,8 @@ Result<std::vector<uint8_t>> WzPngProperty::GetCompressedBytes(
     wzReader_->ReadByte();  // skip 1
 
     if (len <= 0)
-      return Error::DataError(
-          "The length of the image is negative. Wrong WzIV?");
+      return std::unexpected(
+          Error::DataError("The length of the image is negative. Wrong WzIV?"));
 
     compressedImageBytes_ = wzReader_->ReadBytes(len);
     wzReader_->SetPosition(pos);
@@ -136,9 +140,10 @@ Result<std::vector<uint8_t>> WzPngProperty::GetCompressedBytes(
 
 Result<std::vector<uint8_t>> WzPngProperty::GetRawImage(bool saveInMemory) {
   auto rawImageBytes = GetCompressedBytes(saveInMemory);
-  if (!rawImageBytes.is_ok()) return rawImageBytes.err();
-  auto& rawBytes = rawImageBytes.ok();
-  if (rawBytes.size() < 2) return Error::DataError("Raw image too small");
+  if (!rawImageBytes.has_value()) return std::unexpected(rawImageBytes.error());
+  auto& rawBytes = rawImageBytes.value();
+  if (rawBytes.size() < 2)
+    return std::unexpected(Error::DataError("Raw image too small"));
 
   uint16_t header = rawBytes[0] | (static_cast<uint16_t>(rawBytes[1]) << 8);
   bool isListWz = (header != 0x9C78 && header != 0xDA78 && header != 0x0178 &&
@@ -159,14 +164,13 @@ Result<std::vector<uint8_t>> WzPngProperty::GetRawImage(bool saveInMemory) {
     inflateInit(&infstream);
     int r = inflate(&infstream, Z_NO_FLUSH);
     inflateEnd(&infstream);
-    return (r == Z_OK || r == Z_STREAM_END)
-               ? result
-               : Result<std::vector<uint8_t>>(
-                     Error::DataError("inflate failed"));
+    if (r == Z_OK || r == Z_STREAM_END) return result;
+    return std::unexpected(Error::DataError("inflate failed"));
   } else {
     // List.wz format - decrypt then decompress
     if (!wzReader_)
-      return Error::DataError("No reader for list.wz decompression");
+      return std::unexpected(
+          Error::DataError("No reader for list.wz decompression"));
 
     std::vector<uint8_t> decryptedData;
     size_t pos = 0;
@@ -182,7 +186,7 @@ Result<std::vector<uint8_t>> WzPngProperty::GetRawImage(bool saveInMemory) {
     }
 
     if (decryptedData.size() < 3)
-      return Error::DataError("Decrypted data too small");
+      return std::unexpected(Error::DataError("Decrypted data too small"));
 
     z_stream infstream;
     std::vector<uint8_t> result(GetUncompressedSize());
@@ -197,18 +201,16 @@ Result<std::vector<uint8_t>> WzPngProperty::GetRawImage(bool saveInMemory) {
     inflateInit(&infstream);
     int r = inflate(&infstream, Z_NO_FLUSH);
     inflateEnd(&infstream);
-    return (r == Z_OK || r == Z_STREAM_END)
-               ? result
-               : Result<std::vector<uint8_t>>(
-                     Error::DataError("inflate failed"));
+    if (r == Z_OK || r == Z_STREAM_END) return result;
+    return std::unexpected(Error::DataError("inflate failed"));
   }
 }
 
 Result<std::vector<uint8_t>> WzPngProperty::GetCompressedBytesForExtraction(
     bool saveInMemory) {
   auto rawBytes = GetCompressedBytes(saveInMemory);
-  if (!rawBytes.is_ok()) return rawBytes.err();
-  auto& rawData = rawBytes.ok();
+  if (!rawBytes.has_value()) return std::unexpected(rawBytes.error());
+  auto& rawData = rawBytes.value();
   if (rawData.size() < 2) return std::move(rawData);
 
   uint16_t header = rawData[0] | (static_cast<uint16_t>(rawData[1]) << 8);
@@ -218,10 +220,10 @@ Result<std::vector<uint8_t>> WzPngProperty::GetCompressedBytesForExtraction(
 
   // Convert listWz to standard zlib
   auto raw = GetRawImage(true);
-  if (!raw.is_ok()) return rawData;
+  if (!raw.has_value()) return rawData;
 
   // Re-compress to standard zlib
-  auto& rawImg = raw.ok();
+  auto& rawImg = raw.value();
   uLongf destLen = compressBound(static_cast<uLong>(rawImg.size()));
   std::vector<uint8_t> compressed(destLen + 2);
   compressed[0] = 0x78;
@@ -238,24 +240,33 @@ Result<std::vector<uint8_t>> WzPngProperty::GetCompressedBytesForExtraction(
   return compressed;
 }
 
-void WzPngProperty::ParsePng(bool saveInMemory) {
+Result<void> WzPngProperty::ParsePng(bool saveInMemory) {
   auto rawResult = GetRawImage(saveInMemory);
-  if (!rawResult.is_ok()) return;
-  auto rawBytes = std::move(rawResult.ok());
+  if (!rawResult.has_value()) return std::unexpected(rawResult.error());
+  auto rawBytes = std::move(rawResult.value());
 
   switch (format_) {
     case WzPngFormat::Format1: {
       int pixelCount = width_ * height_;
       pngData_.resize(pixelCount * 4);
-      PngUtility::DecompressImagePixelDataBgra4444(
+      auto decodeResult = PngUtility::DecompressImagePixelDataBgra4444(
           rawBytes, width_, height_, pngData_);
+      if (!decodeResult.has_value()) {
+        pngData_.clear();
+        return std::unexpected(decodeResult.error());
+      }
     } break;
     case WzPngFormat::Format2:
       pngData_ = std::move(rawBytes);
       break;
     case WzPngFormat::Format3: {
       pngData_.resize(width_ * height_ * 4);
-      PngUtility::DecompressImageDXT3(rawBytes, width_, height_, pngData_);
+      auto decodeResult =
+          PngUtility::DecompressImageDXT3(rawBytes, width_, height_, pngData_);
+      if (!decodeResult.has_value()) {
+        pngData_.clear();
+        return std::unexpected(decodeResult.error());
+      }
     } break;
     case WzPngFormat::Format257: {
       // ARGB1555 (16bpp) -> BGRA32 upconversion
@@ -311,31 +322,45 @@ void WzPngProperty::ParsePng(bool saveInMemory) {
     } break;
     case WzPngFormat::Format1026: {
       pngData_.resize(width_ * height_ * 4);
-      PngUtility::DecompressImageDXT3(rawBytes, width_, height_, pngData_);
+      auto decodeResult =
+          PngUtility::DecompressImageDXT3(rawBytes, width_, height_, pngData_);
+      if (!decodeResult.has_value()) {
+        pngData_.clear();
+        return std::unexpected(decodeResult.error());
+      }
     } break;
     case WzPngFormat::Format2050: {
       pngData_.resize(width_ * height_ * 4);
-      PngUtility::DecompressImageDXT5(rawBytes, width_, height_, pngData_);
+      auto decodeResult =
+          PngUtility::DecompressImageDXT5(rawBytes, width_, height_, pngData_);
+      if (!decodeResult.has_value()) {
+        pngData_.clear();
+        return std::unexpected(decodeResult.error());
+      }
     } break;
     default:
       pngData_.resize(width_ * height_ * 4);
       break;
   }
+  return {};
 }
 
 Result<std::vector<uint8_t>> WzPngProperty::GetImage(bool saveInMemory) {
   if (pngData_.empty()) {
-    ParsePng(saveInMemory);
+    auto parseResult = ParsePng(saveInMemory);
+    if (!parseResult.has_value()) return std::unexpected(parseResult.error());
   }
-  if (pngData_.empty()) return Error::DataError("Failed to parse PNG");
+  if (pngData_.empty())
+    return std::unexpected(Error::DataError("Failed to parse PNG"));
   return pngData_;
 }
 
 Result<void> WzPngProperty::SaveToFile(const std::string& filePath) {
   auto result = GetImage(true);
-  if (!result.is_ok()) return result.err();
-  auto& bgra = result.ok();
-  if (bgra.empty()) return Error::DataError("PNG image data is empty");
+  if (!result.has_value()) return std::unexpected(result.error());
+  auto& bgra = result.value();
+  if (bgra.empty())
+    return std::unexpected(Error::DataError("PNG image data is empty"));
 
   std::vector<uint8_t> rgba(bgra.size());
   for (size_t i = 0; i < bgra.size(); i += 4) {
@@ -358,7 +383,7 @@ Result<void> WzPngProperty::SaveToFile(const std::string& filePath) {
   if (deflateInit2(
           &zs, Z_BEST_COMPRESSION, Z_DEFLATED, 15, 8, Z_DEFAULT_STRATEGY) !=
       Z_OK)
-    return Error::DataError("deflateInit2 failed");
+    return std::unexpected(Error::DataError("deflateInit2 failed"));
 
   zs.next_in = rawData.data();
   zs.avail_in = static_cast<uInt>(rawData.size());
@@ -371,7 +396,7 @@ Result<void> WzPngProperty::SaveToFile(const std::string& filePath) {
   int ret = deflate(&zs, Z_FINISH);
   if (ret != Z_STREAM_END) {
     deflateEnd(&zs);
-    return Error::DataError("deflate failed");
+    return std::unexpected(Error::DataError("deflate failed"));
   }
   size_t compressedSize = zs.total_out;
   deflateEnd(&zs);
@@ -381,10 +406,11 @@ Result<void> WzPngProperty::SaveToFile(const std::string& filePath) {
   std::error_code ec;
   if (!parentPath.empty()) {
     std::filesystem::create_directories(parentPath, ec);
-    if (ec) return Error::IoError(ec.message());
+    if (ec) return std::unexpected(Error::IoError(ec.message()));
   }
   std::ofstream out(outPath, std::ios::binary);
-  if (!out) return Error::IoError("Failed to open file for writing");
+  if (!out)
+    return std::unexpected(Error::IoError("Failed to open file for writing"));
 
   const uint8_t signature[8] = {137, 80, 78, 71, 13, 10, 26, 10};
   out.write(reinterpret_cast<const char*>(signature), 8);

@@ -51,7 +51,7 @@ void WzVideoProperty::Parse(bool parseNow) {
   length_ = wzReader_->ReadCompressedInt();
   offset_ = wzReader_->Position();
   if (parseNow)
-    GetBytes(true);
+    (void)GetBytes(true);
   else
     wzReader_->SetPosition(offset_ + length_);
 }
@@ -62,7 +62,8 @@ Result<std::vector<uint8_t>> WzVideoProperty::GetBytes() {
 
 Result<std::vector<uint8_t>> WzVideoProperty::GetBytes(bool saveInMemory) {
   if (!bytes_.empty()) return bytes_;
-  if (!wzReader_) return Error::DataError("No reader for video property");
+  if (!wzReader_)
+    return std::unexpected(Error::DataError("No reader for video property"));
 
   auto currentPos = wzReader_->Position();
   wzReader_->SetPosition(offset_);
@@ -77,17 +78,18 @@ Result<std::vector<uint8_t>> WzVideoProperty::GetBytes(bool saveInMemory) {
 
 Result<void> WzVideoProperty::SaveToFile(const std::string& filePath) {
   auto result = GetBytes(false);
-  if (!result.is_ok()) return result.err();
-  auto& bytes = result.ok();
+  if (!result.has_value()) return std::unexpected(result.error());
+  auto& bytes = result.value();
   auto outPath = wz::to_path(filePath);
   auto parentPath = outPath.parent_path();
   std::error_code ec;
   if (!parentPath.empty()) {
     std::filesystem::create_directories(parentPath, ec);
-    if (ec) return Error::IoError(ec.message());
+    if (ec) return std::unexpected(Error::IoError(ec.message()));
   }
   std::ofstream out(outPath, std::ios::binary);
-  if (!out) return Error::IoError("Failed to open file for writing");
+  if (!out)
+    return std::unexpected(Error::IoError("Failed to open file for writing"));
   out.write(reinterpret_cast<const char*>(bytes.data()), bytes.size());
   return {};
 }

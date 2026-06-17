@@ -269,7 +269,8 @@ void WzBinaryReader::SetOffsetFromFStartToPosition(int offset) {
 Result<void> WzBinaryReader::RollbackStreamPosition(int byOffset) {
   int64_t pos = Position() - static_cast<int64_t>(byOffset);
   if (pos < startOffset_)
-    return Error::IoError("Cant rollback stream position below 0");
+    return std::unexpected(
+        Error::IoError("Cant rollback stream position below 0"));
   SetPosition(pos);
   return {};
 }

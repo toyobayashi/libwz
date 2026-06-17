@@ -45,19 +45,24 @@ class WzImage final : public WzObject, public IPropertyContainer {
   bool IsLuaWzImage() const;
 
   WzPropertyCollection* WzProperties() override;
+  Result<WzPropertyCollection*> WzPropertiesResult();
   void AddProperty(WzImageProperty* prop) override;
   void RemoveProperty(const std::string& propertyName) override;
   void RemoveProperty(WzImageProperty* prop) override;
   void ClearProperties() override;
 
   WzImageProperty* GetFromPath(const std::string& path);
+  Result<WzImageProperty*> GetFromPathResult(const std::string& path);
   Result<bool> ParseImage();
 
   WzImageProperty* operator[](const std::string& name);
+  Result<WzImageProperty*> GetPropertyByName(const std::string& name);
 
   WzBinaryReader* Reader() const { return reader_; }
 
  private:
+  Result<void> EnsureParsed();
+
   bool parsed_ = false;
   bool is_image_changed_ = false;
   int size_ = 0;

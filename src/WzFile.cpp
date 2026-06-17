@@ -116,7 +116,7 @@ bool WzFile::TryDecodeWithWZVersionNumber(WzBinaryReader* reader,
   WzDirectory* testDirectory = nullptr;
   testDirectory = new WzDirectory(reader, name_, versionHash_, wz_iv_, this);
   auto parseResult = testDirectory->ParseDirectory();
-  if (parseResult.is_err()) {
+  if (!parseResult.has_value()) {
     reader->SetPosition(fallbackOffsetPosition);
     delete testDirectory;
     return false;
@@ -207,7 +207,7 @@ WzFileParseStatus WzFile::ParseMainWzDirectory() {
 
     wzDir_ = new WzDirectory(fileReader_, name_, versionHash_, wz_iv_, this);
     auto parseResult = wzDir_->ParseDirectory();
-    if (parseResult.is_err()) {
+    if (!parseResult.has_value()) {
       delete wzDir_;
       wzDir_ = nullptr;
       return WzFileParseStatus::Failed_Unknown;

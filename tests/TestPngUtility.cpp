@@ -128,14 +128,14 @@ TEST(PngUtility, RGB565ToColor) {
 TEST(PngUtility, BGRA4444NibbleExpansion) {
   std::vector<uint8_t> raw(8, 0xFF), out;
   auto r = wz::PngUtility::DecompressImagePixelDataBgra4444(raw, 2, 2, out);
-  EXPECT_TRUE(r.is_ok());
+  EXPECT_TRUE(r.has_value());
   EXPECT_EQ(out.size(), 16u);
   for (auto b : out) EXPECT_EQ(b, 0xFF);
 }
 TEST(PngUtility, BGRA4444InsufficientDataThrows) {
   std::vector<uint8_t> raw(64), out;
   auto r = wz::PngUtility::DecompressImagePixelDataBgra4444(raw, 8, 8, out);
-  EXPECT_TRUE(r.is_err());
+  EXPECT_FALSE(r.has_value());
 }
 
 // --- DXT3 ---
@@ -147,7 +147,7 @@ TEST(PngUtility, DXT3SolidColor) {
   raw[10] = 0x00;
   raw[11] = 0xF8;
   auto r = wz::PngUtility::DecompressImageDXT3(raw, 4, 4, out);
-  EXPECT_TRUE(r.is_ok());
+  EXPECT_TRUE(r.has_value());
   for (int i = 0; i < 16; i++) {
     EXPECT_EQ(out[i * 4 + 3], 255);
     EXPECT_EQ(out[i * 4 + 2], 255);
@@ -158,7 +158,7 @@ TEST(PngUtility, DXT3SolidColor) {
 TEST(PngUtility, DXT3InsufficientData) {
   std::vector<uint8_t> raw(32), out;
   auto r = wz::PngUtility::DecompressImageDXT3(raw, 8, 8, out);
-  EXPECT_TRUE(r.is_err());
+  EXPECT_FALSE(r.has_value());
 }
 
 // --- DXT5 ---
@@ -171,18 +171,18 @@ TEST(PngUtility, DXT5Basic) {
   raw[10] = 0x00;
   raw[11] = 0xF8;
   auto r = wz::PngUtility::DecompressImageDXT5(raw, 4, 4, out);
-  EXPECT_TRUE(r.is_ok());
+  EXPECT_TRUE(r.has_value());
   for (int i = 0; i < 16; i++) EXPECT_EQ(out[i * 4 + 3], 255);
 }
 TEST(PngUtility, DXT5InsufficientData) {
   std::vector<uint8_t> raw(32), out;
   auto r = wz::PngUtility::DecompressImageDXT5(raw, 8, 8, out);
-  EXPECT_TRUE(r.is_err());
+  EXPECT_FALSE(r.has_value());
 }
 TEST(PngUtility, DXT5InvalidDimensions) {
   std::vector<uint8_t> raw(64), out;
   auto r = wz::PngUtility::DecompressImageDXT5(raw, 0, 0, out);
-  EXPECT_TRUE(r.is_err());
+  EXPECT_FALSE(r.has_value());
 }
 
 // --- Format517 ---

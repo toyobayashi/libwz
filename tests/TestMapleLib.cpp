@@ -85,16 +85,20 @@ TEST(WzImageTest, ParseImagePreservesNestedParseError) {
               static_cast<std::streamsize>(bytes.size()));
   }
 
-  auto* stream = new std::ifstream(path, std::ios::binary);
-  wz::WzImage image("bad.img", stream, wz::WzMapleVersion::GMS);
-  auto result = image.ParseImage();
+  {
+    auto* stream = new std::ifstream(path, std::ios::binary);
+    wz::WzImage image("bad.img", stream, wz::WzMapleVersion::GMS);
+    auto result = image.ParseImage();
 
-  EXPECT_TRUE(result.is_err());
-  EXPECT_EQ(result.err().code(), wz::ErrorCode::ParseError);
-  EXPECT_NE(result.err().message().find("Unknown property type"),
-            std::string::npos);
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error().code(), wz::ErrorCode::ParseError);
+    EXPECT_NE(result.error().message().find("Unknown property type"),
+              std::string::npos);
+  }
 
-  std::filesystem::remove(path);
+  std::error_code ec;
+  std::filesystem::remove(path, ec);
+  EXPECT_FALSE(ec);
 }
 
 TEST(WzPropertyTypeTest, RawDataAndVideoKeepRawTypeWithDistinctSubtypes) {
@@ -159,10 +163,10 @@ TEST(WzStringPropertyTest, SaveToFileAllowsPathWithoutParentDirectory) {
 
   auto result = prop.SaveToFile(path);
 
-  if (result.is_err()) {
-    ADD_FAILURE() << result.err().message();
+  if (!result.has_value()) {
+    ADD_FAILURE() << result.error().message();
   }
-  EXPECT_TRUE(result.is_ok());
+  EXPECT_TRUE(result.has_value());
   EXPECT_TRUE(std::filesystem::exists(path));
   std::filesystem::remove(path);
 }

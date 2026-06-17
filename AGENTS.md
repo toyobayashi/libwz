@@ -5,7 +5,7 @@ This file gives coding agents a reliable operating guide for `libwz`.
 Use it to make focused, low-risk changes that match this codebase.
 
 ## Project Snapshot
-- Language: C++17 (also provides C API and JNI bindings)
+- Language: C++23 (also provides C API and JNI bindings)
 - Build: CMake 3.16+
 - Target libraries: `wz` (static), `wz_capi` (static), `wz_jni` (shared)
 - Test framework: Google Test
@@ -13,7 +13,7 @@ Use it to make focused, low-risk changes that match this codebase.
 - Purpose: Parse and read MapleStory `.wz` game data archives
 
 ## Environment Requirements
-- C++17 compiler (MSVC on Windows, GCC/Clang on Linux)
+- C++23 compiler with `<expected>` support (MSVC on Windows, GCC/Clang on Linux)
 - CMake 3.16+
 - Git with submodule support
 
@@ -60,14 +60,14 @@ Tests require sample `.wz` files from the `Harepacker-resurrected/UnitTest_WzFil
   - `Properties/`: 16 concrete property types (sub, canvas, vector, convex, PNG, UOL, Lua, scalar types, etc.)
   - `Util/`: Binary reader, AES key generation, mutable key, utility functions
   - `capi/wz_api.h`: C ABI for FFI consumers
-  - `Result.h`: Rust-like `Result<T, Error>` (no exceptions)
+  - `Result.h`: `std::expected`-based `Result<T, Error>` (no exceptions)
 - `src/`: Implementation files mirroring `include/` structure
 - `src/jni/wz_jni.cpp`: JNI bindings for Java/Kotlin consumers
 - `tests/`: Google Test unit tests
 - `Harepacker-resurrected/`: Upstream C# reference (submodule, test data only)
 
 ## Key Patterns
-- **Error handling**: `Result<T, Error>` types, no C++ exceptions (`-fno-exceptions`). Use `is_ok()` / `is_err()` checks.
+- **Error handling**: `Result<T, Error>` types alias `std::expected<T, Error>`, no C++ exceptions (`-fno-exceptions`). Use standard expected API (`has_value()`, `value()`, `error()`, `std::unexpected`).
 - **Memory**: Raw pointers with parent-child ownership. Owners call `Dispose()` to free children.
 - **Naming**: All types in `wz::` namespace, `Wz` prefix for classes. `#ifndef`-style header guards (e.g. `WZ_WZFILE_H_`).
 - **C API**: Opaque handles (`wz_file`, `wz_image`, etc.), no STL in public signatures.

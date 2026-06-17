@@ -35,24 +35,26 @@ class PortalTypeExtensions {
   static Result<std::string> ToCode(PortalType type) {
     auto it = portalTypeToCodes.find(type);
     if (it == portalTypeToCodes.end())
-      return Error::InvalidArgument("Unknown PortalType");
+      return std::unexpected(Error::InvalidArgument("Unknown PortalType"));
     return it->second;
   }
 
   static Result<PortalType> FromCode(const std::string& code) {
-    if (code.empty()) return Error::InvalidArgument("code is null");
+    if (code.empty())
+      return std::unexpected(Error::InvalidArgument("code is null"));
     std::string lower = code;
     std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
     auto it = codeToPortalTypes.find(lower);
     if (it == codeToPortalTypes.end())
-      return Error::InvalidArgument("Invalid portal type code: " + code);
+      return std::unexpected(
+          Error::InvalidArgument("Invalid portal type code: " + code));
     return it->second;
   }
 
   static Result<std::string> GetFriendlyName(PortalType type) {
     auto it = portalTypeToNames.find(type);
     if (it == portalTypeToNames.end())
-      return Error::InvalidArgument("Unknown PortalType");
+      return std::unexpected(Error::InvalidArgument("Unknown PortalType"));
     return it->second;
   }
 

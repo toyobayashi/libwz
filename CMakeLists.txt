@@ -19,7 +19,7 @@ endif()
 #     )
 # endif()
 
-set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
@@ -144,7 +144,7 @@ target_link_libraries(wz PUBLIC tiny-aes zlibstatic)
 if(MSVC)
     target_compile_options(wz PUBLIC "/EHs-c-" "/GR-")
     target_compile_definitions(wz PUBLIC "_HAS_EXCEPTIONS=0")
-    target_compile_options(wz PRIVATE /analyze)
+    # target_compile_options(wz PRIVATE /analyze)
 else()
     target_compile_options(wz PUBLIC "-fno-exceptions" "-fno-rtti")
 endif()
@@ -171,6 +171,7 @@ if(BUILD_TESTS)
     set(WZ_TEST_SOURCES
         tests/TestUnitTest1.cpp
         tests/TestMapleLib.cpp
+        tests/TestResult.cpp
         tests/TestPortalType.cpp
         tests/TestPngUtility.cpp
     )

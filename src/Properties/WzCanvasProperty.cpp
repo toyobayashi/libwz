@@ -136,7 +136,8 @@ WzImageProperty* WzCanvasProperty::GetFromPath(const std::string& path) {
 }
 
 Result<void> WzCanvasProperty::SaveToFile(const std::string& filePath) {
-  if (!imageProp_) return Error::DataError("Canvas has no PNG property");
+  if (!imageProp_)
+    return std::unexpected(Error::DataError("Canvas has no PNG property"));
   return imageProp_->SaveToFile(filePath);
 }
 

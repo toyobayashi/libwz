@@ -49,7 +49,6 @@ WzFile* WzImage::WzFileParent() const {
 }
 
 WzObjectType WzImage::ObjectType() const {
-  if (reader_ && !parsed_) const_cast<WzImage*>(this)->ParseImage();
   return WzObjectType::Image;
 }
 
@@ -65,16 +64,25 @@ bool WzImage::IsLuaWzImage() const {
 }
 
 WzPropertyCollection* WzImage::WzProperties() {
-  if (reader_ && !parsed_) ParseImage();
+  auto result = WzPropertiesResult();
+  if (!result.has_value()) return nullptr;
+  return result.value();
+}
+
+Result<WzPropertyCollection*> WzImage::WzPropertiesResult() {
+  auto parseResult = EnsureParsed();
+  if (!parseResult.has_value()) return std::unexpected(parseResult.error());
   return &properties_;
 }
 
 void WzImage::AddProperty(WzImageProperty* prop) {
   // Check for duplicate name (case-insensitive) matching C#
-  if ((*this)[prop->Name()] != nullptr) {
+  auto existing = GetPropertyByName(prop->Name());
+  if (existing.has_value() && existing.value() != nullptr) {
     return;
   }
-  if (reader_ && !parsed_) ParseImage();
+  auto parseResult = EnsureParsed();
+  if (!parseResult.has_value()) return;
   properties_.Add(prop);
   SetChanged(true);
 }
@@ -93,7 +101,8 @@ void WzImage::RemoveProperty(WzImageProperty* prop) {
   auto it = std::find(properties_.begin(), properties_.end(), prop);
   if (it == properties_.end()) return;
 
-  if (reader_ && !parsed_) ParseImage();
+  auto parseResult = EnsureParsed();
+  if (!parseResult.has_value()) return;
   prop->SetParent(nullptr);
   properties_.erase(it);
   SetChanged(true);
@@ -106,7 +115,14 @@ void WzImage::ClearProperties() {
 }
 
 WzImageProperty* WzImage::GetFromPath(const std::string& path) {
-  if (reader_ && !parsed_) ParseImage();
+  auto result = GetFromPathResult(path);
+  if (!result.has_value()) return nullptr;
+  return result.value();
+}
+
+Result<WzImageProperty*> WzImage::GetFromPathResult(const std::string& path) {
+  auto parseResult = EnsureParsed();
+  if (!parseResult.has_value()) return std::unexpected(parseResult.error());
 
   // Split by '/', skip empty segments (C# uses
   // StringSplitOptions.RemoveEmptyEntries)
@@ -176,12 +192,19 @@ Result<bool> WzImage::ParseImage() {
   }
 
   auto r = WzImageProperty::ParsePropertyList(offset_, reader_, this, this);
-  if (r.is_err()) return r.err();
-  for (auto* p : r.ok()) {
+  if (!r.has_value()) return std::unexpected(r.error());
+  for (auto* p : r.value()) {
     properties_.Add(p);
   }
   parsed_ = true;
   return true;
+}
+
+Result<void> WzImage::EnsureParsed() {
+  if (!reader_ || parsed_) return {};
+  auto parseResult = ParseImage();
+  if (!parseResult.has_value()) return std::unexpected(parseResult.error());
+  return {};
 }
 
 static std::string ToLower(const std::string& s) {
@@ -193,7 +216,14 @@ static std::string ToLower(const std::string& s) {
 }
 
 WzImageProperty* WzImage::operator[](const std::string& name) {
-  if (reader_ && !parsed_) ParseImage();
+  auto result = GetPropertyByName(name);
+  if (!result.has_value()) return nullptr;
+  return result.value();
+}
+
+Result<WzImageProperty*> WzImage::GetPropertyByName(const std::string& name) {
+  auto parseResult = EnsureParsed();
+  if (!parseResult.has_value()) return std::unexpected(parseResult.error());
   std::string lower = ToLower(name);
   for (auto* prop : properties_) {
     if (ToLower(prop->Name()) == lower) return prop;

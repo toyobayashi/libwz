@@ -67,9 +67,9 @@ static wz_error_code init_out(const char* fn, T* out) {
 }
 
 static wz_error_code result_void(const wz::Result<void>& result) {
-  if (result.is_err()) {
-    return wz_set_last_error(static_cast<wz_error_code>(result.err().code()),
-                             result.err().message());
+  if (!result.has_value()) {
+    return wz_set_last_error(static_cast<wz_error_code>(result.error().code()),
+                             result.error().message());
   }
   return wz_clear_last_error();
 }
@@ -79,12 +79,21 @@ static wz_error_code result_bool(const wz::Result<bool>& result,
   if (auto ec = init_out("result_bool", out_value); ec != WZ_ERROR_NONE) {
     return ec;
   }
-  if (result.is_err()) {
-    return wz_set_last_error(static_cast<wz_error_code>(result.err().code()),
-                             result.err().message());
+  if (!result.has_value()) {
+    return wz_set_last_error(static_cast<wz_error_code>(result.error().code()),
+                             result.error().message());
   }
-  *out_value = result.ok() ? 1 : 0;
+  *out_value = result.value() ? 1 : 0;
   return wz_clear_last_error();
+}
+
+template <typename T>
+static wz_error_code result_error(const wz::Result<T>& result) {
+  if (!result.has_value()) {
+    return wz_set_last_error(static_cast<wz_error_code>(result.error().code()),
+                             result.error().message());
+  }
+  return WZ_ERROR_NONE;
 }
 
 static wz::WzImageProperty* unwrap_prop(wz_property p) {
@@ -476,7 +485,9 @@ wz_error_code wz_image_count_properties(wz_image img, int* out_count) {
     return ec;
   }
   if (!img) return set_error_null("wz_image_count_properties");
-  auto* props = reinterpret_cast<wz::WzImage*>(img)->WzProperties();
+  auto propsResult = reinterpret_cast<wz::WzImage*>(img)->WzPropertiesResult();
+  if (auto ec = result_error(propsResult); ec != WZ_ERROR_NONE) return ec;
+  auto* props = propsResult.value();
   *out_count = props ? static_cast<int>(props->size()) : 0;
   return wz_clear_last_error();
 }
@@ -489,7 +500,9 @@ wz_error_code wz_image_get_property(wz_image img,
     return ec;
   }
   if (!img) return set_error_null("wz_image_get_property");
-  auto* props = reinterpret_cast<wz::WzImage*>(img)->WzProperties();
+  auto propsResult = reinterpret_cast<wz::WzImage*>(img)->WzPropertiesResult();
+  if (auto ec = result_error(propsResult); ec != WZ_ERROR_NONE) return ec;
+  auto* props = propsResult.value();
   if (!props) return wz_clear_last_error();
   size_t sz = props->size();
   if (index < 0 || index >= static_cast<int>(sz)) {
@@ -508,8 +521,10 @@ wz_error_code wz_image_get_from_path(wz_image img,
   }
   if (!img) return set_error_null("wz_image_get_from_path");
   if (!path) return set_error_invalid_arg("wz_image_get_from_path", "path");
-  *out_property =
-      wrap_prop(reinterpret_cast<wz::WzImage*>(img)->GetFromPath(path));
+  auto propResult =
+      reinterpret_cast<wz::WzImage*>(img)->GetFromPathResult(path);
+  if (auto ec = result_error(propResult); ec != WZ_ERROR_NONE) return ec;
+  *out_property = wrap_prop(propResult.value());
   return wz_clear_last_error();
 }
 
@@ -600,8 +615,14 @@ wz_error_code wz_object_at(wz_object obj,
   }
   if (!obj) return set_error_null("wz_object_at");
   if (!name) return set_error_invalid_arg("wz_object_at", "name");
-  *out_object = reinterpret_cast<wz_object>(
-      (*reinterpret_cast<wz::WzObject*>(obj))[name]);
+  auto* wzObj = reinterpret_cast<wz::WzObject*>(obj);
+  if (wzObj->ObjectType() == wz::WzObjectType::Image) {
+    auto propResult = static_cast<wz::WzImage*>(wzObj)->GetPropertyByName(name);
+    if (auto ec = result_error(propResult); ec != WZ_ERROR_NONE) return ec;
+    *out_object = reinterpret_cast<wz_object>(propResult.value());
+  } else {
+    *out_object = reinterpret_cast<wz_object>((*wzObj)[name]);
+  }
   return wz_clear_last_error();
 }
 
@@ -783,11 +804,11 @@ wz_error_code wz_property_get_bytes(wz_property prop,
   }
   if (!prop) return set_error_null("wz_property_get_bytes");
   auto result = unwrap_prop(prop)->GetBytes();
-  if (result.is_err()) {
-    return wz_set_last_error(static_cast<wz_error_code>(result.err().code()),
-                             result.err().message());
+  if (!result.has_value()) {
+    return wz_set_last_error(static_cast<wz_error_code>(result.error().code()),
+                             result.error().message());
   }
-  auto data = result.ok();
+  auto data = result.value();
   *out_size = data.size();
   if (buffer && buffer_size >= data.size()) {
     std::memcpy(buffer, data.data(), data.size());
@@ -942,11 +963,11 @@ wz_error_code wz_png_get_image(wz_png_property png,
   }
   if (!png) return set_error_null("wz_png_get_image");
   auto result = reinterpret_cast<wz::WzPngProperty*>(png)->GetImage(false);
-  if (result.is_err()) {
-    return wz_set_last_error(static_cast<wz_error_code>(result.err().code()),
-                             result.err().message());
+  if (!result.has_value()) {
+    return wz_set_last_error(static_cast<wz_error_code>(result.error().code()),
+                             result.error().message());
   }
-  auto& data = result.ok();
+  auto& data = result.value();
   *out_size = data.size();
   if (buffer && buffer_size >= data.size()) {
     std::memcpy(buffer, data.data(), data.size());
@@ -965,11 +986,11 @@ wz_error_code wz_png_get_compressed_bytes(wz_png_property png,
   if (!png) return set_error_null("wz_png_get_compressed_bytes");
   auto result =
       reinterpret_cast<wz::WzPngProperty*>(png)->GetCompressedBytes(false);
-  if (result.is_err()) {
-    return wz_set_last_error(static_cast<wz_error_code>(result.err().code()),
-                             result.err().message());
+  if (!result.has_value()) {
+    return wz_set_last_error(static_cast<wz_error_code>(result.error().code()),
+                             result.error().message());
   }
-  auto& data = result.ok();
+  auto& data = result.value();
   *out_size = data.size();
   if (buffer && buffer_size >= data.size()) {
     std::memcpy(buffer, data.data(), data.size());
@@ -1197,11 +1218,11 @@ wz_error_code wz_binary_get_data(wz_property binary_prop,
     return set_error_wrong_type("wz_binary_get_data");
   }
   auto result = static_cast<wz::WzBinaryProperty*>(p)->GetBytes(false);
-  if (result.is_err()) {
-    return wz_set_last_error(static_cast<wz_error_code>(result.err().code()),
-                             result.err().message());
+  if (!result.has_value()) {
+    return wz_set_last_error(static_cast<wz_error_code>(result.error().code()),
+                             result.error().message());
   }
-  auto& data = result.ok();
+  auto& data = result.value();
   *out_size = data.size();
   if (buffer && buffer_size >= data.size()) {
     std::memcpy(buffer, data.data(), data.size());
@@ -1224,11 +1245,11 @@ wz_error_code wz_binary_get_wav_playback(wz_property binary_prop,
   }
   auto result =
       static_cast<wz::WzBinaryProperty*>(p)->GetBytesForWAVPlayback(false);
-  if (result.is_err()) {
-    return wz_set_last_error(static_cast<wz_error_code>(result.err().code()),
-                             result.err().message());
+  if (!result.has_value()) {
+    return wz_set_last_error(static_cast<wz_error_code>(result.error().code()),
+                             result.error().message());
   }
-  auto& data = result.ok();
+  auto& data = result.value();
   *out_size = data.size();
   if (buffer && buffer_size >= data.size()) {
     std::memcpy(buffer, data.data(), data.size());
@@ -1324,11 +1345,11 @@ wz_error_code wz_rawdata_get_data(wz_property raw_prop,
     return set_error_wrong_type("wz_rawdata_get_data");
   }
   auto result = static_cast<wz::WzRawDataProperty*>(p)->GetBytes(false);
-  if (result.is_err()) {
-    return wz_set_last_error(static_cast<wz_error_code>(result.err().code()),
-                             result.err().message());
+  if (!result.has_value()) {
+    return wz_set_last_error(static_cast<wz_error_code>(result.error().code()),
+                             result.error().message());
   }
-  auto& data = result.ok();
+  auto& data = result.value();
   *out_size = data.size();
   if (buffer && buffer_size >= data.size()) {
     std::memcpy(buffer, data.data(), data.size());
@@ -1377,11 +1398,11 @@ wz_error_code wz_video_get_data(wz_property video_prop,
     return set_error_wrong_type("wz_video_get_data");
   }
   auto result = static_cast<wz::WzVideoProperty*>(p)->GetBytes(false);
-  if (result.is_err()) {
-    return wz_set_last_error(static_cast<wz_error_code>(result.err().code()),
-                             result.err().message());
+  if (!result.has_value()) {
+    return wz_set_last_error(static_cast<wz_error_code>(result.error().code()),
+                             result.error().message());
   }
-  auto& data = result.ok();
+  auto& data = result.value();
   *out_size = data.size();
   if (buffer && buffer_size >= data.size()) {
     std::memcpy(buffer, data.data(), data.size());

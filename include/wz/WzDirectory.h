@@ -48,7 +48,7 @@ class WzDirectory final : public WzObject {
   void SetWzFile(WzFile* f) { wzFile_ = f; }
 
   Result<void> ParseDirectory();
-  void ParseImages();
+  Result<void> ParseImages();
 
   void AddImage(WzImage* img);
   void AddDirectory(WzDirectory* dir);

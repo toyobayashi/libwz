@@ -27,7 +27,7 @@ Provides C API for FFI consumers and JNI bindings for Java/Kotlin.
 
 ## Requirements
 
-- **C++17** compiler (MSVC ≥ 2019, GCC ≥ 8, Clang ≥ 7)
+- **C++23** compiler with `<expected>` support
 - **CMake 3.16+**
 - **Git** (for submodules)
 
@@ -113,7 +113,7 @@ extracts the correct one at runtime.
 | `tests/` | Google Test unit tests |
 | `Harepacker-resurrected/` | C# reference (submodule, test data only) |
 
-## Dependencies (auto-fetched by CMake)
+## Dependencies
 
 - [tiny-AES-c](https://github.com/kokke/tiny-AES-c) — AES-256-ECB decryption
 - [zlib](https://github.com/madler/zlib) — Image data decompression

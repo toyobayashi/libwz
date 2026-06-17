@@ -28,7 +28,7 @@ class WzPngProperty : public WzImageProperty {
   Result<std::vector<uint8_t>> GetCompressedBytesForExtraction(
       bool saveInMemory);
   Result<std::vector<uint8_t>> GetRawImage(bool saveInMemory);
-  void ParsePng(bool saveInMemory);
+  Result<void> ParsePng(bool saveInMemory);
 
   Result<void> SaveToFile(const std::string& filePath);
 

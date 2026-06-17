@@ -11,7 +11,14 @@
       ],
       "defines": [
         "AES256=1"
-      ]
+      ],
+      "msvs_settings": {
+        "VCCLCompilerTool": {
+          "AdditionalOptions": [
+            "/utf-8"
+          ]
+        }
+      }
     },
     {
       "target_name": "zlibstatic",
@@ -111,8 +118,11 @@
         "AES256=1",
         "_HAS_EXCEPTIONS=0"
       ],
+      "cflags_cc!": [
+        "-std=c++20"
+      ],
       "cflags_cc": [
-        "-std=c++20",
+        "-std=c++23",
         "-fno-exceptions",
         "-fno-rtti"
       ],
@@ -120,8 +130,12 @@
         "VCCLCompilerTool": {
           "ExceptionHandling": 0,
           "RuntimeTypeInfo": "false",
+          "AdditionalOptions!": [
+            "-std:c++20",
+            "/std:c++20"
+          ],
           "AdditionalOptions": [
-            "/std:c++20",
+            "/std:c++latest",
             "/utf-8",
             "/EHs-c-",
             "/GR-"

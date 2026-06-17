@@ -61,7 +61,7 @@ std::string WzObject::GetString() const {
   return {};
 }
 Result<std::vector<uint8_t>> WzObject::GetBytes() {
-  return Error::NotImplemented();
+  return std::unexpected(Error::NotImplemented());
 }
 
 WzObject* WzObject::operator[](const std::string& name) {

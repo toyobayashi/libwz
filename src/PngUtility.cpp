@@ -22,8 +22,8 @@ Result<void> PngUtility::DecompressImagePixelDataBgra4444(
     std::vector<uint8_t>& output) {
   int uncompressedSize = width * height * 2;
   if (static_cast<int>(rawData.size()) < uncompressedSize)
-    return Error::InvalidArgument(
-        "Raw data length is insufficient for the specified dimensions.");
+    return std::unexpected(Error::InvalidArgument(
+        "Raw data length is insufficient for the specified dimensions."));
 
   output.resize(width * height * 4);
 
@@ -160,8 +160,8 @@ Result<void> PngUtility::DecompressImageDXT3(
   int blockCountY = (height + 3) / 4;
   int expectedSize = blockCountX * blockCountY * 16;
   if (static_cast<int>(rawData.size()) < expectedSize)
-    return Error::InvalidArgument(
-        "Raw data length insufficient for DXT3 decompression.");
+    return std::unexpected(Error::InvalidArgument(
+        "Raw data length insufficient for DXT3 decompression."));
 
   output.resize(width * height * 4);
 
@@ -209,11 +209,12 @@ Result<void> PngUtility::DecompressImageDXT5(
   int blockCountY = (height + 3) / 4;
   int expectedSize = blockCountX * blockCountY * 16;
   if (static_cast<int>(rawData.size()) < expectedSize)
-    return Error::InvalidArgument(
-        "Raw data length insufficient for DXT5 decompression.");
+    return std::unexpected(Error::InvalidArgument(
+        "Raw data length insufficient for DXT5 decompression."));
 
   if (width <= 0 || height <= 0)
-    return Error::InvalidArgument("Width and height must be positive.");
+    return std::unexpected(
+        Error::InvalidArgument("Width and height must be positive."));
 
   output.resize(width * height * 4);
 

@@ -47,7 +47,10 @@ TEST(UnitTest1, TestOpeningAndSavingHotfixWzFile) {
   std::string filePath = hotfixDir + "/Data.wz";
   ASSERT_TRUE(fs::exists(filePath));
   wz::WzFileManager mgr("", true);
-  auto* img = mgr.LoadDataWzHotfixFile(filePath, wz::WzMapleVersion::BMS);
+  auto hotfixResult =
+      mgr.LoadDataWzHotfixFile(filePath, wz::WzMapleVersion::BMS);
+  ASSERT_TRUE(hotfixResult.has_value()) << hotfixResult.error().message();
+  auto* img = hotfixResult.value();
   ASSERT_NE(img, nullptr) << "Hotfix Data.wz loading failed";
   EXPECT_TRUE(img->Parsed());
   EXPECT_GT(img->WzProperties()->size(), 0u);
@@ -119,9 +122,9 @@ TEST(UnitTest1, MobWz_1210100_stand_0_PngParse) {
   wz::WzImage* img = root->GetImageByName("1210100.img");
   ASSERT_NE(img, nullptr) << "1210100.img not found in Mob.wz";
   auto parseResult = img->ParseImage();
-  ASSERT_TRUE(parseResult.is_ok())
-      << "Failed to parse 1210100.img: " << parseResult.err().message();
-  ASSERT_TRUE(parseResult.ok()) << "Failed to parse 1210100.img";
+  ASSERT_TRUE(parseResult.has_value())
+      << "Failed to parse 1210100.img: " << parseResult.error().message();
+  ASSERT_TRUE(parseResult.value()) << "Failed to parse 1210100.img";
 
   auto* prop = img->GetFromPath("stand/0");
   ASSERT_NE(prop, nullptr) << "stand/0 not found in 1210100.img";
@@ -134,8 +137,8 @@ TEST(UnitTest1, MobWz_1210100_stand_0_PngParse) {
   ASSERT_NE(pngProp, nullptr) << "Canvas has no PNG property";
 
   auto result = pngProp->GetImage(false);
-  EXPECT_TRUE(result.is_ok())
-      << "GetImage() failed: " << result.err().message();
+  EXPECT_TRUE(result.has_value())
+      << "GetImage() failed: " << result.error().message();
 }
 
 TEST(UnitTest1, TestLegacyExtractionStyleSavePath_DoesNotThrow) {
@@ -158,19 +161,19 @@ TEST(UnitTest1, TestLegacyExtractionStyleSavePath_DoesNotThrow) {
         if (count >= 150) return;
         count++;
         auto parseResult = img->ParseImage();
-        if (parseResult.is_err()) {
+        if (!parseResult.has_value()) {
           ADD_FAILURE() << "Failed to parse image: " << img->Name() << ": "
-                        << parseResult.err().message();
+                        << parseResult.error().message();
           continue;
         }
-        if (!parseResult.ok()) {
+        if (!parseResult.value()) {
           continue;
         }
         for (auto* p : *img->WzProperties()) {
           if (p && p->PropertyType() == wz::WzPropertyType::Canvas) {
             auto* c = static_cast<wz::WzCanvasProperty*>(p);
             if (c->PngProperty()) {
-              if (c->PngProperty()->GetImage(false).is_err()) {
+              if (!c->PngProperty()->GetImage(false).has_value()) {
                 ADD_FAILURE() << "Failed to get image bytes for: " << lf.n
                               << ":" << img->Name();
                 break;

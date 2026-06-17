@@ -33,10 +33,11 @@ Result<void> WzLuaProperty::SaveToFile(const std::string& filePath) {
   std::error_code ec;
   if (!parentPath.empty()) {
     std::filesystem::create_directories(parentPath, ec);
-    if (ec) return Error::IoError(ec.message());
+    if (ec) return std::unexpected(Error::IoError(ec.message()));
   }
   std::ofstream out(outPath);
-  if (!out) return Error::IoError("Failed to open file for writing");
+  if (!out)
+    return std::unexpected(Error::IoError("Failed to open file for writing"));
   out << str;
   return {};
 }

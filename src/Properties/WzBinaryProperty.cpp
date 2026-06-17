@@ -95,7 +95,8 @@ Result<std::vector<uint8_t>> WzBinaryProperty::GetBytes() {
 
 Result<std::vector<uint8_t>> WzBinaryProperty::GetBytes(bool saveInMemory) {
   if (!fileBytes_.empty()) return fileBytes_;
-  if (!wzReader_) return Error::DataError("No reader for binary property");
+  if (!wzReader_)
+    return std::unexpected(Error::DataError("No reader for binary property"));
 
   auto currentPos = wzReader_->Position();
   wzReader_->SetPosition(offs_);
@@ -117,9 +118,10 @@ Result<std::vector<uint8_t>> WzBinaryProperty::GetBytesForWAVPlayback(
   };
 
   auto bytesResult = GetBytes(saveInMemory);
-  if (!bytesResult.is_ok()) return bytesResult.err();
-  auto& soundBytes = bytesResult.ok();
-  if (soundBytes.empty()) return Error::DataError("Empty sound data");
+  if (!bytesResult.has_value()) return std::unexpected(bytesResult.error());
+  auto& soundBytes = bytesResult.value();
+  if (soundBytes.empty())
+    return std::unexpected(Error::DataError("Empty sound data"));
 
   size_t totalLen = sizeof(riffWaveHeader) + header_.size() + soundBytes.size();
   std::vector<uint8_t> combined(totalLen);
@@ -136,17 +138,18 @@ Result<std::vector<uint8_t>> WzBinaryProperty::GetBytesForWAVPlayback(
 
 Result<void> WzBinaryProperty::SaveToFile(const std::string& filePath) {
   auto result = GetBytes(false);
-  if (!result.is_ok()) return result.err();
-  auto& bytes = result.ok();
+  if (!result.has_value()) return std::unexpected(result.error());
+  auto& bytes = result.value();
   auto outPath = wz::to_path(filePath);
   auto parentPath = outPath.parent_path();
   std::error_code ec;
   if (!parentPath.empty()) {
     std::filesystem::create_directories(parentPath, ec);
-    if (ec) return Error::IoError(ec.message());
+    if (ec) return std::unexpected(Error::IoError(ec.message()));
   }
   std::ofstream out(outPath, std::ios::binary);
-  if (!out) return Error::IoError("Failed to open file for writing");
+  if (!out)
+    return std::unexpected(Error::IoError("Failed to open file for writing"));
   out.write(reinterpret_cast<const char*>(bytes.data()), bytes.size());
   return {};
 }

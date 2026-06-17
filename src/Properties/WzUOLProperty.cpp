@@ -120,8 +120,7 @@ std::string WzUOLProperty::GetString() const {
 
 Result<std::vector<uint8_t>> WzUOLProperty::GetBytes() {
   WzObject* lv = LinkValue();
-  return lv ? lv->GetBytes()
-            : Result<std::vector<uint8_t>>(
-                  Error::DataError("UOL link resolution failed"));
+  if (lv) return lv->GetBytes();
+  return std::unexpected(Error::DataError("UOL link resolution failed"));
 }
 }  // namespace wz

@@ -1326,8 +1326,14 @@ JNIEXPORT jlong JNICALL JNI_FUNC(WzFileManager, nativeLoadDataWzHotfixFile)(
     JNIEnv* env, jclass, jlong ptr, jstring basePath, jint mapVersion) {
   auto* manager = reinterpret_cast<wz::WzFileManager*>(ptr);
   JniUtfString path(env, basePath);
-  wz::WzImage* img = manager->LoadDataWzHotfixFile(
+  auto result = manager->LoadDataWzHotfixFile(
       path.c_str(), static_cast<wz::WzMapleVersion>(mapVersion));
+  if (!result.has_value()) {
+    jclass exClass = env->FindClass("java/lang/RuntimeException");
+    if (exClass) env->ThrowNew(exClass, result.error().message().c_str());
+    return 0;
+  }
+  wz::WzImage* img = result.value();
   return reinterpret_cast<jlong>(img);
 }
 

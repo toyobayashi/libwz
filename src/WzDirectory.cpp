@@ -44,8 +44,9 @@ Result<void> WzDirectory::ParseDirectory() {
 
   int entryCount = reader_->ReadCompressedInt();
   if (entryCount < 0 || entryCount > 100000)
-    return Error::ParseError("Invalid wz version used for decryption, try "
-                             "parsing other version numbers.");
+    return std::unexpected(
+        Error::ParseError("Invalid wz version used for decryption, try "
+                          "parsing other version numbers."));
 
   for (int i = 0; i < entryCount; i++) {
     uint8_t type = reader_->ReadByte();
@@ -77,8 +78,8 @@ Result<void> WzDirectory::ParseDirectory() {
         break;
       }
       default:
-        return Error::ParseError("[WzDirectory] Unknown directory type = " +
-                                 std::to_string(type));
+        return std::unexpected(Error::ParseError(
+            "[WzDirectory] Unknown directory type = " + std::to_string(type)));
     }
 
     reader_->SetPosition(rememberPos);
@@ -104,24 +105,28 @@ Result<void> WzDirectory::ParseDirectory() {
 
   for (auto* subdir : subDirs_) {
     reader_->SetPosition(subdir->Offset());
-    subdir->ParseDirectory();
+    auto parseResult = subdir->ParseDirectory();
+    if (!parseResult.has_value()) return std::unexpected(parseResult.error());
   }
   return {};
 }
 
-void WzDirectory::ParseImages() {
+Result<void> WzDirectory::ParseImages() {
   for (auto* img : images_) {
     if (img->Reader() && img->Reader()->Position() != img->Offset()) {
       img->Reader()->SetPosition(img->Offset());
     }
-    img->ParseImage();
+    auto parseResult = img->ParseImage();
+    if (!parseResult.has_value()) return std::unexpected(parseResult.error());
   }
   for (auto* subdir : subDirs_) {
     if (subdir->Reader() && subdir->Reader()->Position() != subdir->Offset()) {
       subdir->Reader()->SetPosition(subdir->Offset());
     }
-    subdir->ParseImages();
+    auto parseResult = subdir->ParseImages();
+    if (!parseResult.has_value()) return std::unexpected(parseResult.error());
   }
+  return {};
 }
 
 void WzDirectory::AddImage(WzImage* img) {

@@ -169,7 +169,8 @@ bool WzFileManager::DetectIsPreBBDataWZFileFormat(
   WzImage* uiWindow2 = wzDir->GetImageByName("UIWindow2.img");
   if (!uiWindow2) return true;
 
-  uiWindow2->ParseImage();
+  auto parseImageResult = uiWindow2->ParseImage();
+  if (!parseImageResult.has_value()) return false;
   if (!(*uiWindow2)[BIG_BANG_MARKER]) return true;
 
   return false;
@@ -224,7 +225,8 @@ bool WzFileManager::DetectBigBang2Format(const std::string& mapleStoryPath,
   WzImage* uiWindow2 = wzDir->GetImageByName("UIWindow2.img");
   if (!uiWindow2) return false;
 
-  uiWindow2->ParseImage();
+  auto parseImageResult = uiWindow2->ParseImage();
+  if (!parseImageResult.has_value()) return false;
   bool result = IsBigBang2Update(uiWindow2);
 
   return result;
@@ -479,24 +481,29 @@ bool WzFileManager::LoadLegacyDataWzFile(const std::string& baseName,
   return true;
 }
 
-WzImage* WzFileManager::LoadDataWzHotfixFile(const std::string& basePath,
-                                             WzMapleVersion encVersion) {
+Result<WzImage*> WzFileManager::LoadDataWzHotfixFile(
+    const std::string& basePath, WzMapleVersion encVersion) {
   std::string filePath = basePath;
   if (!is_standalone_wz_file_ && !init_as_64bit_ && !baseDir_.empty()) {
     filePath = (wz::to_path(baseDir_) / basePath).string();
   }
   std::error_code ec;
-  if (!fs::is_regular_file(filePath, ec) || ec) return nullptr;
+  if (!fs::is_regular_file(filePath, ec) || ec)
+    return std::unexpected(Error::IoError("File does not exist: " + filePath));
 
   auto* fstream = new std::ifstream(wz::to_path(filePath), std::ios::binary);
   if (!fstream->is_open()) {
     delete fstream;
-    return nullptr;
+    return std::unexpected(Error::IoError("Failed to open file: " + filePath));
   }
 
   auto fname = wz::to_path(filePath).filename().string();
   auto* img = new WzImage(fname, fstream, encVersion);
-  img->ParseImage();
+  auto parseResult = img->ParseImage();
+  if (!parseResult.has_value()) {
+    delete img;
+    return std::unexpected(parseResult.error());
+  }
 
   wzImages_[ToLower(basePath)] = img;
   return img;

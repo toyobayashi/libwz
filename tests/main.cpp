@@ -68,9 +68,10 @@ int main() {
                   << ", Type: " << static_cast<int>(subProp->PropertyType())
                   << std::endl;
         if (subProp->Name() == "graduation") {
-          static_cast<wz::WzCanvasProperty*>(subProp)
-              ->PngProperty()
-              ->SaveToFile("tmp/graduation.png");
+          EXPECT_OK(static_cast<wz::WzCanvasProperty*>(subProp)
+                        ->PngProperty()
+                        ->SaveToFile("tmp/graduation.png"),
+                    "Failed to save graduation png");
         }
       }
       break;
@@ -90,7 +91,8 @@ int main() {
 
   wz::WzBinaryProperty* sound =
       static_cast<wz::WzBinaryProperty*>(img->GetFromPath("FloralLife"));
-  sound->SaveToFile("tmp/FloralLife2.mp3");
+  EXPECT_OK(sound->SaveToFile("tmp/FloralLife2.mp3"),
+            "Failed to save FloralLife2.mp3");
 
   for (auto* prop : *img->WzProperties()) {
     std::cout << "Property: " << prop->Name()
@@ -99,7 +101,9 @@ int main() {
     if (prop->PropertyType() == wz::WzPropertyType::Sound) {
       wz::WzBinaryProperty* soundProp =
           static_cast<wz::WzBinaryProperty*>(prop);
-      soundProp->SaveToFile("tmp/" + prop->Name() + ".mp3");
+      EXPECT_OK(soundProp->SaveToFile("tmp/" + prop->Name() + ".mp3"),
+                "Failed to save sound property: %s",
+                prop->Name().c_str());
     }
   }
   manager->UnloadWzFile(wzFile);
@@ -118,7 +122,7 @@ int main() {
     auto* mobImg = mobFile.GetWzDirectory()->GetImageByName(imgName);
     EXPECT_OK(mobImg, "%s not found in Mob.wz", imgName.c_str());
     auto parseResult = mobImg->ParseImage();
-    EXPECT_OK(parseResult.is_ok() && parseResult.ok(),
+    EXPECT_OK(parseResult.has_value() && parseResult.value(),
               "Failed to parse %s",
               imgName.c_str());
 

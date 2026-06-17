@@ -4,6 +4,7 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
+#include "wz/Result.h"
 #include "wz/Util/Defines.h"
 #include "wz/WzEnums.h"
 
@@ -57,8 +58,8 @@ class WzFileManager final {
   WzFile* LoadWzFile(const std::string& baseName, WzFile* wzf);
   bool LoadLegacyDataWzFile(const std::string& baseName,
                             WzMapleVersion encVersion);
-  WzImage* LoadDataWzHotfixFile(const std::string& basePath,
-                                WzMapleVersion encVersion);
+  Result<WzImage*> LoadDataWzHotfixFile(const std::string& basePath,
+                                        WzMapleVersion encVersion);
   void LoadCanvasSection(const std::string& canvasFolder,
                          WzMapleVersion encVersion);
   bool LoadListWzFile(WzMapleVersion fileVersion);

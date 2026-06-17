@@ -148,17 +148,17 @@ Result<WzPropertyCollection> WzImageProperty::ParsePropertyList(
             static_cast<int64_t>(reader->ReadUInt32()) + reader->Position();
         auto exProp =
             ParseExtendedProp(offset, reader, name, parent, parentImg);
-        if (exProp.is_err()) return exProp.err();
-        properties.Add(exProp.ok());
+        if (!exProp.has_value()) return std::unexpected(exProp.error());
+        properties.Add(exProp.value());
         if (reader->Position() != eob) {
           reader->SetPosition(eob);
         }
         break;
       }
       default:
-        return Error::ParseError(
+        return std::unexpected(Error::ParseError(
             "Unknown property type at ParsePropertyList, ptype = " +
-            std::to_string(ptype));
+            std::to_string(ptype)));
     }
   }
   return properties;
@@ -182,7 +182,8 @@ Result<WzImageProperty*> WzImageProperty::ParseExtendedProp(
       iname = reader->ReadString();
       break;
     default:
-      return Error::ParseError("Invalid byte read at ParseExtendedProp");
+      return std::unexpected(
+          Error::ParseError("Invalid byte read at ParseExtendedProp"));
   }
 
   WzImageProperty* exProp = nullptr;
@@ -192,8 +193,8 @@ Result<WzImageProperty*> WzImageProperty::ParseExtendedProp(
     subProp->SetParent(parent);
     reader->SetPosition(reader->Position() + 2);
     auto r = ParsePropertyList(offset, reader, subProp, parentImg);
-    if (r.is_err()) return r.err();
-    for (auto* p : r.ok()) subProp->AddProperty(p);
+    if (!r.has_value()) return std::unexpected(r.error());
+    for (auto* p : r.value()) subProp->AddProperty(p);
     exProp = subProp;
   } else if (iname == "Canvas") {
     auto* canvasProp = new WzCanvasProperty(name);
@@ -202,8 +203,8 @@ Result<WzImageProperty*> WzImageProperty::ParseExtendedProp(
     if (reader->ReadByte() == 1) {
       reader->SetPosition(reader->Position() + 2);
       auto r = ParsePropertyList(offset, reader, canvasProp, parentImg);
-      if (r.is_err()) return r.err();
-      for (auto* p : r.ok()) canvasProp->AddProperty(p);
+      if (!r.has_value()) return std::unexpected(r.error());
+      for (auto* p : r.value()) canvasProp->AddProperty(p);
     }
     auto* png = new WzPngProperty(reader, parentImg->ParseEverything());
     png->SetParent(canvasProp);
@@ -224,11 +225,11 @@ Result<WzImageProperty*> WzImageProperty::ParseExtendedProp(
     for (int j = 0; j < convexEntryCount; j++) {
       auto entryProp =
           ParseExtendedProp(offset, reader, name, convexProp, parentImg);
-      if (entryProp.is_err()) {
+      if (!entryProp.has_value()) {
         delete convexProp;
-        return entryProp.err();
+        return std::unexpected(entryProp.error());
       }
-      convexProp->AddProperty(entryProp.ok());
+      convexProp->AddProperty(entryProp.value());
     }
     exProp = convexProp;
   } else if (iname == "Sound_DX8") {
@@ -254,8 +255,8 @@ Result<WzImageProperty*> WzImageProperty::ParseExtendedProp(
       if (reader->ReadByte() == 1) {
         reader->SetPosition(reader->Position() + 2);
         auto r = ParsePropertyList(offset, reader, rawProp, parentImg);
-        if (r.is_err()) return r.err();
-        for (auto* p : r.ok()) rawProp->AddProperty(p);
+        if (!r.has_value()) return std::unexpected(r.error());
+        for (auto* p : r.value()) rawProp->AddProperty(p);
       }
     }
     rawProp->Parse(parentImg->ParseEverything());
@@ -267,13 +268,13 @@ Result<WzImageProperty*> WzImageProperty::ParseExtendedProp(
     if (reader->ReadByte() == 1) {
       reader->SetPosition(reader->Position() + 2);
       auto r = ParsePropertyList(offset, reader, videoProp, parentImg);
-      if (r.is_err()) return r.err();
-      for (auto* p : r.ok()) videoProp->AddProperty(p);
+      if (!r.has_value()) return std::unexpected(r.error());
+      for (auto* p : r.value()) videoProp->AddProperty(p);
     }
     videoProp->Parse(parentImg->ParseEverything());
     exProp = videoProp;
   } else {
-    return Error::ParseError("Unknown iname: " + iname);
+    return std::unexpected(Error::ParseError("Unknown iname: " + iname));
   }
 
   return exProp;
