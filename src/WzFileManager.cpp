@@ -491,14 +491,13 @@ Result<WzImage*> WzFileManager::LoadDataWzHotfixFile(
   if (!fs::is_regular_file(filePath, ec) || ec)
     return std::unexpected(Error::IoError("File does not exist: " + filePath));
 
-  auto* fstream = new std::ifstream(wz::to_path(filePath), std::ios::binary);
-  if (!fstream->is_open()) {
-    delete fstream;
+  std::ifstream fstream(wz::to_path(filePath), std::ios::binary);
+  if (!fstream.is_open()) {
     return std::unexpected(Error::IoError("Failed to open file: " + filePath));
   }
 
   auto fname = wz::to_path(filePath).filename().string();
-  auto* img = new WzImage(fname, fstream, encVersion);
+  auto* img = new WzImage(fname, std::move(fstream), encVersion);
   auto parseResult = img->ParseImage();
   if (!parseResult.has_value()) {
     delete img;

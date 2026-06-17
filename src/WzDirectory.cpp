@@ -95,7 +95,7 @@ Result<void> WzDirectory::ParseDirectory() {
       subDir->SetParent(this);
       subDirs_.push_back(subDir);
     } else {
-      auto* img = new WzImage(fname, reader_, checksum);
+      auto* img = new WzImage(fname, *reader_, checksum);
       img->SetBlockSize(fsize);
       img->SetOffset(woffset);
       img->SetParent(this);

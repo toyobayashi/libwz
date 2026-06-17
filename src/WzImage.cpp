@@ -1,5 +1,6 @@
 #include "wz/WzImage.h"
 #include <algorithm>
+#include <utility>
 #include "wz/Properties/WzLuaProperty.h"
 #include "wz/Util/WzBinaryReader.h"
 #include "wz/Util/WzTool.h"
@@ -13,19 +14,20 @@ WzImage::WzImage(const std::string& name) : properties_(this) {
   SetName(name);
   SetChanged(true);
 }
-WzImage::WzImage(const std::string& name, WzBinaryReader* reader, int checksum)
-    : checksum_(checksum), reader_(reader), properties_(this) {
+WzImage::WzImage(const std::string& name, WzBinaryReader& reader, int checksum)
+    : checksum_(checksum), reader_(&reader), properties_(this) {
   SetName(name);
-  blockStart_ = static_cast<int>(reader->Position());
+  blockStart_ = static_cast<int>(reader.Position());
 }
 
 WzImage::WzImage(const std::string& name,
-                 std::ifstream* dataStream,
+                 std::ifstream&& dataStream,
                  WzMapleVersion mapleVersion)
-    : dataStream_(dataStream), properties_(this) {
+    : dataStream_(std::move(dataStream)), properties_(this) {
   SetName(name);
   auto iv = WzTool::GetIvByMapleVersion(mapleVersion);
-  reader_ = new WzBinaryReader(dataStream, iv);
+  ownedReader_.emplace(&dataStream_, iv);
+  reader_ = &ownedReader_.value();
 }
 
 WzImage::~WzImage() {
@@ -34,13 +36,7 @@ WzImage::~WzImage() {
     delete prop;
   }
   properties_.clear();
-  if (reader_ && dataStream_) {
-    reader_->Close();
-    delete reader_;
-    reader_ = nullptr;
-    delete dataStream_;
-    dataStream_ = nullptr;
-  }
+  ownedReader_.reset();
   reader_ = nullptr;
 }
 
