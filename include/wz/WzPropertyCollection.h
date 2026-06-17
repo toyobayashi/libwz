@@ -75,16 +75,12 @@ class WzPropertyCollection {
     std::vector<std::unique_ptr<WzImageProperty>>::const_iterator it_;
   };
 
-  WzPropertyCollection() = default;
-  explicit WzPropertyCollection(WzObject* parent) : parent_(parent) {}
+  WzPropertyCollection();
+  explicit WzPropertyCollection(WzObject* parent);
+  ~WzPropertyCollection();
   WZ_DISALLOW_COPY(WzPropertyCollection)
-  WzPropertyCollection(WzPropertyCollection&& other) noexcept
-      : items_(std::move(other.items_)), parent_(other.parent_) {}
-  WzPropertyCollection& operator=(WzPropertyCollection&& other) noexcept {
-    items_ = std::move(other.items_);
-    parent_ = other.parent_;
-    return *this;
-  }
+  WzPropertyCollection(WzPropertyCollection&& other) noexcept;
+  WzPropertyCollection& operator=(WzPropertyCollection&& other) noexcept;
 
   void Add(WzImageProperty* item);
   void Add(std::unique_ptr<WzImageProperty> item);
@@ -92,14 +88,10 @@ class WzPropertyCollection {
   void Insert(size_t index, WzImageProperty* item);
   void Insert(size_t index, std::unique_ptr<WzImageProperty> item);
 
-  void erase(iterator it) { items_.erase(it.it_); }
-  void erase_at(size_t index) {
-    items_.erase(items_.begin() + static_cast<ptrdiff_t>(index));
-  }
-  void clear() { items_.clear(); }
-  std::vector<std::unique_ptr<WzImageProperty>> TakeItems() {
-    return std::move(items_);
-  }
+  void erase(iterator it);
+  void erase_at(size_t index);
+  void clear();
+  std::vector<std::unique_ptr<WzImageProperty>> TakeItems();
 
   WzImageProperty* operator[](size_t i) { return items_[i].get(); }
   WzImageProperty* operator[](size_t i) const { return items_[i].get(); }
