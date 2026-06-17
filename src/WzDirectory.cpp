@@ -141,12 +141,16 @@ void WzDirectory::AddDirectory(WzDirectory* dir) {
 }
 
 void WzDirectory::ClearImages() {
-  for (auto* img : images_) img->SetParent(nullptr);
+  for (auto* img : images_) {
+    delete img;
+  }
   images_.clear();
 }
 
 void WzDirectory::ClearDirectories() {
-  for (auto* dir : subDirs_) dir->SetParent(nullptr);
+  for (auto* dir : subDirs_) {
+    delete dir;
+  }
   subDirs_.clear();
 }
 
@@ -178,7 +182,7 @@ void WzDirectory::RemoveImage(WzImage* image) {
   auto it = std::find(images_.begin(), images_.end(), image);
   if (it != images_.end()) {
     images_.erase(it);
-    image->SetParent(nullptr);
+    delete image;
   }
 }
 
@@ -186,7 +190,7 @@ void WzDirectory::RemoveDirectory(WzDirectory* dir) {
   auto it = std::find(subDirs_.begin(), subDirs_.end(), dir);
   if (it != subDirs_.end()) {
     subDirs_.erase(it);
-    dir->SetParent(nullptr);
+    delete dir;
   }
 }
 

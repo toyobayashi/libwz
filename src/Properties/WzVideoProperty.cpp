@@ -28,7 +28,7 @@ void WzVideoProperty::AddProperty(WzImageProperty* prop) {
 void WzVideoProperty::RemoveProperty(const std::string& propertyName) {
   for (size_t i = 0; i < properties_.size(); i++) {
     if (properties_[i]->Name() == propertyName) {
-      properties_[i]->SetParent(nullptr);
+      delete properties_[i];
       properties_.erase(properties_.begin() + i);
       return;
     }
@@ -36,13 +36,17 @@ void WzVideoProperty::RemoveProperty(const std::string& propertyName) {
 }
 
 void WzVideoProperty::RemoveProperty(WzImageProperty* prop) {
-  prop->SetParent(nullptr);
   auto it = std::find(properties_.begin(), properties_.end(), prop);
-  if (it != properties_.end()) properties_.erase(it);
+  if (it != properties_.end()) {
+    properties_.erase(it);
+    delete prop;
+  }
 }
 
 void WzVideoProperty::ClearProperties() {
-  for (auto* prop : properties_) prop->SetParent(nullptr);
+  for (auto* prop : properties_) {
+    delete prop;
+  }
   properties_.clear();
 }
 

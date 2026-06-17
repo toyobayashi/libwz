@@ -99,13 +99,15 @@ void WzImage::RemoveProperty(WzImageProperty* prop) {
 
   auto parseResult = EnsureParsed();
   if (!parseResult.has_value()) return;
-  prop->SetParent(nullptr);
   properties_.erase(it);
+  delete prop;
   SetChanged(true);
 }
 
 void WzImage::ClearProperties() {
-  for (auto* prop : properties_) prop->SetParent(nullptr);
+  for (auto* prop : properties_) {
+    delete prop;
+  }
   properties_.clear();
   SetChanged(true);
 }

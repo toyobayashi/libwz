@@ -113,7 +113,7 @@ bool WzFile::TryDecodeWithWZVersionNumber(WzBinaryReader* reader,
   int64_t fallbackOffsetPosition = reader->Position();
 
   std::unique_ptr<WzDirectory> testDirectory =
-    std::make_unique<WzDirectory>(reader, name_, versionHash_, wz_iv_, this);
+      std::make_unique<WzDirectory>(reader, name_, versionHash_, wz_iv_, this);
   auto parseResult = testDirectory->ParseDirectory();
   if (!parseResult.has_value()) {
     reader->SetPosition(fallbackOffsetPosition);

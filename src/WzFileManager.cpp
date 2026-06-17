@@ -509,6 +509,12 @@ Result<WzImage*> WzFileManager::LoadDataWzHotfixFile(
     return std::unexpected(Error::IoError("Failed to open file: " + filePath));
   }
 
+  std::string key = ToLower(basePath);
+  auto existing = wzImages_.find(key);
+  if (existing != wzImages_.end()) {
+    return existing->second;
+  }
+
   auto fname = wz::to_path(filePath).filename().string();
   auto* img = new WzImage(fname, std::move(fstream), encVersion);
   auto parseResult = img->ParseImage();
@@ -517,7 +523,7 @@ Result<WzImage*> WzFileManager::LoadDataWzHotfixFile(
     return std::unexpected(parseResult.error());
   }
 
-  wzImages_[ToLower(basePath)] = img;
+  wzImages_[key] = img;
   return img;
 }
 
@@ -614,6 +620,13 @@ void WzFileManager::UnloadWzFile(WzFile* wzFile) {
     wzFiles_.erase(keyFound);
     wzDirs_.erase(keyFound);
   }
+  for (auto it = wzDirs_.begin(); it != wzDirs_.end();) {
+    if (it->second && it->second->WzFileParent() == wzFile) {
+      it = wzDirs_.erase(it);
+    } else {
+      ++it;
+    }
+  }
   delete wzFile;
 }
 
@@ -634,12 +647,6 @@ void WzFileManager::UnloadWzImgFile(WzImage* wzImage) {
 }
 
 WzFileManager::~WzFileManager() {
-  for (auto& pair : wzFiles_) {
-    delete pair.second;
-  }
-  for (auto& pair : wzImages_) {
-    delete pair.second;
-  }
   Clear();
   if (fileManager == this) {
     fileManager = nullptr;
@@ -647,6 +654,12 @@ WzFileManager::~WzFileManager() {
 }
 
 void WzFileManager::Clear() {
+  for (auto& pair : wzFiles_) {
+    delete pair.second;
+  }
+  for (auto& pair : wzImages_) {
+    delete pair.second;
+  }
   wzFiles_.clear();
   wzImages_.clear();
   wzDirs_.clear();
