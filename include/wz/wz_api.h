@@ -93,11 +93,20 @@ wz_error_code wz_open_file(const char* file_path,
                            short game_version,
                            wz_maple_version version,
                            wz_file* out_file);
+wz_error_code wz_create_file(short game_version,
+                             wz_maple_version version,
+                             wz_file* out_file);
 wz_error_code wz_open_file_with_iv(const char* file_path,
                                    const uint8_t iv[4],
                                    wz_file* out_file);
 wz_error_code wz_parse(wz_file file, wz_parse_status* out_status);
 wz_error_code wz_close_file(wz_file file);
+wz_error_code wz_file_save_to_disk(wz_file file, const char* file_path);
+wz_error_code wz_file_save_to_disk_ex(wz_file file,
+                                      const char* file_path,
+                                      int has_save_as_64bit,
+                                      int save_as_64bit,
+                                      wz_maple_version version);
 
 wz_error_code wz_file_name(wz_file file, const char** out_name);
 wz_error_code wz_file_path(wz_file file, const char** out_path);
@@ -127,6 +136,14 @@ wz_error_code wz_dir_get_directory(wz_dir dir, int index, wz_dir* out_dir);
 wz_error_code wz_dir_get_directory_by_name(wz_dir dir,
                                            const char* name,
                                            wz_dir* out_dir);
+wz_error_code wz_dir_create_directory(wz_dir dir,
+                                      const char* name,
+                                      wz_dir* out_dir);
+wz_error_code wz_dir_create_image(wz_dir dir,
+                                  const char* name,
+                                  wz_image* out_image);
+wz_error_code wz_dir_remove_directory(wz_dir dir, wz_dir child);
+wz_error_code wz_dir_remove_image(wz_dir dir, wz_image child);
 wz_error_code wz_dir_block_size(wz_dir dir, int* out_block_size);
 wz_error_code wz_dir_checksum(wz_dir dir, int* out_checksum);
 wz_error_code wz_dir_offset(wz_dir dir, int64_t* out_offset);
@@ -163,6 +180,8 @@ wz_error_code wz_object_get_top_most_wz_image(wz_object obj,
 wz_error_code wz_object_at(wz_object obj,
                            const char* name,
                            wz_object* out_object);
+wz_error_code wz_object_set_name(wz_object obj, const char* name);
+wz_error_code wz_object_remove(wz_object obj);
 
 wz_error_code wz_property_get_type(wz_property prop,
                                    wz_property_type* out_type);
@@ -179,6 +198,46 @@ wz_error_code wz_property_get_child_by_name(wz_property prop,
 wz_error_code wz_property_get_from_path(wz_property prop,
                                         const char* path,
                                         wz_property* out_property);
+
+// Property handles created by wz_property_create_* are owned by the caller
+// until passed to wz_image_add_property or wz_property_add_child. After a
+// successful add call, ownership transfers to the WZ tree and the caller must
+// not separately dispose or free the property handle.
+wz_error_code wz_property_create_null(const char* name,
+                                      wz_property* out_property);
+wz_error_code wz_property_create_short(const char* name,
+                                       int16_t value,
+                                       wz_property* out_property);
+wz_error_code wz_property_create_int(const char* name,
+                                     int32_t value,
+                                     wz_property* out_property);
+wz_error_code wz_property_create_long(const char* name,
+                                      int64_t value,
+                                      wz_property* out_property);
+wz_error_code wz_property_create_float(const char* name,
+                                       float value,
+                                       wz_property* out_property);
+wz_error_code wz_property_create_double(const char* name,
+                                        double value,
+                                        wz_property* out_property);
+wz_error_code wz_property_create_string(const char* name,
+                                        const char* value,
+                                        wz_property* out_property);
+wz_error_code wz_property_create_sub(const char* name,
+                                     wz_property* out_property);
+wz_error_code wz_property_create_vector(const char* name,
+                                        int32_t x,
+                                        int32_t y,
+                                        wz_property* out_property);
+wz_error_code wz_property_create_uol(const char* name,
+                                     const char* value,
+                                     wz_property* out_property);
+wz_error_code wz_image_add_property(wz_image img, wz_property prop);
+wz_error_code wz_property_add_child(wz_property parent, wz_property child);
+wz_error_code wz_image_remove_property(wz_image img, wz_property prop);
+wz_error_code wz_property_remove_child(wz_property parent, wz_property child);
+wz_error_code wz_image_clear_properties(wz_image img);
+wz_error_code wz_property_clear_children(wz_property prop);
 
 // Cast methods
 wz_error_code wz_property_get_int(wz_property prop, int32_t* out_value);
@@ -200,18 +259,23 @@ wz_error_code wz_int_set_value(wz_property prop, int32_t value);
 
 // WzShortProperty
 wz_error_code wz_short_get_value(wz_property prop, int16_t* out_value);
+wz_error_code wz_short_set_value(wz_property prop, int16_t value);
 
 // WzLongProperty
 wz_error_code wz_long_get_value(wz_property prop, int64_t* out_value);
+wz_error_code wz_long_set_value(wz_property prop, int64_t value);
 
 // WzFloatProperty
 wz_error_code wz_float_get_value(wz_property prop, float* out_value);
+wz_error_code wz_float_set_value(wz_property prop, float value);
 
 // WzDoubleProperty
 wz_error_code wz_double_get_value(wz_property prop, double* out_value);
+wz_error_code wz_double_set_value(wz_property prop, double value);
 
 // WzStringProperty
 wz_error_code wz_string_get_value(wz_property prop, const char** out_value);
+wz_error_code wz_string_set_value(wz_property prop, const char* value);
 wz_error_code wz_string_save_to_file(wz_property prop, const char* file_path);
 
 // ==================== WzPngProperty ====================
@@ -246,6 +310,7 @@ wz_error_code wz_canvas_get_linked_wz_image_property(wz_property canvas_prop,
 // ==================== WzUOLProperty ====================
 
 wz_error_code wz_uol_get_value(wz_property uol_prop, const char** out_value);
+wz_error_code wz_uol_set_value(wz_property uol_prop, const char* value);
 wz_error_code wz_uol_get_link_value(wz_property uol_prop,
                                     wz_object* out_object);
 
