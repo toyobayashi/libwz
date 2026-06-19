@@ -1,7 +1,10 @@
 #include "wz/WzDirectory.h"
 #include <algorithm>
+#include <functional>
 #include <mutex>
 #include <sstream>
+#include <unordered_set>
+#include <utility>
 #include <vector>
 #include "wz/Util/WzBinaryReader.h"
 #include "wz/Util/WzBinaryWriter.h"
@@ -10,6 +13,26 @@
 #include "wz/WzImage.h"
 
 namespace wz {
+
+namespace {
+
+class WzObjectValueSizer {
+ public:
+  int GetLength(const std::string& value, WzDirectoryType type) {
+    std::string storeName =
+        std::to_string(static_cast<uint8_t>(type)) + "_" + value;
+    if (value.length() > 4 && cache_.contains(storeName)) {
+      return 5;
+    }
+    cache_.insert(std::move(storeName));
+    return 1 + WzTool::GetEncodedStringLength(value);
+  }
+
+ private:
+  std::unordered_set<std::string> cache_;
+};
+
+}  // namespace
 
 WzDirectory::WzDirectory() = default;
 WzDirectory::WzDirectory(const std::string& dirName) {
@@ -248,73 +271,107 @@ Result<int> WzDirectory::GenerateDataFile(const std::array<uint8_t, 4>* useIv,
   }
 
   const bool useCustomIv = useIv != nullptr;
-  size_ = 0;
-  const int entryCount = static_cast<int>(subDirs_.size() + images_.size());
-  if (entryCount == 0) {
-    offsetSize_ = 1;
-    return size_;
-  }
 
-  size_ = WzTool::GetCompressedIntLength(entryCount);
-  offsetSize_ = size_;
+  std::function<Result<void>(WzDirectory*)> prepareImageData =
+      [&](WzDirectory* dir) -> Result<void> {
+    for (auto& img : dir->images_) {
+      img->SetChanged(img->Changed() || useCustomIv || !isDefaultUserKey);
+      if (img->Changed()) {
+        std::ostringstream imageData(std::ios::out | std::ios::binary);
+        WzBinaryWriter imageWriter(imageData,
+                                   useCustomIv ? *useIv : dir->wz_iv_);
+        auto saveResult =
+            img->SaveImage(&imageWriter, isDefaultUserKey, useCustomIv);
+        if (!saveResult.has_value()) {
+          return std::unexpected(saveResult.error());
+        }
 
-  for (auto& img : images_) {
-    img->SetChanged(img->Changed() || useCustomIv || !isDefaultUserKey);
-    if (img->Changed()) {
-      std::ostringstream imageData(std::ios::out | std::ios::binary);
-      WzBinaryWriter imageWriter(imageData, useCustomIv ? *useIv : wz_iv_);
-      auto saveResult =
-          img->SaveImage(&imageWriter, isDefaultUserKey, useCustomIv);
-      if (!saveResult.has_value()) {
-        return std::unexpected(saveResult.error());
+        const std::string bytes = imageData.str();
+        img->CalculateAndSetImageChecksum(
+            std::vector<uint8_t>(bytes.begin(), bytes.end()));
+        img->SetTempFileStart(static_cast<int64_t>(tempStream->tellp()));
+        tempStream->write(bytes.data(),
+                          static_cast<std::streamsize>(bytes.size()));
+        if (!*tempStream) {
+          return std::unexpected(
+              Error::IoError("Failed to write temporary WZ image data"));
+        }
+        img->SetTempFileEnd(static_cast<int64_t>(tempStream->tellp()));
+      } else {
+        img->SetTempFileStart(img->Offset());
+        img->SetTempFileEnd(img->Offset() + img->BlockSize());
       }
-
-      const std::string bytes = imageData.str();
-      img->CalculateAndSetImageChecksum(
-          std::vector<uint8_t>(bytes.begin(), bytes.end()));
-      img->SetTempFileStart(static_cast<int64_t>(tempStream->tellp()));
-      tempStream->write(bytes.data(),
-                        static_cast<std::streamsize>(bytes.size()));
-      if (!*tempStream) {
-        return std::unexpected(
-            Error::IoError("Failed to write temporary WZ image data"));
-      }
-      img->SetTempFileEnd(static_cast<int64_t>(tempStream->tellp()));
-    } else {
-      img->SetTempFileStart(img->Offset());
-      img->SetTempFileEnd(img->Offset() + img->BlockSize());
+      img->UnparseImage();
     }
-    img->UnparseImage();
 
-    const int nameLen = WzTool::GetWzObjectValueLength(
-        img->Name(), static_cast<uint8_t>(WzDirectoryType::WzImage_4));
-    const int imgLen = img->BlockSize();
-    size_ += nameLen;
-    size_ += WzTool::GetCompressedIntLength(imgLen);
-    size_ += imgLen;
-    size_ += WzTool::GetCompressedIntLength(img->Checksum());
-    size_ += 4;
-    offsetSize_ += nameLen;
-    offsetSize_ += WzTool::GetCompressedIntLength(imgLen);
-    offsetSize_ += WzTool::GetCompressedIntLength(img->Checksum());
-    offsetSize_ += 4;
+    for (auto& childDir : dir->subDirs_) {
+      auto childResult = prepareImageData(childDir.get());
+      if (!childResult.has_value()) {
+        return std::unexpected(childResult.error());
+      }
+    }
+    return {};
+  };
+
+  auto prepareResult = prepareImageData(this);
+  if (!prepareResult.has_value()) {
+    return std::unexpected(prepareResult.error());
   }
 
-  for (auto& dir : subDirs_) {
-    const int nameLen = WzTool::GetWzObjectValueLength(
-        dir->Name(), static_cast<uint8_t>(WzDirectoryType::WzDirectory_3));
-    size_ += nameLen;
-    auto childSize = dir->GenerateDataFile(useIv, isDefaultUserKey, tempStream);
-    if (!childSize.has_value()) return std::unexpected(childSize.error());
-    size_ += childSize.value();
-    size_ += WzTool::GetCompressedIntLength(dir->BlockSize());
-    size_ += WzTool::GetCompressedIntLength(dir->Checksum());
-    size_ += 4;
-    offsetSize_ += nameLen;
-    offsetSize_ += WzTool::GetCompressedIntLength(dir->BlockSize());
-    offsetSize_ += WzTool::GetCompressedIntLength(dir->Checksum());
-    offsetSize_ += 4;
-  }
+  WzObjectValueSizer objectSizer;
+  std::function<int(WzDirectory*)> calculateDirectorySize =
+      [&](WzDirectory* dir) -> int {
+    dir->size_ = 0;
+    const int entryCount =
+        static_cast<int>(dir->subDirs_.size() + dir->images_.size());
+    if (entryCount == 0) {
+      dir->offsetSize_ = 1;
+      return dir->size_;
+    }
+
+    dir->size_ = WzTool::GetCompressedIntLength(entryCount);
+    dir->offsetSize_ = dir->size_;
+
+    for (auto& img : dir->images_) {
+      const int nameLen =
+          objectSizer.GetLength(img->Name(), WzDirectoryType::WzImage_4);
+      const int imgLen = img->BlockSize();
+      dir->size_ += nameLen;
+      dir->size_ += WzTool::GetCompressedIntLength(imgLen);
+      dir->size_ += imgLen;
+      dir->size_ += WzTool::GetCompressedIntLength(img->Checksum());
+      dir->size_ += 4;
+      dir->offsetSize_ += nameLen;
+      dir->offsetSize_ += WzTool::GetCompressedIntLength(imgLen);
+      dir->offsetSize_ += WzTool::GetCompressedIntLength(img->Checksum());
+      dir->offsetSize_ += 4;
+    }
+
+    std::vector<std::pair<WzDirectory*, int>> childNameLengths;
+    childNameLengths.reserve(dir->subDirs_.size());
+    for (auto& childDir : dir->subDirs_) {
+      childNameLengths.emplace_back(
+          childDir.get(),
+          objectSizer.GetLength(childDir->Name(),
+                                WzDirectoryType::WzDirectory_3));
+    }
+
+    for (auto [childDir, nameLen] : childNameLengths) {
+      dir->size_ += nameLen;
+      dir->size_ += calculateDirectorySize(childDir);
+      dir->size_ += WzTool::GetCompressedIntLength(childDir->BlockSize());
+      dir->size_ += WzTool::GetCompressedIntLength(childDir->Checksum());
+      dir->size_ += 4;
+      dir->offsetSize_ += nameLen;
+      dir->offsetSize_ += WzTool::GetCompressedIntLength(childDir->BlockSize());
+      dir->offsetSize_ += WzTool::GetCompressedIntLength(childDir->Checksum());
+      dir->offsetSize_ += 4;
+    }
+
+    return dir->size_;
+  };
+
+  calculateDirectorySize(this);
   return size_;
 }
 

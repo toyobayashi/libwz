@@ -10,6 +10,7 @@
 #include "wz/Util/WzBinaryWriter.h"
 #include "wz/Util/WzTool.h"
 #include "wz/WzAESConstant.h"
+#include "wz/WzDirectory.h"
 #include "wz/WzEnums.h"
 #include "wz/WzFile.h"
 #include "wz/WzImage.h"
@@ -71,6 +72,64 @@ TEST(RepackTest, EncodedStringLengthMatchesWriterForUtf8Unicode) {
       wz::WzTool::GetWzObjectValueLength(
           unicodeName, static_cast<uint8_t>(wz::WzDirectoryType::WzImage_4)),
       static_cast<int>(objectOut.str().size()));
+}
+
+TEST(RepackTest, RepeatedLongDirectoryNamesAcrossSiblingsRoundTrip) {
+  const auto output = TempPath("libwz_repack_repeated_dir_names.wz");
+  RemoveIfExists(output);
+
+  wz::WzFile file(95, wz::WzMapleVersion::GMS);
+  auto* root = file.GetWzDirectory();
+  ASSERT_NE(root, nullptr);
+
+  constexpr char kParentName[] = "ParentDirectoryLongName";
+  constexpr char kRepeatedName[] = "RepeatedDirectoryLongName";
+
+  auto* parentDir = new wz::WzDirectory(kParentName);
+  auto* nestedRepeatedDir = new wz::WzDirectory(kRepeatedName);
+  auto* nestedImage = new wz::WzImage("nested.img");
+  nestedImage->AddProperty(std::make_unique<wz::WzIntProperty>("value", 11));
+  nestedRepeatedDir->AddImage(nestedImage);
+  parentDir->AddDirectory(nestedRepeatedDir);
+
+  auto* siblingRepeatedDir = new wz::WzDirectory(kRepeatedName);
+  auto* siblingImage = new wz::WzImage("sibling.img");
+  siblingImage->AddProperty(std::make_unique<wz::WzIntProperty>("value", 22));
+  siblingRepeatedDir->AddImage(siblingImage);
+
+  root->AddDirectory(parentDir);
+  root->AddDirectory(siblingRepeatedDir);
+
+  auto saveResult = file.SaveToDisk(output.string());
+
+  ASSERT_TRUE(saveResult.has_value()) << saveResult.error().message();
+  wz::WzFile reopened(output.string(), 95, wz::WzMapleVersion::GMS);
+  ASSERT_EQ(reopened.ParseWzFile(), wz::WzFileParseStatus::Success);
+  ASSERT_NE(reopened.GetWzDirectory(), nullptr);
+
+  auto* reopenedParent =
+      reopened.GetWzDirectory()->GetDirectoryByName(kParentName);
+  ASSERT_NE(reopenedParent, nullptr);
+  auto* reopenedNested = reopenedParent->GetDirectoryByName(kRepeatedName);
+  ASSERT_NE(reopenedNested, nullptr);
+  auto* reopenedNestedImage = reopenedNested->GetImageByName("nested.img");
+  ASSERT_NE(reopenedNestedImage, nullptr);
+  auto* nestedValue =
+      reopenedNestedImage->GetPropertyByName("value").value_or(nullptr);
+  ASSERT_NE(nestedValue, nullptr);
+  EXPECT_EQ(static_cast<wz::WzIntProperty*>(nestedValue)->Value(), 11);
+
+  auto* reopenedSibling =
+      reopened.GetWzDirectory()->GetDirectoryByName(kRepeatedName);
+  ASSERT_NE(reopenedSibling, nullptr);
+  auto* reopenedSiblingImage = reopenedSibling->GetImageByName("sibling.img");
+  ASSERT_NE(reopenedSiblingImage, nullptr);
+  auto* siblingValue =
+      reopenedSiblingImage->GetPropertyByName("value").value_or(nullptr);
+  ASSERT_NE(siblingValue, nullptr);
+  EXPECT_EQ(static_cast<wz::WzIntProperty*>(siblingValue)->Value(), 22);
+
+  RemoveIfExists(output);
 }
 
 TEST(RepackTest, SaveWithoutEditsReopensSampleFile) {
