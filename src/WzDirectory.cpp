@@ -1,6 +1,7 @@
 #include "wz/WzDirectory.h"
 #include <algorithm>
 #include <functional>
+#include <limits>
 #include <mutex>
 #include <sstream>
 #include <unordered_set>
@@ -31,6 +32,28 @@ class WzObjectValueSizer {
  private:
   std::unordered_set<std::string> cache_;
 };
+
+Result<uint32_t> AddCheckedOffset(uint32_t current,
+                                  uint64_t increment,
+                                  const std::string& context) {
+  if (increment > std::numeric_limits<uint32_t>::max() - current) {
+    return std::unexpected(
+        Error::DataError("WZ offset overflow while adding " + context));
+  }
+  return current + static_cast<uint32_t>(increment);
+}
+
+Result<void> AddCheckedInt(int* target, int increment) {
+  if (increment < 0) {
+    return std::unexpected(
+        Error::DataError("Cannot add negative WZ directory size"));
+  }
+  if (*target > std::numeric_limits<int>::max() - increment) {
+    return std::unexpected(Error::DataError("WZ directory size overflow"));
+  }
+  *target += increment;
+  return {};
+}
 
 }  // namespace
 
@@ -301,7 +324,9 @@ Result<int> WzDirectory::GenerateDataFile(const std::array<uint8_t, 4>* useIv,
         img->SetTempFileStart(img->Offset());
         img->SetTempFileEnd(img->Offset() + img->BlockSize());
       }
-      img->UnparseImage();
+      if (!img->Changed()) {
+        img->UnparseImage();
+      }
     }
 
     for (auto& childDir : dir->subDirs_) {
@@ -319,8 +344,8 @@ Result<int> WzDirectory::GenerateDataFile(const std::array<uint8_t, 4>* useIv,
   }
 
   WzObjectValueSizer objectSizer;
-  std::function<int(WzDirectory*)> calculateDirectorySize =
-      [&](WzDirectory* dir) -> int {
+  std::function<Result<int>(WzDirectory*)> calculateDirectorySize =
+      [&](WzDirectory* dir) -> Result<int> {
     dir->size_ = 0;
     const int entryCount =
         static_cast<int>(dir->subDirs_.size() + dir->images_.size());
@@ -336,15 +361,33 @@ Result<int> WzDirectory::GenerateDataFile(const std::array<uint8_t, 4>* useIv,
       const int nameLen =
           objectSizer.GetLength(img->Name(), WzDirectoryType::WzImage_4);
       const int imgLen = img->BlockSize();
-      dir->size_ += nameLen;
-      dir->size_ += WzTool::GetCompressedIntLength(imgLen);
-      dir->size_ += imgLen;
-      dir->size_ += WzTool::GetCompressedIntLength(img->Checksum());
-      dir->size_ += 4;
-      dir->offsetSize_ += nameLen;
-      dir->offsetSize_ += WzTool::GetCompressedIntLength(imgLen);
-      dir->offsetSize_ += WzTool::GetCompressedIntLength(img->Checksum());
-      dir->offsetSize_ += 4;
+      if (imgLen < 0) {
+        return std::unexpected(
+            Error::DataError("Cannot repack image with negative block size"));
+      }
+      auto addResult = AddCheckedInt(&dir->size_, nameLen);
+      if (!addResult.has_value()) return std::unexpected(addResult.error());
+      addResult =
+          AddCheckedInt(&dir->size_, WzTool::GetCompressedIntLength(imgLen));
+      if (!addResult.has_value()) return std::unexpected(addResult.error());
+      addResult = AddCheckedInt(&dir->size_, imgLen);
+      if (!addResult.has_value()) return std::unexpected(addResult.error());
+      addResult = AddCheckedInt(
+          &dir->size_, WzTool::GetCompressedIntLength(img->Checksum()));
+      if (!addResult.has_value()) return std::unexpected(addResult.error());
+      addResult = AddCheckedInt(&dir->size_, 4);
+      if (!addResult.has_value()) return std::unexpected(addResult.error());
+
+      addResult = AddCheckedInt(&dir->offsetSize_, nameLen);
+      if (!addResult.has_value()) return std::unexpected(addResult.error());
+      addResult = AddCheckedInt(&dir->offsetSize_,
+                                WzTool::GetCompressedIntLength(imgLen));
+      if (!addResult.has_value()) return std::unexpected(addResult.error());
+      addResult = AddCheckedInt(
+          &dir->offsetSize_, WzTool::GetCompressedIntLength(img->Checksum()));
+      if (!addResult.has_value()) return std::unexpected(addResult.error());
+      addResult = AddCheckedInt(&dir->offsetSize_, 4);
+      if (!addResult.has_value()) return std::unexpected(addResult.error());
     }
 
     std::vector<std::pair<WzDirectory*, int>> childNameLengths;
@@ -357,21 +400,42 @@ Result<int> WzDirectory::GenerateDataFile(const std::array<uint8_t, 4>* useIv,
     }
 
     for (auto [childDir, nameLen] : childNameLengths) {
-      dir->size_ += nameLen;
-      dir->size_ += calculateDirectorySize(childDir);
-      dir->size_ += WzTool::GetCompressedIntLength(childDir->BlockSize());
-      dir->size_ += WzTool::GetCompressedIntLength(childDir->Checksum());
-      dir->size_ += 4;
-      dir->offsetSize_ += nameLen;
-      dir->offsetSize_ += WzTool::GetCompressedIntLength(childDir->BlockSize());
-      dir->offsetSize_ += WzTool::GetCompressedIntLength(childDir->Checksum());
-      dir->offsetSize_ += 4;
+      auto childSize = calculateDirectorySize(childDir);
+      if (!childSize.has_value()) return std::unexpected(childSize.error());
+      auto addResult = AddCheckedInt(&dir->size_, nameLen);
+      if (!addResult.has_value()) return std::unexpected(addResult.error());
+      addResult = AddCheckedInt(&dir->size_, childSize.value());
+      if (!addResult.has_value()) return std::unexpected(addResult.error());
+      addResult = AddCheckedInt(
+          &dir->size_, WzTool::GetCompressedIntLength(childDir->BlockSize()));
+      if (!addResult.has_value()) return std::unexpected(addResult.error());
+      addResult = AddCheckedInt(
+          &dir->size_, WzTool::GetCompressedIntLength(childDir->Checksum()));
+      if (!addResult.has_value()) return std::unexpected(addResult.error());
+      addResult = AddCheckedInt(&dir->size_, 4);
+      if (!addResult.has_value()) return std::unexpected(addResult.error());
+
+      addResult = AddCheckedInt(&dir->offsetSize_, nameLen);
+      if (!addResult.has_value()) return std::unexpected(addResult.error());
+      addResult =
+          AddCheckedInt(&dir->offsetSize_,
+                        WzTool::GetCompressedIntLength(childDir->BlockSize()));
+      if (!addResult.has_value()) return std::unexpected(addResult.error());
+      addResult =
+          AddCheckedInt(&dir->offsetSize_,
+                        WzTool::GetCompressedIntLength(childDir->Checksum()));
+      if (!addResult.has_value()) return std::unexpected(addResult.error());
+      addResult = AddCheckedInt(&dir->offsetSize_, 4);
+      if (!addResult.has_value()) return std::unexpected(addResult.error());
     }
 
     return dir->size_;
   };
 
-  calculateDirectorySize(this);
+  auto sizeResult = calculateDirectorySize(this);
+  if (!sizeResult.has_value()) {
+    return std::unexpected(sizeResult.error());
+  }
   return size_;
 }
 
@@ -430,6 +494,11 @@ Result<void> WzDirectory::SaveImages(WzBinaryWriter* writer,
     }
     const int64_t length = end - start;
     if (img->Changed()) {
+      if (img->BlockSize() < 0 ||
+          length != static_cast<int64_t>(img->BlockSize())) {
+        return std::unexpected(
+            Error::DataError("Invalid changed WZ image byte range"));
+      }
       tempStream->seekg(start, std::ios::beg);
       std::vector<char> buffer(static_cast<size_t>(img->BlockSize()));
       tempStream->read(buffer.data(),
@@ -447,8 +516,25 @@ Result<void> WzDirectory::SaveImages(WzBinaryWriter* writer,
       }
       std::lock_guard<std::recursive_mutex> lock(img->Reader()->Mutex());
       const int64_t originalPos = img->Reader()->Position();
+      auto& source = img->Reader()->BaseStream();
+      source.clear();
+      source.seekg(0, std::ios::end);
+      const int64_t sourceEnd = static_cast<int64_t>(source.tellg());
+      if (start < 0 || length < 0 || sourceEnd < 0 || start > sourceEnd ||
+          length > sourceEnd - start) {
+        img->Reader()->SetPosition(originalPos);
+        return std::unexpected(Error::IoError(
+            "Unchanged WZ image source range is unavailable: start=" +
+            std::to_string(start) + ", length=" + std::to_string(length) +
+            ", sourceEnd=" + std::to_string(sourceEnd)));
+      }
       img->Reader()->SetPosition(start);
       auto bytes = img->Reader()->ReadBytes(static_cast<size_t>(length));
+      if (bytes.size() != static_cast<size_t>(length)) {
+        img->Reader()->SetPosition(originalPos);
+        return std::unexpected(
+            Error::IoError("Failed to read unchanged WZ image data"));
+      }
       writer->BaseStream().write(reinterpret_cast<const char*>(bytes.data()),
                                  static_cast<std::streamsize>(bytes.size()));
       img->Reader()->SetPosition(originalPos);
@@ -465,22 +551,40 @@ Result<void> WzDirectory::SaveImages(WzBinaryWriter* writer,
   return {};
 }
 
-uint32_t WzDirectory::GetOffsets(uint32_t currentOffset) {
+Result<uint32_t> WzDirectory::GetOffsets(uint32_t currentOffset) {
   offset_ = currentOffset;
-  currentOffset += static_cast<uint32_t>(offsetSize_);
+  if (offsetSize_ < 0) {
+    return std::unexpected(
+        Error::DataError("Cannot add negative WZ directory offset size"));
+  }
+  auto nextOffset = AddCheckedOffset(
+      currentOffset, static_cast<uint64_t>(offsetSize_), "directory metadata");
+  if (!nextOffset.has_value()) return std::unexpected(nextOffset.error());
+  currentOffset = nextOffset.value();
   for (auto& dir : subDirs_) {
-    currentOffset = dir->GetOffsets(currentOffset);
+    auto childOffset = dir->GetOffsets(currentOffset);
+    if (!childOffset.has_value()) return std::unexpected(childOffset.error());
+    currentOffset = childOffset.value();
   }
   return currentOffset;
 }
 
-uint32_t WzDirectory::GetImgOffsets(uint32_t currentOffset) {
+Result<uint32_t> WzDirectory::GetImgOffsets(uint32_t currentOffset) {
   for (auto& img : images_) {
+    if (img->BlockSize() < 0) {
+      return std::unexpected(
+          Error::DataError("Cannot add negative WZ image block size"));
+    }
     img->SetOffset(currentOffset);
-    currentOffset += static_cast<uint32_t>(img->BlockSize());
+    auto nextOffset = AddCheckedOffset(
+        currentOffset, static_cast<uint64_t>(img->BlockSize()), "image block");
+    if (!nextOffset.has_value()) return std::unexpected(nextOffset.error());
+    currentOffset = nextOffset.value();
   }
   for (auto& dir : subDirs_) {
-    currentOffset = dir->GetImgOffsets(currentOffset);
+    auto childOffset = dir->GetImgOffsets(currentOffset);
+    if (!childOffset.has_value()) return std::unexpected(childOffset.error());
+    currentOffset = childOffset.value();
   }
   return currentOffset;
 }

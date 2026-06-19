@@ -2,11 +2,13 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <fstream>
 #include <memory>
 #include <sstream>
 #include <string>
 
 #include "wz/Properties/WzIntProperty.h"
+#include "wz/Util/WzBinaryReader.h"
 #include "wz/Util/WzBinaryWriter.h"
 #include "wz/Util/WzTool.h"
 #include "wz/WzAESConstant.h"
@@ -17,12 +19,6 @@
 
 namespace {
 
-std::filesystem::path SampleWzPath() {
-  return std::filesystem::path(__FILE__).parent_path().parent_path() /
-         "Harepacker-resurrected" / "UnitTest_WzFile" / "WzFiles" / "Common" /
-         "TamingMob_GMS_95.wz";
-}
-
 std::filesystem::path TempPath(const std::string& name) {
   return std::filesystem::temp_directory_path() / name;
 }
@@ -30,12 +26,6 @@ std::filesystem::path TempPath(const std::string& name) {
 void RemoveIfExists(const std::filesystem::path& path) {
   std::error_code ec;
   std::filesystem::remove(path, ec);
-}
-
-void RequireSamplePresent() {
-  if (!std::filesystem::exists(SampleWzPath())) {
-    GTEST_SKIP() << "Sample WZ file is not available";
-  }
 }
 
 }  // namespace
@@ -132,12 +122,120 @@ TEST(RepackTest, RepeatedLongDirectoryNamesAcrossSiblingsRoundTrip) {
   RemoveIfExists(output);
 }
 
-TEST(RepackTest, SaveWithoutEditsReopensSampleFile) {
-  RequireSamplePresent();
-  const auto output = TempPath("libwz_repack_no_edits.wz");
-  RemoveIfExists(output);
+TEST(RepackTest, ChangedImagePropertiesSurviveMultipleSaves) {
+  const auto firstOutput = TempPath("libwz_repack_changed_first_save.wz");
+  const auto secondOutput = TempPath("libwz_repack_changed_second_save.wz");
+  RemoveIfExists(firstOutput);
+  RemoveIfExists(secondOutput);
 
-  wz::WzFile file(SampleWzPath().string(), wz::WzMapleVersion::GMS);
+  constexpr int kExpectedValue = 515151;
+  wz::WzFile file(95, wz::WzMapleVersion::GMS);
+  auto* image = new wz::WzImage("changed.img");
+  image->AddProperty(std::make_unique<wz::WzIntProperty>(
+      "libwz_second_save_marker", kExpectedValue));
+  file.GetWzDirectory()->AddImage(image);
+
+  auto firstSaveResult = file.SaveToDisk(firstOutput.string());
+  ASSERT_TRUE(firstSaveResult.has_value()) << firstSaveResult.error().message();
+
+  auto* inMemoryProperty =
+      image->GetPropertyByName("libwz_second_save_marker").value_or(nullptr);
+  ASSERT_NE(inMemoryProperty, nullptr);
+  EXPECT_EQ(static_cast<wz::WzIntProperty*>(inMemoryProperty)->Value(),
+            kExpectedValue);
+
+  auto secondSaveResult = file.SaveToDisk(secondOutput.string());
+  ASSERT_TRUE(secondSaveResult.has_value())
+      << secondSaveResult.error().message();
+
+  wz::WzFile reopened(
+      secondOutput.string(), file.Version(), wz::WzMapleVersion::GMS);
+  ASSERT_EQ(reopened.ParseWzFile(), wz::WzFileParseStatus::Success);
+  wz::WzImage* reopenedImage =
+      reopened.GetWzDirectory()->GetImageByName(image->Name());
+  ASSERT_NE(reopenedImage, nullptr);
+  auto* reopenedProperty =
+      reopenedImage->GetPropertyByName("libwz_second_save_marker")
+          .value_or(nullptr);
+  ASSERT_NE(reopenedProperty, nullptr);
+  EXPECT_EQ(static_cast<wz::WzIntProperty*>(reopenedProperty)->Value(),
+            kExpectedValue);
+
+  RemoveIfExists(firstOutput);
+  RemoveIfExists(secondOutput);
+}
+
+TEST(RepackTest, SaveImagesRejectsShortUnchangedSourceRead) {
+  const auto sourcePath = TempPath("libwz_repack_short_source.bin");
+  const auto outputPath = TempPath("libwz_repack_short_output.bin");
+  RemoveIfExists(sourcePath);
+  RemoveIfExists(outputPath);
+  {
+    std::ofstream source(sourcePath, std::ios::binary);
+    source.write("abc", 3);
+  }
+
+  std::ifstream source(sourcePath, std::ios::binary);
+  wz::WzBinaryReader reader(source, wz::WzAESConstant::WZ_GMSIV);
+  wz::WzDirectory dir("root");
+  auto* image = new wz::WzImage("short.img", reader, 0);
+  image->SetOffset(0);
+  image->SetBlockSize(10);
+  image->SetTempFileStart(0);
+  image->SetTempFileEnd(10);
+  image->SetChanged(false);
+  dir.AddImage(image);
+
+  std::ostringstream output(std::ios::out | std::ios::binary);
+  wz::WzBinaryWriter writer(output, wz::WzAESConstant::WZ_GMSIV);
+  std::istringstream temp("", std::ios::in | std::ios::binary);
+
+  auto saveResult = dir.SaveImages(&writer, &temp);
+
+  ASSERT_FALSE(saveResult.has_value());
+  EXPECT_EQ(saveResult.error().code(), wz::ErrorCode::IoError);
+
+  RemoveIfExists(sourcePath);
+  RemoveIfExists(outputPath);
+}
+
+TEST(RepackTest, ImageOffsetAccumulationRejectsNegativeAndOverflowingSizes) {
+  wz::WzDirectory negativeDir("negative");
+  auto* negativeImage = new wz::WzImage("negative.img");
+  negativeImage->SetBlockSize(-1);
+  negativeDir.AddImage(negativeImage);
+
+  auto negativeResult = negativeDir.GetImgOffsets(0);
+
+  ASSERT_FALSE(negativeResult.has_value());
+  EXPECT_EQ(negativeResult.error().code(), wz::ErrorCode::DataError);
+
+  wz::WzDirectory overflowDir("overflow");
+  auto* overflowImage = new wz::WzImage("overflow.img");
+  overflowImage->SetBlockSize(20);
+  overflowDir.AddImage(overflowImage);
+
+  auto overflowResult = overflowDir.GetImgOffsets(UINT32_MAX - 10);
+
+  ASSERT_FALSE(overflowResult.has_value());
+  EXPECT_EQ(overflowResult.error().code(), wz::ErrorCode::DataError);
+}
+
+TEST(RepackTest, SaveWithoutEditsReopensGeneratedFile) {
+  const auto seed = TempPath("libwz_repack_no_edits_seed.wz");
+  const auto output = TempPath("libwz_repack_no_edits.wz");
+  RemoveIfExists(seed);
+  RemoveIfExists(output);
+  {
+    wz::WzFile seedFile(95, wz::WzMapleVersion::GMS);
+    auto* seedImage = new wz::WzImage("seed.img");
+    seedImage->AddProperty(std::make_unique<wz::WzIntProperty>("value", 7));
+    seedFile.GetWzDirectory()->AddImage(seedImage);
+    auto seedSave = seedFile.SaveToDisk(seed.string());
+    ASSERT_TRUE(seedSave.has_value()) << seedSave.error().message();
+  }
+
+  wz::WzFile file(seed.string(), 95, wz::WzMapleVersion::GMS);
   ASSERT_EQ(file.ParseWzFile(), wz::WzFileParseStatus::Success);
 
   auto saveResult = file.SaveToDisk(output.string());
@@ -149,15 +247,25 @@ TEST(RepackTest, SaveWithoutEditsReopensSampleFile) {
   EXPECT_EQ(reopened.GetWzDirectory()->CountImages(),
             file.GetWzDirectory()->CountImages());
 
+  RemoveIfExists(seed);
   RemoveIfExists(output);
 }
 
-TEST(RepackTest, SaveChangedImageReopensWithAddedIntProperty) {
-  RequireSamplePresent();
+TEST(RepackTest, SaveGeneratedImageReopensWithAddedIntProperty) {
+  const auto seed = TempPath("libwz_repack_changed_seed.wz");
   const auto output = TempPath("libwz_repack_changed_image.wz");
+  RemoveIfExists(seed);
   RemoveIfExists(output);
+  {
+    wz::WzFile seedFile(95, wz::WzMapleVersion::GMS);
+    auto* seedImage = new wz::WzImage("changed.img");
+    seedImage->AddProperty(std::make_unique<wz::WzIntProperty>("value", 7));
+    seedFile.GetWzDirectory()->AddImage(seedImage);
+    auto seedSave = seedFile.SaveToDisk(seed.string());
+    ASSERT_TRUE(seedSave.has_value()) << seedSave.error().message();
+  }
 
-  wz::WzFile file(SampleWzPath().string(), wz::WzMapleVersion::GMS);
+  wz::WzFile file(seed.string(), 95, wz::WzMapleVersion::GMS);
   ASSERT_EQ(file.ParseWzFile(), wz::WzFileParseStatus::Success);
   ASSERT_NE(file.GetWzDirectory(), nullptr);
   auto images = file.GetWzDirectory()->WzImages();
@@ -166,7 +274,9 @@ TEST(RepackTest, SaveChangedImageReopensWithAddedIntProperty) {
   ASSERT_NE(image, nullptr);
 
   constexpr int kExpectedValue = 424242;
-  image->SetParsed(true);
+  auto parseResult = image->ParseImage();
+  ASSERT_TRUE(parseResult.has_value()) << parseResult.error().message();
+  ASSERT_TRUE(parseResult.value());
   image->AddProperty(std::make_unique<wz::WzIntProperty>("libwz_repack_marker",
                                                          kExpectedValue));
 
@@ -184,5 +294,6 @@ TEST(RepackTest, SaveChangedImageReopensWithAddedIntProperty) {
   ASSERT_EQ(property->PropertyType(), wz::WzPropertyType::Int);
   EXPECT_EQ(static_cast<wz::WzIntProperty*>(property)->Value(), kExpectedValue);
 
+  RemoveIfExists(seed);
   RemoveIfExists(output);
 }

@@ -4,6 +4,7 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <limits>
 #include <memory>
 #include <sstream>
 #include "wz/Properties/WzCanvasProperty.h"
@@ -270,9 +271,24 @@ Result<void> WzFile::SaveToDisk(const std::string& path,
   WzTool::ClearWzObjectValueLengthCache();
   const uint32_t directoryStart =
       header_.FStart() + (saveAs64 ? 0u : sizeof(uint16_t));
-  const uint32_t totalLength =
-      wzDir_->GetImgOffsets(wzDir_->GetOffsets(directoryStart));
-  header_.SetFSize(totalLength - header_.FStart());
+  auto directoryEnd = wzDir_->GetOffsets(directoryStart);
+  if (!directoryEnd.has_value()) {
+    return std::unexpected(directoryEnd.error());
+  }
+  auto totalLength = wzDir_->GetImgOffsets(directoryEnd.value());
+  if (!totalLength.has_value()) {
+    return std::unexpected(totalLength.error());
+  }
+  if (totalLength.value() < header_.FStart()) {
+    return std::unexpected(
+        Error::DataError("WZ total length precedes file start"));
+  }
+  const uint64_t fileSize =
+      static_cast<uint64_t>(totalLength.value()) - header_.FStart();
+  if (fileSize > std::numeric_limits<uint32_t>::max()) {
+    return std::unexpected(Error::DataError("WZ file size exceeds 32-bit"));
+  }
+  header_.SetFSize(fileSize);
 
   std::ofstream output(wz::to_path(path), std::ios::binary | std::ios::trunc);
   if (!output.is_open()) {

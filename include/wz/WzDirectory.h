@@ -73,8 +73,8 @@ class WzDirectory final : public WzObject {
                                std::ostream* tempStream);
   Result<void> SaveDirectory(WzBinaryWriter* writer);
   Result<void> SaveImages(WzBinaryWriter* writer, std::istream* tempStream);
-  uint32_t GetOffsets(uint32_t currentOffset);
-  uint32_t GetImgOffsets(uint32_t currentOffset);
+  Result<uint32_t> GetOffsets(uint32_t currentOffset);
+  Result<uint32_t> GetImgOffsets(uint32_t currentOffset);
 
  private:
   std::vector<std::unique_ptr<WzImage>> images_;
