@@ -53,6 +53,7 @@ class WzImage final : public WzObject, public IPropertyContainer {
   using IPropertyContainer::AddProperty;
   WzPropertyCollection* WzProperties() override;
   Result<WzPropertyCollection*> WzPropertiesResult();
+  Result<void> TryAddProperty(WzImageProperty* prop);
   Result<void> TryAddProperty(std::unique_ptr<WzImageProperty> prop);
   void AddProperty(WzImageProperty* prop) override;
   void AddProperty(std::unique_ptr<WzImageProperty> prop) override;

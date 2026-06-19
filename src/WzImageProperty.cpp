@@ -1,4 +1,6 @@
 #include "wz/WzImageProperty.h"
+#include <algorithm>
+#include <cctype>
 #include <memory>
 #include <vector>
 #include "wz/Properties/WzBinaryProperty.h"
@@ -26,6 +28,14 @@
 namespace wz {
 
 namespace {
+
+std::string ToLower(const std::string& s) {
+  std::string r = s;
+  std::transform(r.begin(), r.end(), r.begin(), [](unsigned char c) {
+    return static_cast<char>(std::tolower(c));
+  });
+  return r;
+}
 
 bool IsExtendedProperty(const WzImageProperty* prop) {
   if (!prop) return false;
@@ -134,6 +144,82 @@ Result<void> WzImageProperty::WriteValue(WzBinaryWriter* writer) const {
 void IPropertyContainer::AddProperties(WzPropertyCollection& props) {
   for (auto& prop : props.TakeItems()) {
     AddProperty(std::move(prop));
+  }
+}
+
+Result<void> WzImageProperty::TryAddChildProperty(WzImageProperty* prop) {
+  if (!prop) {
+    return std::unexpected(
+        Error::InvalidArgument("Cannot add a null WZ image property"));
+  }
+  if (prop->Name().empty()) {
+    return std::unexpected(
+        Error::InvalidArgument("WZ image property name cannot be empty"));
+  }
+  auto* properties = WzProperties();
+  if (!properties) {
+    return std::unexpected(
+        Error::InvalidArgument("WZ object is not a property container"));
+  }
+  const std::string lower = ToLower(prop->Name());
+  for (auto* existing : *properties) {
+    if (existing && ToLower(existing->Name()) == lower) {
+      return std::unexpected(Error::InvalidArgument(
+          "Duplicate WZ image property name: " + prop->Name()));
+    }
+  }
+  properties->Add(prop);
+  MarkParentImageChanged();
+  return {};
+}
+
+Result<void> WzImageProperty::TryAddChildProperty(
+    std::unique_ptr<WzImageProperty> prop) {
+  auto* raw = prop.get();
+  auto result = TryAddChildProperty(raw);
+  if (result.has_value()) {
+    (void)prop.release();
+  }
+  return result;
+}
+
+Result<void> WzImageProperty::TryRemoveChildProperty(WzImageProperty* prop) {
+  if (!prop) {
+    return std::unexpected(
+        Error::InvalidArgument("Cannot remove a null WZ image property"));
+  }
+  auto* properties = WzProperties();
+  if (!properties) {
+    return std::unexpected(
+        Error::InvalidArgument("WZ object is not a property container"));
+  }
+  auto removed = properties->Take(prop);
+  if (removed) MarkParentImageChanged();
+  return {};
+}
+
+Result<void> WzImageProperty::TryClearChildProperties() {
+  auto* properties = WzProperties();
+  if (!properties) {
+    return std::unexpected(
+        Error::InvalidArgument("WZ object is not a property container"));
+  }
+  if (properties->size() == 0) return {};
+  properties->clear();
+  MarkParentImageChanged();
+  return {};
+}
+
+void WzImageProperty::Remove() {
+  auto* parent = Parent();
+  if (!parent) {
+    delete this;
+    return;
+  }
+  if (parent->ObjectType() == WzObjectType::Image) {
+    static_cast<WzImage*>(parent)->RemoveProperty(this);
+  } else if (parent->ObjectType() == WzObjectType::Property) {
+    (void)static_cast<WzImageProperty*>(parent)->TryRemoveChildProperty(this);
   }
 }
 

@@ -737,27 +737,7 @@ wz_error_code wz_object_set_name(wz_object obj, const char* name) {
 
 wz_error_code wz_object_remove(wz_object obj) {
   if (!obj) return set_error_null("wz_object_remove");
-  auto* wzObj = unwrap_object(obj);
-  if (wzObj->ObjectType() == wz::WzObjectType::Property) {
-    auto* prop = static_cast<wz::WzImageProperty*>(wzObj);
-    auto* parent = prop->Parent();
-    if (!parent) {
-      delete prop;
-      return wz_clear_last_error();
-    }
-    if (parent->ObjectType() == wz::WzObjectType::Image) {
-      static_cast<wz::WzImage*>(parent)->RemoveProperty(prop);
-      return wz_clear_last_error();
-    }
-    if (parent->ObjectType() == wz::WzObjectType::Property &&
-        static_cast<wz::WzImageProperty*>(parent)->WzProperties()) {
-      static_cast<wz::WzImageProperty*>(parent)->WzProperties()->Take(prop);
-      static_cast<wz::WzImageProperty*>(parent)->MarkParentImageChanged();
-      return wz_clear_last_error();
-    }
-    return set_error_wrong_type("wz_object_remove");
-  }
-  wzObj->Remove();
+  unwrap_object(obj)->Remove();
   return wz_clear_last_error();
 }
 
@@ -994,22 +974,7 @@ wz_error_code wz_image_add_property(wz_image img, wz_property prop) {
   if (!img) return set_error_null("wz_image_add_property");
   auto* p = unwrap_prop(prop);
   if (!p) return set_error_null("wz_image_add_property");
-  auto* image = unwrap_image(img);
-  if (p->Name().empty()) {
-    return wz_set_last_error(WZ_ERROR_INVALID_ARGUMENT,
-                             "WZ image property name cannot be empty");
-  }
-  auto existing = image->GetPropertyByName(p->Name());
-  if (auto ec = result_error(existing); ec != WZ_ERROR_NONE) return ec;
-  if (existing.value() != nullptr) {
-    return wz_set_last_error(WZ_ERROR_INVALID_ARGUMENT,
-                             "Duplicate WZ image property name: " + p->Name());
-  }
-  auto props = image->WzPropertiesResult();
-  if (auto ec = result_error(props); ec != WZ_ERROR_NONE) return ec;
-  props.value()->Add(std::unique_ptr<wz::WzImageProperty>(p));
-  image->SetChanged(true);
-  return wz_clear_last_error();
+  return result_void(unwrap_image(img)->TryAddProperty(p));
 }
 
 wz_error_code wz_property_add_child(wz_property parent, wz_property child) {
@@ -1017,20 +982,9 @@ wz_error_code wz_property_add_child(wz_property parent, wz_property child) {
   if (!parentProp) return set_error_null("wz_property_add_child");
   auto* childProp = unwrap_prop(child);
   if (!childProp) return set_error_null("wz_property_add_child");
-  auto* children = parentProp->WzProperties();
-  if (!children) return set_error_wrong_type("wz_property_add_child");
-  if (childProp->Name().empty()) {
-    return wz_set_last_error(WZ_ERROR_INVALID_ARGUMENT,
-                             "WZ image property name cannot be empty");
-  }
-  if (parentProp->operator[](childProp->Name())) {
-    return wz_set_last_error(
-        WZ_ERROR_INVALID_ARGUMENT,
-        "Duplicate WZ image property name: " + childProp->Name());
-  }
-  children->Add(std::unique_ptr<wz::WzImageProperty>(childProp));
-  parentProp->MarkParentImageChanged();
-  return wz_clear_last_error();
+  if (!parentProp->WzProperties())
+    return set_error_wrong_type("wz_property_add_child");
+  return result_void(parentProp->TryAddChildProperty(childProp));
 }
 
 wz_error_code wz_image_remove_property(wz_image img, wz_property prop) {
@@ -1046,11 +1000,10 @@ wz_error_code wz_property_remove_child(wz_property parent, wz_property child) {
   if (!parentProp) return set_error_null("wz_property_remove_child");
   auto* childProp = unwrap_prop(child);
   if (!childProp) return set_error_null("wz_property_remove_child");
-  auto* children = parentProp->WzProperties();
-  if (!children) return set_error_wrong_type("wz_property_remove_child");
-  auto removed = children->Take(childProp);
-  if (removed) parentProp->MarkParentImageChanged();
-  return wz_clear_last_error();
+  if (!parentProp->WzProperties()) {
+    return set_error_wrong_type("wz_property_remove_child");
+  }
+  return result_void(parentProp->TryRemoveChildProperty(childProp));
 }
 
 wz_error_code wz_image_clear_properties(wz_image img) {
@@ -1062,12 +1015,9 @@ wz_error_code wz_image_clear_properties(wz_image img) {
 wz_error_code wz_property_clear_children(wz_property prop) {
   auto* p = unwrap_prop(prop);
   if (!p) return set_error_null("wz_property_clear_children");
-  auto* children = p->WzProperties();
-  if (!children) return set_error_wrong_type("wz_property_clear_children");
-  if (children->size() == 0) return wz_clear_last_error();
-  children->clear();
-  p->MarkParentImageChanged();
-  return wz_clear_last_error();
+  if (!p->WzProperties())
+    return set_error_wrong_type("wz_property_clear_children");
+  return result_void(p->TryClearChildProperties());
 }
 
 wz_error_code wz_property_get_int(wz_property prop, int32_t* out_value) {

@@ -74,7 +74,7 @@ void WzImage::AddProperty(WzImageProperty* prop) {
   AddProperty(std::unique_ptr<WzImageProperty>(prop));
 }
 
-Result<void> WzImage::TryAddProperty(std::unique_ptr<WzImageProperty> prop) {
+Result<void> WzImage::TryAddProperty(WzImageProperty* prop) {
   if (!prop) {
     return std::unexpected(
         Error::InvalidArgument("Cannot add a null WZ image property"));
@@ -92,9 +92,18 @@ Result<void> WzImage::TryAddProperty(std::unique_ptr<WzImageProperty> prop) {
   }
   auto parseResult = EnsureParsed();
   if (!parseResult.has_value()) return std::unexpected(parseResult.error());
-  properties_.Add(std::move(prop));
+  properties_.Add(prop);
   SetChanged(true);
   return {};
+}
+
+Result<void> WzImage::TryAddProperty(std::unique_ptr<WzImageProperty> prop) {
+  auto* raw = prop.get();
+  auto result = TryAddProperty(raw);
+  if (result.has_value()) {
+    (void)prop.release();
+  }
+  return result;
 }
 
 void WzImage::AddProperty(std::unique_ptr<WzImageProperty> prop) {

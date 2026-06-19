@@ -42,11 +42,16 @@ class WzImageProperty : public WzObject {
 
   WzObjectType ObjectType() const override { return WzObjectType::Property; }
   WzFile* WzFileParent() const override;
+  void Remove() override;
 
   virtual WzPropertyType PropertyType() const = 0;
   virtual bool IsRawDataProperty() const { return false; }
   virtual bool IsVideoProperty() const { return false; }
   virtual WzPropertyCollection* WzProperties() { return nullptr; }
+  Result<void> TryAddChildProperty(WzImageProperty* prop);
+  Result<void> TryAddChildProperty(std::unique_ptr<WzImageProperty> prop);
+  Result<void> TryRemoveChildProperty(WzImageProperty* prop);
+  Result<void> TryClearChildProperties();
   virtual Result<void> WriteValue(WzBinaryWriter* writer) const;
 
   virtual WzImageProperty* operator[](const std::string& name);
