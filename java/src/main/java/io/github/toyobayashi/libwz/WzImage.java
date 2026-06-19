@@ -15,6 +15,9 @@ public class WzImage extends WzObject {
     static native int nativeCountProperties(long ptr);
     static native long nativeGetProperty(long ptr, int index);
     private static native long nativeGetFromPath(long ptr, String path);
+    private static native void nativeAddProperty(long ptr, long propPtr);
+    private static native void nativeRemoveProperty(long ptr, long propPtr);
+    private static native void nativeClearProperties(long ptr);
 
     @Override public String getName() { return nativeName(nativePtr); }
     public boolean isParsed() { return nativeParsed(nativePtr); }
@@ -33,6 +36,17 @@ public class WzImage extends WzObject {
         long p = nativeGetFromPath(nativePtr, path);
         return p == 0 ? null : WzPropertyFactory.wrap(p);
     }
+
+    public void addProperty(WzImageProperty property) {
+        nativeAddProperty(nativePtr, property.nativePtr());
+        property.releaseNativeOwnership();
+    }
+
+    public void removeProperty(WzImageProperty property) {
+        nativeRemoveProperty(nativePtr, property.nativePtr());
+    }
+
+    public void clearProperties() { nativeClearProperties(nativePtr); }
 
     @Override
     protected void dispose() {

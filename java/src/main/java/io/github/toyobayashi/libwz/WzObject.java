@@ -4,7 +4,7 @@ public abstract class WzObject implements AutoCloseable {
     static { NativeLibraryLoader.load(); }
 
     protected long nativePtr;
-    private final boolean ownsNative;
+    private boolean ownsNative;
 
     protected WzObject(long ptr) {
         this(ptr, false);
@@ -25,6 +25,8 @@ public abstract class WzObject implements AutoCloseable {
     private static native long nativeGetTopMostWzDirectory(long ptr);
     private static native long nativeGetTopMostWzImage(long ptr);
     private static native long nativeAt(long ptr, String name);
+    private static native void nativeSetName(long ptr, String name);
+    private static native void nativeRemove(long ptr);
 
     public WzEnums.ObjectType getObjectType() {
         int v = nativeObjectType(nativePtr);
@@ -33,6 +35,10 @@ public abstract class WzObject implements AutoCloseable {
     }
 
     public String getName() { return nativeName(nativePtr); }
+
+    public void setName(String name) { nativeSetName(nativePtr, name); }
+
+    public void remove() { nativeRemove(nativePtr); }
 
     public WzObject getParent() {
         long p = nativeParent(nativePtr);
@@ -70,6 +76,7 @@ public abstract class WzObject implements AutoCloseable {
     }
 
     void updateNativePtr(long ptr) { this.nativePtr = ptr; }
+    void releaseNativeOwnership() { this.ownsNative = false; }
     protected boolean ownsNative() { return ownsNative; }
 
     @Override

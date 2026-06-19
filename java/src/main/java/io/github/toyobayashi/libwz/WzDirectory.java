@@ -18,6 +18,10 @@ public class WzDirectory extends WzObject {
     private static native int nativeBlockSize(long ptr);
     private static native int nativeChecksum(long ptr);
     private static native long nativeOffset(long ptr);
+    private static native long nativeAddDirectory(long ptr, String name);
+    private static native long nativeAddImage(long ptr, String name);
+    private static native void nativeRemoveDirectory(long ptr, long childPtr);
+    private static native void nativeRemoveImage(long ptr, long childPtr);
 
     @Override public String getName() { return nativeName(nativePtr); }
     public int countImages() { return nativeCountImagesTotal(nativePtr); }
@@ -75,6 +79,24 @@ public class WzDirectory extends WzObject {
     public int getBlockSize() { return nativeBlockSize(nativePtr); }
     public int getChecksum() { return nativeChecksum(nativePtr); }
     public long getOffset() { return nativeOffset(nativePtr); }
+
+    public WzDirectory addDirectory(String name) {
+        long p = nativeAddDirectory(nativePtr, name);
+        return p == 0 ? null : new WzDirectory(p);
+    }
+
+    public WzImage addImage(String name) {
+        long p = nativeAddImage(nativePtr, name);
+        return p == 0 ? null : new WzImage(p);
+    }
+
+    public void removeDirectory(WzDirectory directory) {
+        nativeRemoveDirectory(nativePtr, directory.nativePtr());
+    }
+
+    public void removeImage(WzImage image) {
+        nativeRemoveImage(nativePtr, image.nativePtr());
+    }
 
     @Override
     protected void dispose() {

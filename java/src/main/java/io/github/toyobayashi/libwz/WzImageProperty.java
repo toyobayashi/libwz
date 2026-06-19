@@ -2,6 +2,7 @@ package io.github.toyobayashi.libwz;
 
 public abstract class WzImageProperty extends WzObject {
     WzImageProperty(long ptr) { super(ptr); }
+    WzImageProperty(long ptr, boolean ownsNative) { super(ptr, ownsNative); }
 
     private static native int nativePropertyType(long ptr);
     private static native String nativeName(long ptr);
@@ -9,6 +10,10 @@ public abstract class WzImageProperty extends WzObject {
     static native long nativeGetChild(long ptr, int index);
     private static native long nativeGetChildByName(long ptr, String name);
     private static native long nativeGetFromPath(long ptr, String path);
+    private static native void nativeFree(long ptr);
+    private static native void nativeAddProperty(long ptr, long childPtr);
+    private static native void nativeRemoveProperty(long ptr, long childPtr);
+    private static native void nativeClearProperties(long ptr);
     private static native int nativeGetInt(long ptr);
     private static native short nativeGetShort(long ptr);
     private static native long nativeGetLong(long ptr);
@@ -56,4 +61,23 @@ public abstract class WzImageProperty extends WzObject {
     public double getDouble() { return nativeGetDouble(nativePtr); }
     public String getString() { return nativeGetString(nativePtr); }
     public byte[] getBytes() { return nativeGetBytes(nativePtr); }
+
+    public void addProperty(WzImageProperty property) {
+        nativeAddProperty(nativePtr, property.nativePtr());
+        property.releaseNativeOwnership();
+    }
+
+    public void removeProperty(WzImageProperty property) {
+        nativeRemoveProperty(nativePtr, property.nativePtr());
+    }
+
+    public void clearProperties() { nativeClearProperties(nativePtr); }
+
+    @Override
+    protected void dispose() {
+        if (ownsNative() && nativePtr != 0) {
+            nativeFree(nativePtr);
+            nativePtr = 0;
+        }
+    }
 }

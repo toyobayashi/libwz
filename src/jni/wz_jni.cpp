@@ -65,6 +65,17 @@ extern "C" {
 
 // ==================== WzFile ====================
 
+JNIEXPORT jlong JNICALL JNI_FUNC(WzFile, nativeCreate)(JNIEnv* env,
+                                                       jclass,
+                                                       jshort gameVersion,
+                                                       jint version) {
+  wz_file f = nullptr;
+  wz_error_code err =
+      wz_create_file(gameVersion, static_cast<wz_maple_version>(version), &f);
+  WZ_API_CALL_RETURN(env, err, 0)
+  return reinterpret_cast<jlong>(f);
+}
+
 JNIEXPORT jlong JNICALL JNI_FUNC(WzFile, nativeOpen)(
     JNIEnv* env, jclass, jstring filePath, jshort gameVersion, jint version) {
   JniUtfString path(env, filePath);
@@ -100,8 +111,32 @@ JNIEXPORT jint JNICALL JNI_FUNC(WzFile, nativeParseWzFile)(JNIEnv* env,
 }
 
 JNIEXPORT void JNICALL JNI_FUNC(WzFile,
-                                nativeDispose)(JNIEnv*, jclass, jlong ptr) {
-  wz_close_file(reinterpret_cast<wz_file>(ptr));
+                                nativeDispose)(JNIEnv* env, jclass, jlong ptr) {
+  WZ_API_CALL(env, wz_close_file(reinterpret_cast<wz_file>(ptr)));
+}
+
+JNIEXPORT void JNICALL JNI_FUNC(WzFile, nativeSaveToDisk)(JNIEnv* env,
+                                                          jclass,
+                                                          jlong ptr,
+                                                          jstring path) {
+  JniUtfString p(env, path);
+  WZ_API_CALL(env, wz_file_save_to_disk(reinterpret_cast<wz_file>(ptr), p));
+}
+
+JNIEXPORT void JNICALL JNI_FUNC(WzFile,
+                                nativeSaveToDiskEx)(JNIEnv* env,
+                                                    jclass,
+                                                    jlong ptr,
+                                                    jstring path,
+                                                    jboolean saveAs64Bit,
+                                                    jint version) {
+  JniUtfString p(env, path);
+  WZ_API_CALL(env,
+              wz_file_save_to_disk_ex(reinterpret_cast<wz_file>(ptr),
+                                      p,
+                                      1,
+                                      saveAs64Bit ? 1 : 0,
+                                      static_cast<wz_maple_version>(version)));
 }
 
 JNIEXPORT jstring JNICALL JNI_FUNC(WzFile,
@@ -205,10 +240,7 @@ JNIEXPORT jlong JNICALL JNI_FUNC(WzFile, nativeGetObjectFromPath)(
 // ==================== WzDirectory ====================
 
 JNIEXPORT void JNICALL JNI_FUNC(WzDirectory,
-                                nativeDispose)(JNIEnv*, jclass, jlong ptr) {
-  auto* dir = reinterpret_cast<wz::WzDirectory*>(ptr);
-  delete dir;
-}
+                                nativeDispose)(JNIEnv*, jclass, jlong) {}
 
 JNIEXPORT jstring JNICALL JNI_FUNC(WzDirectory,
                                    nativeName)(JNIEnv* env, jclass, jlong ptr) {
@@ -327,13 +359,46 @@ JNIEXPORT jlong JNICALL JNI_FUNC(WzDirectory,
   return static_cast<jlong>(result);
 }
 
+JNIEXPORT jlong JNICALL JNI_FUNC(WzDirectory, nativeAddDirectory)(
+    JNIEnv* env, jclass, jlong ptr, jstring name) {
+  JniUtfString n(env, name);
+  wz_dir result = nullptr;
+  wz_error_code err =
+      wz_dir_create_directory(reinterpret_cast<wz_dir>(ptr), n, &result);
+  WZ_API_CALL_RETURN(env, err, 0)
+  return reinterpret_cast<jlong>(result);
+}
+
+JNIEXPORT jlong JNICALL JNI_FUNC(WzDirectory, nativeAddImage)(JNIEnv* env,
+                                                              jclass,
+                                                              jlong ptr,
+                                                              jstring name) {
+  JniUtfString n(env, name);
+  wz_image result = nullptr;
+  wz_error_code err =
+      wz_dir_create_image(reinterpret_cast<wz_dir>(ptr), n, &result);
+  WZ_API_CALL_RETURN(env, err, 0)
+  return reinterpret_cast<jlong>(result);
+}
+
+JNIEXPORT void JNICALL JNI_FUNC(WzDirectory, nativeRemoveDirectory)(
+    JNIEnv* env, jclass, jlong ptr, jlong childPtr) {
+  WZ_API_CALL(env,
+              wz_dir_remove_directory(reinterpret_cast<wz_dir>(ptr),
+                                      reinterpret_cast<wz_dir>(childPtr)));
+}
+
+JNIEXPORT void JNICALL JNI_FUNC(WzDirectory, nativeRemoveImage)(
+    JNIEnv* env, jclass, jlong ptr, jlong childPtr) {
+  WZ_API_CALL(env,
+              wz_dir_remove_image(reinterpret_cast<wz_dir>(ptr),
+                                  reinterpret_cast<wz_image>(childPtr)));
+}
+
 // ==================== WzImage ====================
 
 JNIEXPORT void JNICALL JNI_FUNC(WzImage,
-                                nativeDispose)(JNIEnv*, jclass, jlong ptr) {
-  auto* img = reinterpret_cast<wz::WzImage*>(ptr);
-  delete img;
-}
+                                nativeDispose)(JNIEnv*, jclass, jlong) {}
 
 JNIEXPORT jstring JNICALL JNI_FUNC(WzImage,
                                    nativeName)(JNIEnv* env, jclass, jlong ptr) {
@@ -456,6 +521,30 @@ JNIEXPORT void JNICALL JNI_FUNC(WzImage, nativeParseImage)(JNIEnv* env,
   WZ_API_CALL(env, wz_image_parse(reinterpret_cast<wz_image>(ptr), &parsed))
 }
 
+JNIEXPORT void JNICALL JNI_FUNC(WzImage, nativeAddProperty)(JNIEnv* env,
+                                                            jclass,
+                                                            jlong ptr,
+                                                            jlong propPtr) {
+  WZ_API_CALL(env,
+              wz_image_add_property(reinterpret_cast<wz_image>(ptr),
+                                    reinterpret_cast<wz_property>(propPtr)));
+}
+
+JNIEXPORT void JNICALL JNI_FUNC(WzImage, nativeRemoveProperty)(JNIEnv* env,
+                                                               jclass,
+                                                               jlong ptr,
+                                                               jlong propPtr) {
+  WZ_API_CALL(env,
+              wz_image_remove_property(reinterpret_cast<wz_image>(ptr),
+                                       reinterpret_cast<wz_property>(propPtr)));
+}
+
+JNIEXPORT void JNICALL JNI_FUNC(WzImage, nativeClearProperties)(JNIEnv* env,
+                                                                jclass,
+                                                                jlong ptr) {
+  WZ_API_CALL(env, wz_image_clear_properties(reinterpret_cast<wz_image>(ptr)));
+}
+
 // ==================== WzObject ====================
 
 JNIEXPORT jint JNICALL JNI_FUNC(WzObject, nativeObjectType)(JNIEnv* env,
@@ -547,6 +636,19 @@ JNIEXPORT jlong JNICALL JNI_FUNC(WzObject, nativeAt)(JNIEnv* env,
   wz_error_code err = wz_object_at(reinterpret_cast<wz_object>(ptr), n, &obj);
   WZ_API_CALL_RETURN(env, err, 0)
   return reinterpret_cast<jlong>(obj);
+}
+
+JNIEXPORT void JNICALL JNI_FUNC(WzObject, nativeSetName)(JNIEnv* env,
+                                                         jclass,
+                                                         jlong ptr,
+                                                         jstring name) {
+  JniUtfString n(env, name);
+  WZ_API_CALL(env, wz_object_set_name(reinterpret_cast<wz_object>(ptr), n));
+}
+
+JNIEXPORT void JNICALL JNI_FUNC(WzObject,
+                                nativeRemove)(JNIEnv* env, jclass, jlong ptr) {
+  WZ_API_CALL(env, wz_object_remove(reinterpret_cast<wz_object>(ptr)));
 }
 
 // ==================== WzImageProperty (was WzProperty) ====================
@@ -701,6 +803,34 @@ JNIEXPORT jlong JNICALL JNI_FUNC(WzImageProperty, nativeGetFromPath)(
   return reinterpret_cast<jlong>(prop);
 }
 
+JNIEXPORT void JNICALL JNI_FUNC(WzImageProperty,
+                                nativeFree)(JNIEnv* env, jclass, jlong ptr) {
+  WZ_API_CALL(env, wz_property_free(reinterpret_cast<wz_property>(ptr)));
+}
+
+JNIEXPORT void JNICALL JNI_FUNC(WzImageProperty, nativeAddProperty)(
+    JNIEnv* env, jclass, jlong ptr, jlong childPtr) {
+  WZ_API_CALL(env,
+              wz_property_add_child(reinterpret_cast<wz_property>(ptr),
+                                    reinterpret_cast<wz_property>(childPtr)));
+}
+
+JNIEXPORT void JNICALL JNI_FUNC(WzImageProperty, nativeRemoveProperty)(
+    JNIEnv* env, jclass, jlong ptr, jlong childPtr) {
+  WZ_API_CALL(
+      env,
+      wz_property_remove_child(reinterpret_cast<wz_property>(ptr),
+                               reinterpret_cast<wz_property>(childPtr)));
+}
+
+JNIEXPORT void JNICALL JNI_FUNC(WzImageProperty,
+                                nativeClearProperties)(JNIEnv* env,
+                                                       jclass,
+                                                       jlong ptr) {
+  WZ_API_CALL(env,
+              wz_property_clear_children(reinterpret_cast<wz_property>(ptr)));
+}
+
 // ==================== WzPropertyFactory ====================
 
 JNIEXPORT jint JNICALL JNI_FUNC(WzPropertyFactory,
@@ -727,6 +857,102 @@ JNIEXPORT jboolean JNICALL JNI_FUNC(WzPropertyFactory,
       result ? JNI_TRUE : JNI_FALSE)
 
   return result ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT jlong JNICALL JNI_FUNC(WzPropertyFactory,
+                                 nativeCreateNull)(JNIEnv* env,
+                                                   jclass,
+                                                   jstring name) {
+  JniUtfString n(env, name);
+  wz_property result = nullptr;
+  wz_error_code err = wz_property_create_null(n, &result);
+  WZ_API_CALL_RETURN(env, err, 0)
+  return reinterpret_cast<jlong>(result);
+}
+
+JNIEXPORT jlong JNICALL JNI_FUNC(WzPropertyFactory, nativeCreateShort)(
+    JNIEnv* env, jclass, jstring name, jshort value) {
+  JniUtfString n(env, name);
+  wz_property result = nullptr;
+  wz_error_code err = wz_property_create_short(n, value, &result);
+  WZ_API_CALL_RETURN(env, err, 0)
+  return reinterpret_cast<jlong>(result);
+}
+
+JNIEXPORT jlong JNICALL JNI_FUNC(WzPropertyFactory, nativeCreateInt)(
+    JNIEnv* env, jclass, jstring name, jint value) {
+  JniUtfString n(env, name);
+  wz_property result = nullptr;
+  wz_error_code err = wz_property_create_int(n, value, &result);
+  WZ_API_CALL_RETURN(env, err, 0)
+  return reinterpret_cast<jlong>(result);
+}
+
+JNIEXPORT jlong JNICALL JNI_FUNC(WzPropertyFactory, nativeCreateLong)(
+    JNIEnv* env, jclass, jstring name, jlong value) {
+  JniUtfString n(env, name);
+  wz_property result = nullptr;
+  wz_error_code err = wz_property_create_long(n, value, &result);
+  WZ_API_CALL_RETURN(env, err, 0)
+  return reinterpret_cast<jlong>(result);
+}
+
+JNIEXPORT jlong JNICALL JNI_FUNC(WzPropertyFactory, nativeCreateFloat)(
+    JNIEnv* env, jclass, jstring name, jfloat value) {
+  JniUtfString n(env, name);
+  wz_property result = nullptr;
+  wz_error_code err = wz_property_create_float(n, value, &result);
+  WZ_API_CALL_RETURN(env, err, 0)
+  return reinterpret_cast<jlong>(result);
+}
+
+JNIEXPORT jlong JNICALL JNI_FUNC(WzPropertyFactory, nativeCreateDouble)(
+    JNIEnv* env, jclass, jstring name, jdouble value) {
+  JniUtfString n(env, name);
+  wz_property result = nullptr;
+  wz_error_code err = wz_property_create_double(n, value, &result);
+  WZ_API_CALL_RETURN(env, err, 0)
+  return reinterpret_cast<jlong>(result);
+}
+
+JNIEXPORT jlong JNICALL JNI_FUNC(WzPropertyFactory, nativeCreateString)(
+    JNIEnv* env, jclass, jstring name, jstring value) {
+  JniUtfString n(env, name);
+  JniUtfString v(env, value);
+  wz_property result = nullptr;
+  wz_error_code err = wz_property_create_string(n, v, &result);
+  WZ_API_CALL_RETURN(env, err, 0)
+  return reinterpret_cast<jlong>(result);
+}
+
+JNIEXPORT jlong JNICALL JNI_FUNC(WzPropertyFactory,
+                                 nativeCreateSub)(JNIEnv* env,
+                                                  jclass,
+                                                  jstring name) {
+  JniUtfString n(env, name);
+  wz_property result = nullptr;
+  wz_error_code err = wz_property_create_sub(n, &result);
+  WZ_API_CALL_RETURN(env, err, 0)
+  return reinterpret_cast<jlong>(result);
+}
+
+JNIEXPORT jlong JNICALL JNI_FUNC(WzPropertyFactory, nativeCreateVector)(
+    JNIEnv* env, jclass, jstring name, jint x, jint y) {
+  JniUtfString n(env, name);
+  wz_property result = nullptr;
+  wz_error_code err = wz_property_create_vector(n, x, y, &result);
+  WZ_API_CALL_RETURN(env, err, 0)
+  return reinterpret_cast<jlong>(result);
+}
+
+JNIEXPORT jlong JNICALL JNI_FUNC(WzPropertyFactory, nativeCreateUOL)(
+    JNIEnv* env, jclass, jstring name, jstring value) {
+  JniUtfString n(env, name);
+  JniUtfString v(env, value);
+  wz_property result = nullptr;
+  wz_error_code err = wz_property_create_uol(n, v, &result);
+  WZ_API_CALL_RETURN(env, err, 0)
+  return reinterpret_cast<jlong>(result);
 }
 
 // ==================== Scalar Properties ====================
@@ -762,6 +988,14 @@ JNIEXPORT jshort JNICALL JNI_FUNC(WzShortProperty, nativeGetValue)(JNIEnv* env,
   return result;
 }
 
+JNIEXPORT void JNICALL JNI_FUNC(WzShortProperty, nativeSetValue)(JNIEnv* env,
+                                                                 jclass,
+                                                                 jlong ptr,
+                                                                 jshort value) {
+  WZ_API_CALL(env,
+              wz_short_set_value(reinterpret_cast<wz_property>(ptr), value));
+}
+
 JNIEXPORT jlong JNICALL JNI_FUNC(WzLongProperty, nativeGetValue)(JNIEnv* env,
                                                                  jclass,
                                                                  jlong ptr) {
@@ -772,6 +1006,14 @@ JNIEXPORT jlong JNICALL JNI_FUNC(WzLongProperty, nativeGetValue)(JNIEnv* env,
       result)
 
   return result;
+}
+
+JNIEXPORT void JNICALL JNI_FUNC(WzLongProperty, nativeSetValue)(JNIEnv* env,
+                                                                jclass,
+                                                                jlong ptr,
+                                                                jlong value) {
+  WZ_API_CALL(env,
+              wz_long_set_value(reinterpret_cast<wz_property>(ptr), value));
 }
 
 JNIEXPORT jfloat JNICALL JNI_FUNC(WzFloatProperty, nativeGetValue)(JNIEnv* env,
@@ -786,6 +1028,14 @@ JNIEXPORT jfloat JNICALL JNI_FUNC(WzFloatProperty, nativeGetValue)(JNIEnv* env,
   return result;
 }
 
+JNIEXPORT void JNICALL JNI_FUNC(WzFloatProperty, nativeSetValue)(JNIEnv* env,
+                                                                 jclass,
+                                                                 jlong ptr,
+                                                                 jfloat value) {
+  WZ_API_CALL(env,
+              wz_float_set_value(reinterpret_cast<wz_property>(ptr), value));
+}
+
 JNIEXPORT jdouble JNICALL
 JNI_FUNC(WzDoubleProperty, nativeGetValue)(JNIEnv* env, jclass, jlong ptr) {
   double result = 0.0;
@@ -797,6 +1047,12 @@ JNI_FUNC(WzDoubleProperty, nativeGetValue)(JNIEnv* env, jclass, jlong ptr) {
   return result;
 }
 
+JNIEXPORT void JNICALL JNI_FUNC(WzDoubleProperty, nativeSetValue)(
+    JNIEnv* env, jclass, jlong ptr, jdouble value) {
+  WZ_API_CALL(env,
+              wz_double_set_value(reinterpret_cast<wz_property>(ptr), value));
+}
+
 JNIEXPORT jstring JNICALL
 JNI_FUNC(WzStringProperty, nativeGetValue)(JNIEnv* env, jclass, jlong ptr) {
   const char* value = nullptr;
@@ -805,6 +1061,12 @@ JNI_FUNC(WzStringProperty, nativeGetValue)(JNIEnv* env, jclass, jlong ptr) {
   WZ_API_CALL_RETURN(env, err, nullptr)
   jstring result = env->NewStringUTF(value);
   return result;
+}
+
+JNIEXPORT void JNICALL JNI_FUNC(WzStringProperty, nativeSetValue)(
+    JNIEnv* env, jclass, jlong ptr, jstring value) {
+  JniUtfString v(env, value);
+  WZ_API_CALL(env, wz_string_set_value(reinterpret_cast<wz_property>(ptr), v));
 }
 
 JNIEXPORT jboolean JNICALL JNI_FUNC(WzStringProperty, nativeSaveToFile)(
@@ -977,6 +1239,14 @@ JNIEXPORT jstring JNICALL JNI_FUNC(WzUOLProperty, nativeGetValue)(JNIEnv* env,
   WZ_API_CALL_RETURN(env, err, nullptr)
   jstring result = env->NewStringUTF(value);
   return result;
+}
+
+JNIEXPORT void JNICALL JNI_FUNC(WzUOLProperty, nativeSetValue)(JNIEnv* env,
+                                                               jclass,
+                                                               jlong ptr,
+                                                               jstring value) {
+  JniUtfString v(env, value);
+  WZ_API_CALL(env, wz_uol_set_value(reinterpret_cast<wz_property>(ptr), v));
 }
 
 JNIEXPORT jlong JNICALL JNI_FUNC(WzUOLProperty, nativeGetLinkValue)(JNIEnv* env,
