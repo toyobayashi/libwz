@@ -151,8 +151,8 @@ TEST(CapiEditing, FailedAddKeepsCallerOwnedPropertyUsable) {
   wz_close_file(file);
 }
 
-TEST(CapiEditing, SaveInMemoryFileToDiskAndReopen) {
-  const auto path = TempPath("libwz_capi_editing_save.wz");
+TEST(CapiEditing, SaveInMemoryFileToDiskReopensProperties) {
+  const auto path = TempPath("libwz_capi_editing_save_properties.wz");
   std::error_code ec;
   std::filesystem::remove(path, ec);
 
@@ -181,8 +181,8 @@ TEST(CapiEditing, SaveInMemoryFileToDiskAndReopen) {
   std::filesystem::remove(path, ec);
 }
 
-TEST(CapiEditing, SaveInMemoryFileToDiskExAndReopen) {
-  const auto path = TempPath("libwz_capi_editing_save_ex.wz");
+TEST(CapiEditing, SaveInMemoryFileToDiskAndReopen) {
+  const auto path = TempPath("libwz_capi_editing_save.wz");
   std::error_code ec;
   std::filesystem::remove(path, ec);
 
@@ -196,8 +196,7 @@ TEST(CapiEditing, SaveInMemoryFileToDiskExAndReopen) {
   ASSERT_EQ(wz_property_create_int("count", 11, &prop), WZ_ERROR_NONE);
   ASSERT_EQ(wz_image_add_property(image, prop), WZ_ERROR_NONE);
 
-  ASSERT_EQ(wz_file_save_to_disk_ex(file, path.string().c_str(), 1, 0, WZ_GMS),
-            WZ_ERROR_NONE);
+  ASSERT_EQ(wz_file_save_to_disk(file, path.string().c_str()), WZ_ERROR_NONE);
   wz_close_file(file);
 
   wz_file reopened = nullptr;

@@ -123,22 +123,6 @@ JNIEXPORT void JNICALL JNI_FUNC(WzFile, nativeSaveToDisk)(JNIEnv* env,
   WZ_API_CALL(env, wz_file_save_to_disk(reinterpret_cast<wz_file>(ptr), p));
 }
 
-JNIEXPORT void JNICALL JNI_FUNC(WzFile,
-                                nativeSaveToDiskEx)(JNIEnv* env,
-                                                    jclass,
-                                                    jlong ptr,
-                                                    jstring path,
-                                                    jboolean saveAs64Bit,
-                                                    jint version) {
-  JniUtfString p(env, path);
-  WZ_API_CALL(env,
-              wz_file_save_to_disk_ex(reinterpret_cast<wz_file>(ptr),
-                                      p,
-                                      1,
-                                      saveAs64Bit ? 1 : 0,
-                                      static_cast<wz_maple_version>(version)));
-}
-
 JNIEXPORT jstring JNICALL JNI_FUNC(WzFile,
                                    nativeName)(JNIEnv* env, jclass, jlong ptr) {
   const char* name = nullptr;

@@ -216,21 +216,6 @@ wz_error_code wz_file_save_to_disk(wz_file file, const char* file_path) {
   return result_void(unwrap_file(file)->SaveToDisk(file_path));
 }
 
-wz_error_code wz_file_save_to_disk_ex(wz_file file,
-                                      const char* file_path,
-                                      int has_save_as_64bit,
-                                      int save_as_64bit,
-                                      wz_maple_version version) {
-  if (!file) return set_error_null("wz_file_save_to_disk_ex");
-  if (!file_path) {
-    return set_error_invalid_arg("wz_file_save_to_disk_ex", "file_path");
-  }
-  std::optional<bool> save_as_64;
-  if (has_save_as_64bit) save_as_64 = save_as_64bit != 0;
-  return result_void(unwrap_file(file)->SaveToDisk(
-      file_path, save_as_64, static_cast<wz::WzMapleVersion>(version)));
-}
-
 wz_error_code wz_file_name(wz_file file, const char** out_name) {
   if (auto ec = init_out("wz_file_name", out_name); ec != WZ_ERROR_NONE) {
     return ec;

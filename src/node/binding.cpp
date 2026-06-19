@@ -147,21 +147,6 @@ Napi::Value FileSaveToDisk(const Napi::CallbackInfo& info) {
   return env.Undefined();
 }
 
-Napi::Value FileSaveToDiskEx(const Napi::CallbackInfo& info) {
-  Napi::Env env = info.Env();
-  std::string path = info[1].As<Napi::String>().Utf8Value();
-  bool saveAs64Bit = info[2].As<Napi::Boolean>().Value();
-  int version = info[3].As<Napi::Number>().Int32Value();
-  WZ_NODE_API_CALL(
-      env,
-      wz_file_save_to_disk_ex(FromHandle<wz_file>(info[0]),
-                              path.c_str(),
-                              1,
-                              saveAs64Bit ? 1 : 0,
-                              static_cast<wz_maple_version>(version)));
-  return env.Undefined();
-}
-
 Napi::Value FileName(const Napi::CallbackInfo& info) {
   Napi::Env env = info.Env();
   const char* name = nullptr;
@@ -1049,7 +1034,6 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
   exports.Set("parseFile", Napi::Function::New(env, ParseFile));
   exports.Set("closeFile", Napi::Function::New(env, CloseFile));
   exports.Set("fileSaveToDisk", Napi::Function::New(env, FileSaveToDisk));
-  exports.Set("fileSaveToDiskEx", Napi::Function::New(env, FileSaveToDiskEx));
   exports.Set("fileName", Napi::Function::New(env, FileName));
   exports.Set("filePath", Napi::Function::New(env, FilePath));
   exports.Set("fileVersion", Napi::Function::New(env, FileVersion));

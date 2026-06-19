@@ -24,7 +24,6 @@ interface NativeBinding {
   closeFile(ptr: NativeHandle): void;
   parseFile(ptr: NativeHandle): ParseStatusValue;
   fileSaveToDisk(ptr: NativeHandle, path: string): void;
-  fileSaveToDiskEx(ptr: NativeHandle, path: string, saveAs64Bit: boolean, mapleVersion: MapleVersionValue): void;
   fileName(ptr: NativeHandle): string;
   filePath(ptr: NativeHandle): string;
   fileVersion(ptr: NativeHandle): number;
@@ -495,10 +494,6 @@ export class WzFile extends WzObject {
 
   saveToDisk(path: string): void {
     native.fileSaveToDisk(this.nativePtr(), path);
-  }
-
-  saveToDiskEx(path: string, saveAs64Bit: boolean, mapleVersion: MapleVersionValue): void {
-    native.fileSaveToDiskEx(this.nativePtr(), path, saveAs64Bit, mapleVersion);
   }
 
   getName(): string {

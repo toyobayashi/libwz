@@ -102,11 +102,6 @@ wz_error_code wz_open_file_with_iv(const char* file_path,
 wz_error_code wz_parse(wz_file file, wz_parse_status* out_status);
 wz_error_code wz_close_file(wz_file file);
 wz_error_code wz_file_save_to_disk(wz_file file, const char* file_path);
-wz_error_code wz_file_save_to_disk_ex(wz_file file,
-                                      const char* file_path,
-                                      int has_save_as_64bit,
-                                      int save_as_64bit,
-                                      wz_maple_version version);
 
 wz_error_code wz_file_name(wz_file file, const char** out_name);
 wz_error_code wz_file_path(wz_file file, const char** out_path);

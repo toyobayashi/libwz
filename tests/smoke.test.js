@@ -148,7 +148,7 @@ test("creates, edits, saves, and reopens a WZ file", () => {
     const detached = wz.WzProperty.createString("detached", "free me");
     detached.close();
 
-    file.saveToDiskEx(outPath, false, wz.MapleVersion.GMS);
+    file.saveToDisk(outPath);
   } finally {
     file.close();
   }

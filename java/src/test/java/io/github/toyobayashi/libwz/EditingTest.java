@@ -290,7 +290,7 @@ class EditingTest {
             WzImage image = file.getWzDirectory().addImage("Item.img");
             image.addProperty(WzPropertyFactory.createInt("id", 123));
 
-            file.saveToDiskEx(temp.toString(), false, MapleVersion.GMS);
+            file.saveToDisk(temp.toString());
             assertEquals(true, Files.exists(temp));
             try (WzFile reopened =
                     new WzFile(temp.toString(), (short)95, MapleVersion.GMS)) {
