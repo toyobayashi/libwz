@@ -248,6 +248,61 @@ function createWzFile(ptr: NativeHandle, ownsNative = false): WzFile {
   return new NativeWzFile(ptr, ownsNative);
 }
 
+const handleRegistry = new Map<NativeHandle, Set<WzObject>>();
+
+function registerHandle(ptr: NativeHandle, obj: WzObject): void {
+  let entries = handleRegistry.get(ptr);
+  if (entries === undefined) {
+    entries = new Set<WzObject>();
+    handleRegistry.set(ptr, entries);
+  }
+  entries.add(obj);
+}
+
+function unregisterHandle(ptr: NativeHandle, obj: WzObject): void {
+  const entries = handleRegistry.get(ptr);
+  if (entries === undefined) return;
+  entries.delete(obj);
+  if (entries.size === 0) handleRegistry.delete(ptr);
+}
+
+function markHandleBorrowed(ptr: NativeHandle): void {
+  const entries = handleRegistry.get(ptr);
+  if (entries === undefined) return;
+  for (const entry of entries) entry._markBorrowedInstance();
+}
+
+function invalidateHandle(ptr: NativeHandle): void {
+  const entries = handleRegistry.get(ptr);
+  if (entries === undefined) return;
+  handleRegistry.delete(ptr);
+  for (const entry of entries) entry._markDisposedInstance();
+}
+
+function invalidateHandles(ptrs: Iterable<NativeHandle>): void {
+  for (const ptr of ptrs) invalidateHandle(ptr);
+}
+
+function collectPropertySubtreePtrs(prop: WzImageProperty, out = new Set<NativeHandle>()): Set<NativeHandle> {
+  const ptr = prop.nativePtr();
+  if (out.has(ptr)) return out;
+  out.add(ptr);
+  for (const child of prop.wzProperties()) collectPropertySubtreePtrs(child, out);
+  return out;
+}
+
+function collectImagePropertyPtrs(image: WzImage): Set<NativeHandle> {
+  const ptrs = new Set<NativeHandle>();
+  for (const prop of image.wzProperties()) collectPropertySubtreePtrs(prop, ptrs);
+  return ptrs;
+}
+
+function collectPropertyChildrenPtrs(prop: WzImageProperty): Set<NativeHandle> {
+  const ptrs = new Set<NativeHandle>();
+  for (const child of prop.wzProperties()) collectPropertySubtreePtrs(child, ptrs);
+  return ptrs;
+}
+
 export class WzObject {
   protected _ptr: NativeHandle;
   protected _ownsNative: boolean;
@@ -259,6 +314,7 @@ export class WzObject {
     assertPtr(ptr);
     this._ptr = ptr;
     this._ownsNative = ownsNative;
+    registerHandle(ptr, this);
   }
 
   nativePtr(): NativeHandle {
@@ -271,11 +327,22 @@ export class WzObject {
   }
 
   _markBorrowed(): void {
-    this._ownsNative = false;
+    this._assertAlive();
+    markHandleBorrowed(this._ptr);
   }
 
   _markDisposed(): void {
+    this._assertAlive();
+    invalidateHandle(this._ptr);
+  }
+
+  _markBorrowedInstance(): void {
+    this._ownsNative = false;
+  }
+
+  _markDisposedInstance(): void {
     this._ptr = 0n;
+    this._ownsNative = false;
   }
 
   ownsNative(): boolean {
@@ -416,8 +483,9 @@ export class WzFile extends WzObject {
 
   close(): void {
     if (this._ownsNative && this._ptr !== 0n) {
-      native.closeFile(this._ptr);
-      this._ptr = 0n;
+      const ptr = this._ptr;
+      native.closeFile(ptr);
+      invalidateHandle(ptr);
     }
   }
 }
@@ -548,12 +616,15 @@ export class WzImage extends WzObject {
   }
 
   removeProperty(prop: WzImageProperty): void {
+    const ptrs = collectPropertySubtreePtrs(prop);
     native.imageRemoveProperty(this.nativePtr(), prop.nativePtr());
-    prop._markDisposed();
+    invalidateHandles(ptrs);
   }
 
   clearProperties(): void {
+    const ptrs = collectImagePropertyPtrs(this);
     native.imageClearProperties(this.nativePtr());
+    invalidateHandles(ptrs);
   }
 }
 
@@ -633,17 +704,24 @@ export class WzImageProperty extends WzObject {
   }
 
   removeProperty(child: WzImageProperty): void {
+    const ptrs = collectPropertySubtreePtrs(child);
     native.propertyRemoveChild(this.nativePtr(), child.nativePtr());
-    child._markDisposed();
+    invalidateHandles(ptrs);
   }
 
   clearProperties(): void {
+    const ptrs = collectPropertyChildrenPtrs(this);
     native.propertyClearChildren(this.nativePtr());
+    invalidateHandles(ptrs);
   }
 
   close(): void {
     if (this._ownsNative && this._ptr !== 0n) {
-      native.propertyFree(this._ptr);
+      const ptr = this._ptr;
+      native.propertyFree(ptr);
+      invalidateHandle(ptr);
+    } else if (this._ptr !== 0n) {
+      unregisterHandle(this._ptr, this);
       this._ptr = 0n;
     }
   }

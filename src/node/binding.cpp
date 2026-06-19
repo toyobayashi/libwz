@@ -36,6 +36,17 @@ inline void ThrowIfError(Napi::Env env) {
     }                                                                          \
   } while (false)
 
+bool ReadInt64BigInt(Napi::Env env, const Napi::Value& value, int64_t* out) {
+  bool lossless = false;
+  *out = value.As<Napi::BigInt>().Int64Value(&lossless);
+  if (!lossless) {
+    Napi::RangeError::New(env, "bigint value is outside int64 range")
+        .ThrowAsJavaScriptException();
+    return false;
+  }
+  return true;
+}
+
 Napi::Value NullableString(Napi::Env env, const char* s) {
   if (!s) return env.Null();
   return Napi::String::New(env, s);
@@ -681,8 +692,8 @@ Napi::Value CreatePropertyInt(const Napi::CallbackInfo& info) {
 Napi::Value CreatePropertyLong(const Napi::CallbackInfo& info) {
   Napi::Env env = info.Env();
   std::string name = info[0].As<Napi::String>().Utf8Value();
-  bool lossless = false;
-  int64_t value = info[1].As<Napi::BigInt>().Int64Value(&lossless);
+  int64_t value = 0;
+  if (!ReadInt64BigInt(env, info[1], &value)) return Napi::Value();
   wz_property prop = nullptr;
   WZ_NODE_API_CALL(env, wz_property_create_long(name.c_str(), value, &prop));
   return prop ? ToHandle(env, prop) : env.Null();
@@ -818,8 +829,8 @@ Napi::Value SetShortValue(const Napi::CallbackInfo& info) {
 Napi::Value SetLongValue(const Napi::CallbackInfo& info) {
   Napi::Env env = info.Env();
   wz_property prop = FromHandle<wz_property>(info[0]);
-  bool lossless = false;
-  int64_t value = info[1].As<Napi::BigInt>().Int64Value(&lossless);
+  int64_t value = 0;
+  if (!ReadInt64BigInt(env, info[1], &value)) return Napi::Value();
   WZ_NODE_API_CALL(env, wz_long_set_value(prop, value));
   return env.Undefined();
 }

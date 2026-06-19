@@ -158,3 +158,56 @@ test("creates, edits, saves, and reopens a WZ file", () => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }
 });
+
+test("property removal invalidates aliases for the same native handle", () => {
+  const file = wz.WzFile.create(87, wz.MapleVersion.GMS);
+  try {
+    const image = file.getWzDirectory().createImage("Aliases.img");
+    const prop = wz.WzProperty.createInt("value", 1);
+    image.addProperty(prop);
+    const alias = image.getFromPath("value");
+    assert.ok(alias instanceof wz.WzIntProperty);
+
+    image.removeProperty(prop);
+
+    assert.throws(() => prop.nativePtr(), /disposed/i);
+    assert.throws(() => alias.nativePtr(), /disposed/i);
+  } finally {
+    file.close();
+  }
+});
+
+test("clearProperties invalidates known child wrappers", () => {
+  const file = wz.WzFile.create(87, wz.MapleVersion.GMS);
+  try {
+    const image = file.getWzDirectory().createImage("Clear.img");
+    const parent = wz.WzProperty.createSub("parent");
+    const child = wz.WzProperty.createInt("child", 7);
+    parent.addProperty(child);
+    image.addProperty(parent);
+    const parentAlias = image.getFromPath("parent");
+    const childAlias = parentAlias.getChildByName("child");
+    assert.ok(childAlias instanceof wz.WzIntProperty);
+
+    image.clearProperties();
+
+    assert.throws(() => parent.nativePtr(), /disposed/i);
+    assert.throws(() => parentAlias.nativePtr(), /disposed/i);
+    assert.throws(() => child.nativePtr(), /disposed/i);
+    assert.throws(() => childAlias.nativePtr(), /disposed/i);
+  } finally {
+    file.close();
+  }
+});
+
+test("long property bigints must fit in int64", () => {
+  const tooLarge = 1n << 80n;
+  assert.throws(() => wz.WzProperty.createLong("tooLarge", tooLarge), RangeError);
+
+  const prop = wz.WzProperty.createLong("ok", 1n);
+  try {
+    assert.throws(() => prop.setValue(tooLarge), RangeError);
+  } finally {
+    prop.close();
+  }
+});
