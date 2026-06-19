@@ -14,9 +14,14 @@ WzSubProperty::WzSubProperty(const std::string& name) : properties_(this) {
 WzSubProperty::~WzSubProperty() = default;
 
 Result<void> WzSubProperty::WriteValue(WzBinaryWriter* writer) const {
-  writer->WriteStringValue("Property",
-                           WzImage::WzImageHeaderByte_WithoutOffset,
-                           WzImage::WzImageHeaderByte_WithOffset);
+  const bool isLuaProperty =
+      properties_.size() == 1 &&
+      properties_[0]->PropertyType() == WzPropertyType::Lua;
+  if (!isLuaProperty) {
+    writer->WriteStringValue("Property",
+                             WzImage::WzImageHeaderByte_WithoutOffset,
+                             WzImage::WzImageHeaderByte_WithOffset);
+  }
   return WzImageProperty::WritePropertyList(writer, properties_);
 }
 

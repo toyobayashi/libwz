@@ -11,6 +11,15 @@
 
 namespace wz {
 
+namespace {
+
+bool IsSingleLuaProperty(WzPropertyCollection* properties) {
+  return properties && properties->size() == 1 &&
+         (*properties)[0]->PropertyType() == WzPropertyType::Lua;
+}
+
+}  // namespace
+
 WzImage::WzImage() : properties_(this) {}
 WzImage::WzImage(const std::string& name) : properties_(this) {
   SetName(name);
@@ -278,9 +287,11 @@ Result<void> WzImage::SaveImage(WzBinaryWriter* writer,
     }
 
     const int64_t startPos = writer->Position();
-    writer->WriteStringValue("Property",
-                             WzImageHeaderByte_WithoutOffset,
-                             WzImageHeaderByte_WithOffset);
+    if (!IsSingleLuaProperty(&properties_)) {
+      writer->WriteStringValue("Property",
+                               WzImageHeaderByte_WithoutOffset,
+                               WzImageHeaderByte_WithOffset);
+    }
     auto writeResult = WzImageProperty::WritePropertyList(writer, properties_);
     if (!writeResult.has_value()) return writeResult;
     writer->ClearStringCache();

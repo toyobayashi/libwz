@@ -8,7 +8,10 @@
 #include <vector>
 
 #include "wz/Properties/WzIntProperty.h"
+#include "wz/Properties/WzLuaProperty.h"
+#include "wz/Properties/WzRawDataProperty.h"
 #include "wz/Properties/WzSubProperty.h"
+#include "wz/Properties/WzVideoProperty.h"
 #include "wz/Util/WzBinaryReader.h"
 #include "wz/Util/WzBinaryWriter.h"
 #include "wz/WzAESConstant.h"
@@ -161,6 +164,46 @@ TEST(EditingTest, PropertyRenameRejectsDuplicateSiblingName) {
   EXPECT_FALSE(image.Changed());
 }
 
+TEST(EditingTest, RawDataPropertyRenameRejectsDuplicateSiblingName) {
+  wz::WzImage image("test.img");
+  auto raw = std::make_unique<wz::WzRawDataProperty>("raw", nullptr, 1);
+  auto first = std::make_unique<wz::WzIntProperty>("count", 42);
+  auto second = std::make_unique<wz::WzIntProperty>("total", 7);
+  auto* rawContainer = raw.get();
+  auto* rawSecond = second.get();
+  rawContainer->AddProperty(std::move(first));
+  rawContainer->AddProperty(std::move(second));
+  ASSERT_TRUE(image.TryAddProperty(std::move(raw)).has_value());
+  image.SetChanged(false);
+
+  auto result = rawSecond->Rename("COUNT");
+
+  ASSERT_FALSE(result.has_value());
+  EXPECT_EQ(result.error().code(), wz::ErrorCode::InvalidArgument);
+  EXPECT_EQ(rawSecond->Name(), "total");
+  EXPECT_FALSE(image.Changed());
+}
+
+TEST(EditingTest, VideoPropertyRenameRejectsDuplicateSiblingName) {
+  wz::WzImage image("test.img");
+  auto video = std::make_unique<wz::WzVideoProperty>("video", nullptr);
+  auto first = std::make_unique<wz::WzIntProperty>("count", 42);
+  auto second = std::make_unique<wz::WzIntProperty>("total", 7);
+  auto* videoContainer = video.get();
+  auto* videoSecond = second.get();
+  videoContainer->AddProperty(std::move(first));
+  videoContainer->AddProperty(std::move(second));
+  ASSERT_TRUE(image.TryAddProperty(std::move(video)).has_value());
+  image.SetChanged(false);
+
+  auto result = videoSecond->Rename("COUNT");
+
+  ASSERT_FALSE(result.has_value());
+  EXPECT_EQ(result.error().code(), wz::ErrorCode::InvalidArgument);
+  EXPECT_EQ(videoSecond->Name(), "total");
+  EXPECT_FALSE(image.Changed());
+}
+
 TEST(EditingTest, ImageRenameRejectsDuplicateSiblingName) {
   wz::WzDirectory root("root");
   auto first = root.CreateImage("item.img");
@@ -240,6 +283,96 @@ TEST(EditingTest, SaveChangedImageWritesPropertyHeaderAndBlockSize) {
   EXPECT_EQ(reader.ReadString(), "Property");
   EXPECT_EQ(reader.ReadUInt16(), 0);
   EXPECT_EQ(reader.ReadCompressedInt(), 1);
+
+  std::error_code ec;
+  std::filesystem::remove(path, ec);
+}
+
+TEST(EditingTest, SaveLuaImageWritesLuaBodyWithoutPropertyHeader) {
+  const auto path = TempPath("libwz_editing_lua_image.bin");
+  const std::vector<uint8_t> encryptedBytes = {0x10, 0x20, 0x30, 0x40};
+  {
+    std::ofstream out(path, std::ios::binary);
+    wz::WzBinaryWriter writer(out, wz::WzAESConstant::WZ_GMSIV);
+    wz::WzImage image("script.lua");
+    image.AddProperty(
+        std::make_unique<wz::WzLuaProperty>("Script", encryptedBytes));
+
+    auto result = image.SaveImage(&writer);
+
+    ASSERT_TRUE(result.has_value()) << result.error().message();
+    EXPECT_GT(image.BlockSize(), 0);
+  }
+
+  std::ifstream in(path, std::ios::binary);
+  wz::WzBinaryReader reader(in, wz::WzAESConstant::WZ_GMSIV);
+
+  EXPECT_EQ(reader.ReadByte(), 0x01);
+  EXPECT_EQ(reader.ReadCompressedInt(),
+            static_cast<int>(encryptedBytes.size()));
+  EXPECT_EQ(reader.ReadBytes(encryptedBytes.size()), encryptedBytes);
+  EXPECT_EQ(in.peek(), std::char_traits<char>::eof());
+
+  std::error_code ec;
+  std::filesystem::remove(path, ec);
+}
+
+TEST(EditingTest, SaveSubPropertyWithOnlyLuaWritesLuaBodyWithoutHeader) {
+  const auto path = TempPath("libwz_editing_lua_sub_property.bin");
+  const std::vector<uint8_t> encryptedBytes = {0x10, 0x20, 0x30, 0x40};
+  {
+    std::ofstream out(path, std::ios::binary);
+    wz::WzBinaryWriter writer(out, wz::WzAESConstant::WZ_GMSIV);
+    wz::WzSubProperty sub("script");
+    sub.AddProperty(
+        std::make_unique<wz::WzLuaProperty>("Script", encryptedBytes));
+
+    auto result = sub.WriteValue(&writer);
+
+    ASSERT_TRUE(result.has_value()) << result.error().message();
+  }
+
+  std::ifstream in(path, std::ios::binary);
+  wz::WzBinaryReader reader(in, wz::WzAESConstant::WZ_GMSIV);
+
+  EXPECT_EQ(reader.ReadByte(), 0x01);
+  EXPECT_EQ(reader.ReadCompressedInt(),
+            static_cast<int>(encryptedBytes.size()));
+  EXPECT_EQ(reader.ReadBytes(encryptedBytes.size()), encryptedBytes);
+  EXPECT_EQ(in.peek(), std::char_traits<char>::eof());
+
+  std::error_code ec;
+  std::filesystem::remove(path, ec);
+}
+
+TEST(EditingTest, ReopenSavedLuaImageParsesSingleLuaProperty) {
+  const auto path = TempPath("libwz_editing_lua_image_reopen.bin");
+  const std::vector<uint8_t> encryptedBytes = {0x01, 0x02, 0x03};
+  {
+    std::ofstream out(path, std::ios::binary);
+    wz::WzBinaryWriter writer(out, wz::WzAESConstant::WZ_GMSIV);
+    wz::WzImage image("script.lua");
+    image.AddProperty(
+        std::make_unique<wz::WzLuaProperty>("Script", encryptedBytes));
+    ASSERT_TRUE(image.SaveImage(&writer).has_value());
+  }
+
+  std::ifstream in(path, std::ios::binary);
+  wz::WzBinaryReader reader(in, wz::WzAESConstant::WZ_GMSIV);
+  wz::WzImage image("script.lua", reader, 0);
+  image.SetOffset(0);
+  image.SetBlockSize(static_cast<int>(std::filesystem::file_size(path)));
+
+  auto parseResult = image.ParseImage();
+
+  ASSERT_TRUE(parseResult.has_value()) << parseResult.error().message();
+  ASSERT_TRUE(parseResult.value());
+  ASSERT_EQ(image.WzProperties()->size(), 1);
+  auto* prop = (*image.WzProperties())[0];
+  ASSERT_EQ(prop->PropertyType(), wz::WzPropertyType::Lua);
+  auto* lua = static_cast<wz::WzLuaProperty*>(prop);
+  EXPECT_EQ(lua->Name(), "Script");
+  EXPECT_EQ(lua->Value(), encryptedBytes);
 
   std::error_code ec;
   std::filesystem::remove(path, ec);

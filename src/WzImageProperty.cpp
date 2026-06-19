@@ -314,6 +314,11 @@ Result<WzPropertyCollection> WzImageProperty::ParsePropertyList(
 
 Result<void> WzImageProperty::WritePropertyList(
     WzBinaryWriter* writer, const WzPropertyCollection& properties) {
+  if (properties.size() == 1 &&
+      properties[0]->PropertyType() == WzPropertyType::Lua) {
+    return properties[0]->WriteValue(writer);
+  }
+
   writer->WriteUInt16(0);
   writer->WriteCompressedInt(static_cast<int32_t>(properties.size()));
   for (auto* prop : properties) {

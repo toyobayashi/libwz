@@ -1,10 +1,47 @@
 #include "wz/WzObject.h"
+#include <cctype>
+
+#include <algorithm>
+
 #include "wz/WzDirectory.h"
 #include "wz/WzFile.h"
 #include "wz/WzImage.h"
 #include "wz/WzImageProperty.h"
+#include "wz/WzPropertyCollection.h"
 
 namespace wz {
+
+namespace {
+
+std::string ToLower(const std::string& s) {
+  std::string r = s;
+  std::transform(r.begin(), r.end(), r.begin(), [](unsigned char c) {
+    return static_cast<char>(std::tolower(c));
+  });
+  return r;
+}
+
+Result<WzImageProperty*> FindSiblingPropertyByName(WzObject* parent,
+                                                   const std::string& name,
+                                                   const WzObject* self) {
+  WzPropertyCollection* properties = nullptr;
+  if (parent->ObjectType() == WzObjectType::Image) {
+    auto result = static_cast<WzImage*>(parent)->WzPropertiesResult();
+    if (!result.has_value()) return std::unexpected(result.error());
+    properties = result.value();
+  } else if (parent->ObjectType() == WzObjectType::Property) {
+    properties = static_cast<WzImageProperty*>(parent)->WzProperties();
+  }
+  if (!properties) return nullptr;
+
+  const std::string lower = ToLower(name);
+  for (auto* prop : *properties) {
+    if (prop != self && ToLower(prop->Name()) == lower) return prop;
+  }
+  return nullptr;
+}
+
+}  // namespace
 
 WzFile* WzObject::WzFileParent() const {
   if (parent_) return parent_->WzFileParent();
@@ -40,14 +77,9 @@ Result<void> WzObject::Rename(const std::string& name) {
         break;
       }
       case WzObjectType::Property: {
-        WzImageProperty* existing = nullptr;
-        if (parent_->ObjectType() == WzObjectType::Image) {
-          auto result = static_cast<WzImage*>(parent_)->GetPropertyByName(name);
-          if (!result.has_value()) return std::unexpected(result.error());
-          existing = result.value();
-        } else if (parent_->ObjectType() == WzObjectType::Property) {
-          existing = static_cast<WzImageProperty*>(parent_)->operator[](name);
-        }
+        auto result = FindSiblingPropertyByName(parent_, name, this);
+        if (!result.has_value()) return std::unexpected(result.error());
+        WzImageProperty* existing = result.value();
         if (existing && existing != this) {
           return std::unexpected(Error::InvalidArgument(
               "Duplicate WZ image property name: " + name));
