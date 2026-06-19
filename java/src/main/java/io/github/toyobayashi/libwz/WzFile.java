@@ -1,11 +1,12 @@
 package io.github.toyobayashi.libwz;
 
 import io.github.toyobayashi.libwz.WzEnums.*;
+import java.util.List;
 
 public class WzFile extends WzObject {
     public WzFile(String path, short gameVersion, MapleVersion version) {
         super(0, true);
-        this.nativePtr = nativeOpen(path, gameVersion, version.value);
+        updateNativePtr(nativeOpen(path, gameVersion, version.value));
     }
 
     public WzFile(String path, MapleVersion version) {
@@ -14,15 +15,21 @@ public class WzFile extends WzObject {
 
     public WzFile(String path, byte[] iv) {
         super(0, true);
-        this.nativePtr = nativeOpenWithIv(path, iv);
+        updateNativePtr(nativeOpenWithIv(path, iv));
     }
 
     WzFile(long ptr) { super(ptr); }
+    private WzFile(long ptr, boolean ownsNative) { super(ptr, ownsNative); }
 
+    private static native long nativeCreate(short gameVersion, int version);
     private static native long nativeOpen(String path, short gameVersion, int version);
     private static native long nativeOpenWithIv(String path, byte[] iv);
     private static native int nativeParseWzFile(long ptr);
     private static native void nativeDispose(long ptr);
+    private static native void nativeSaveToDisk(long ptr, String path);
+    private static native void nativeSaveToDiskEx(long ptr, String path,
+                                                  boolean saveAs64Bit,
+                                                  int version);
     private static native String nativeName(long ptr);
     private static native String nativeFilePath(long ptr);
     private static native short nativeVersion(long ptr);
@@ -33,6 +40,19 @@ public class WzFile extends WzObject {
     private static native int nativeVersionHash(long ptr);
     private static native long nativeGetObjectFromPath(long ptr, String path,
                                                         boolean checkFirstDirectoryName);
+
+    public static WzFile create(short gameVersion, MapleVersion version) {
+        return new WzFile(nativeCreate(gameVersion, version.value), true);
+    }
+
+    @Override
+    public void remove() {
+        if (!ownsNative()) {
+            throw new UnsupportedOperationException(
+                "Cannot remove a borrowed WzFile wrapper");
+        }
+        close();
+    }
 
     public ParseStatus parseWzFile() {
         int v = nativeParseWzFile(nativePtr);
@@ -59,6 +79,13 @@ public class WzFile extends WzObject {
     public boolean isUnloaded() { return nativeIsUnloaded(nativePtr); }
     public int getVersionHash() { return nativeVersionHash(nativePtr); }
 
+    public void saveToDisk(String path) { nativeSaveToDisk(nativePtr, path); }
+
+    public void saveToDiskEx(String path, boolean saveAs64Bit,
+                             MapleVersion version) {
+        nativeSaveToDiskEx(nativePtr, path, saveAs64Bit, version.value);
+    }
+
     public WzObject getObjectFromPath(String path) {
         return getObjectFromPath(path, true);
     }
@@ -75,8 +102,19 @@ public class WzFile extends WzObject {
     @Override
     protected void dispose() {
         if (ownsNative() && nativePtr != 0) {
+            List<Long> ptrs = collectNativeSubtreePointers();
             nativeDispose(nativePtr);
-            nativePtr = 0;
+            invalidateNativePtrs(ptrs);
         }
+    }
+
+    @Override
+    protected List<Long> collectNativeSubtreePointers() {
+        List<Long> ptrs = super.collectNativeSubtreePointers();
+        if (nativePtr != 0) {
+            WzDirectory.collectDirectoryPointers(nativeGetWzDirectory(nativePtr),
+                                                 ptrs);
+        }
+        return ptrs;
     }
 }

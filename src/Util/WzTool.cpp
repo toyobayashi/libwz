@@ -1,6 +1,8 @@
 #include "wz/Util/WzTool.h"
 #include <fstream>
 #include <memory>
+#include <string>
+#include <unordered_set>
 #include "wz/Util/WzPath.h"
 #include "wz/WzAESConstant.h"
 #include "wz/WzDirectory.h"
@@ -15,6 +17,73 @@
 #endif
 
 namespace wz {
+
+namespace {
+
+std::unordered_set<std::string> objectValueLengthCache;
+
+struct EncodedStringInfo {
+  bool needsUnicode = false;
+  int utf16CodeUnits = 0;
+};
+
+EncodedStringInfo GetEncodedStringInfo(const std::string& value) {
+  EncodedStringInfo result;
+  for (size_t i = 0; i < value.size();) {
+    uint8_t ch = static_cast<uint8_t>(value[i]);
+    uint32_t codePoint = 0;
+    size_t extraBytes = 0;
+
+    if ((ch & 0x80) == 0) {
+      codePoint = ch;
+    } else if ((ch & 0xE0) == 0xC0) {
+      codePoint = ch & 0x1F;
+      extraBytes = 1;
+    } else if ((ch & 0xF0) == 0xE0) {
+      codePoint = ch & 0x0F;
+      extraBytes = 2;
+    } else if ((ch & 0xF8) == 0xF0) {
+      codePoint = ch & 0x07;
+      extraBytes = 3;
+    } else {
+      result.needsUnicode = result.needsUnicode || ch > INT8_MAX;
+      ++result.utf16CodeUnits;
+      ++i;
+      continue;
+    }
+
+    if (i + extraBytes >= value.size()) {
+      result.needsUnicode = result.needsUnicode || ch > INT8_MAX;
+      ++result.utf16CodeUnits;
+      ++i;
+      continue;
+    }
+
+    bool valid = true;
+    for (size_t j = 1; j <= extraBytes; ++j) {
+      uint8_t next = static_cast<uint8_t>(value[i + j]);
+      if ((next & 0xC0) != 0x80) {
+        valid = false;
+        break;
+      }
+      codePoint = (codePoint << 6) | (next & 0x3F);
+    }
+
+    if (!valid) {
+      result.needsUnicode = result.needsUnicode || ch > INT8_MAX;
+      ++result.utf16CodeUnits;
+      ++i;
+      continue;
+    }
+
+    result.needsUnicode = result.needsUnicode || codePoint > INT8_MAX;
+    result.utf16CodeUnits += codePoint <= 0xFFFF ? 1 : 2;
+    i += extraBytes + 1;
+  }
+  return result;
+}
+
+}  // namespace
 
 #ifdef _WIN32
 std::filesystem::path WzTool::ToPath(const std::string& utf8_path) {
@@ -43,11 +112,15 @@ std::filesystem::path WzTool::ToPath(const std::string& utf8_path) {
 #endif
 
 uint32_t WzTool::RotateLeft(uint32_t x, uint8_t n) {
-  return static_cast<uint32_t>((((x) << (n)) | ((x) >> (32 - (n)))));
+  n &= 0x1F;
+  if (n == 0) return x;
+  return static_cast<uint32_t>((x << n) | (x >> (32 - n)));
 }
 
 uint32_t WzTool::RotateRight(uint32_t x, uint8_t n) {
-  return static_cast<uint32_t>((((x) >> (n)) | ((x) << (32 - (n)))));
+  n &= 0x1F;
+  if (n == 0) return x;
+  return static_cast<uint32_t>((x >> n) | (x << (32 - n)));
 }
 
 int WzTool::GetCompressedIntLength(int i) {
@@ -58,18 +131,26 @@ int WzTool::GetCompressedIntLength(int i) {
 int WzTool::GetEncodedStringLength(const std::string& s) {
   if (s.empty()) return 1;
 
-  bool unicode = false;
-  for (unsigned char c : s) {
-    if (c > 127) {
-      unicode = true;
-      break;
-    }
-  }
-
-  int length = static_cast<int>(s.length());
-  int prefixLength = (length > (unicode ? 126 : 127)) ? 5 : 1;
-  int encodedLength = unicode ? length * 2 : length;
+  EncodedStringInfo info = GetEncodedStringInfo(s);
+  int length =
+      info.needsUnicode ? info.utf16CodeUnits : static_cast<int>(s.length());
+  int prefixLength = length > (info.needsUnicode ? 126 : 127) ? 5 : 1;
+  int encodedLength = info.needsUnicode ? info.utf16CodeUnits * 2
+                                        : static_cast<int>(s.length());
   return prefixLength + encodedLength;
+}
+
+int WzTool::GetWzObjectValueLength(const std::string& s, uint8_t type) {
+  std::string storeName = std::to_string(type) + "_" + s;
+  if (s.length() > 4 && objectValueLengthCache.contains(storeName)) {
+    return 5;
+  }
+  objectValueLengthCache.insert(std::move(storeName));
+  return 1 + GetEncodedStringLength(s);
+}
+
+void WzTool::ClearWzObjectValueLengthCache() {
+  objectValueLengthCache.clear();
 }
 
 std::array<uint8_t, 4> WzTool::GetIvByMapleVersion(WzMapleVersion ver) {

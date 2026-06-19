@@ -14,6 +14,7 @@ class WzConvexProperty : public WzImageProperty, public IPropertyContainer {
   WzPropertyType PropertyType() const override {
     return WzPropertyType::Convex;
   }
+  Result<void> WriteValue(WzBinaryWriter* writer) const override;
   WzPropertyCollection* WzProperties() override { return &properties_; }
   using IPropertyContainer::AddProperty;
   void AddProperty(WzImageProperty* prop) override;

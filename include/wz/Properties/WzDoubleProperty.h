@@ -13,7 +13,12 @@ class WzDoubleProperty : public WzImageProperty {
     return WzPropertyType::Double;
   }
   double Value() const { return value_; }
-  void SetValue(double value) override { value_ = value; }
+  Result<void> WriteValue(WzBinaryWriter* writer) const override;
+  void SetValue(double value) override {
+    if (value_ == value) return;
+    value_ = value;
+    MarkParentImageChanged();
+  }
   double GetDouble() const override { return value_; }
   float GetFloat() const override { return static_cast<float>(value_); }
   int32_t GetInt() const override { return static_cast<int32_t>(value_); }

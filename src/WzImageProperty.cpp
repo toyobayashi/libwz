@@ -1,4 +1,6 @@
 #include "wz/WzImageProperty.h"
+#include <algorithm>
+#include <cctype>
 #include <memory>
 #include <vector>
 #include "wz/Properties/WzBinaryProperty.h"
@@ -19,10 +21,57 @@
 #include "wz/Properties/WzVectorProperty.h"
 #include "wz/Properties/WzVideoProperty.h"
 #include "wz/Util/WzBinaryReader.h"
+#include "wz/Util/WzBinaryWriter.h"
 #include "wz/WzFile.h"
 #include "wz/WzImage.h"
 
 namespace wz {
+
+namespace {
+
+std::string ToLower(const std::string& s) {
+  std::string r = s;
+  std::transform(r.begin(), r.end(), r.begin(), [](unsigned char c) {
+    return static_cast<char>(std::tolower(c));
+  });
+  return r;
+}
+
+bool IsExtendedProperty(const WzImageProperty* prop) {
+  if (!prop) return false;
+  switch (prop->PropertyType()) {
+    case WzPropertyType::SubProperty:
+    case WzPropertyType::Canvas:
+    case WzPropertyType::Vector:
+    case WzPropertyType::Convex:
+    case WzPropertyType::Sound:
+    case WzPropertyType::UOL:
+      return true;
+    case WzPropertyType::Raw:
+      return prop->IsRawDataProperty() || prop->IsVideoProperty();
+    default:
+      return false;
+  }
+}
+
+Result<void> WriteExtendedValue(WzBinaryWriter* writer,
+                                const WzImageProperty* prop) {
+  writer->WriteByte(9);
+
+  const int64_t beforePos = writer->Position();
+  writer->WriteInt32(0);
+  auto result = prop->WriteValue(writer);
+  if (!result.has_value()) return result;
+
+  const int64_t newPos = writer->Position();
+  const int32_t len = static_cast<int32_t>(newPos - beforePos);
+  writer->BaseStream().seekp(beforePos);
+  writer->WriteInt32(len - 4);
+  writer->BaseStream().seekp(newPos);
+  return {};
+}
+
+}  // namespace
 
 WzFile* WzImageProperty::WzFileParent() const {
   auto* img = ParentImage();
@@ -36,6 +85,11 @@ WzImage* WzImageProperty::ParentImage() const {
     p = p->Parent();
   }
   return nullptr;
+}
+
+void WzImageProperty::MarkParentImageChanged() const {
+  auto* img = ParentImage();
+  if (img) img->SetChanged(true);
 }
 
 WzImageProperty* WzImageProperty::GetLinkedWzImageProperty() {
@@ -81,10 +135,106 @@ void WzImageProperty::SetValue(const std::vector<uint8_t>& value) {
   (void)value;
 }
 
+Result<void> WzImageProperty::WriteValue(WzBinaryWriter* writer) const {
+  (void)writer;
+  return std::unexpected(Error::NotImplemented(
+      "WriteValue is not implemented for this property type"));
+}
+
 void IPropertyContainer::AddProperties(WzPropertyCollection& props) {
   for (auto& prop : props.TakeItems()) {
     AddProperty(std::move(prop));
   }
+}
+
+Result<void> WzImageProperty::TryAddChildProperty(WzImageProperty* prop) {
+  if (!prop) {
+    return std::unexpected(
+        Error::InvalidArgument("Cannot add a null WZ image property"));
+  }
+  if (prop->Name().empty()) {
+    return std::unexpected(
+        Error::InvalidArgument("WZ image property name cannot be empty"));
+  }
+  if (prop->Parent()) {
+    return std::unexpected(
+        Error::InvalidArgument("WZ image property already has a parent"));
+  }
+  auto* properties = WzProperties();
+  if (!properties) {
+    return std::unexpected(
+        Error::InvalidArgument("WZ object is not a property container"));
+  }
+  const std::string lower = ToLower(prop->Name());
+  for (auto* existing : *properties) {
+    if (existing && ToLower(existing->Name()) == lower) {
+      return std::unexpected(Error::InvalidArgument(
+          "Duplicate WZ image property name: " + prop->Name()));
+    }
+  }
+  properties->Add(prop);
+  MarkParentImageChanged();
+  return {};
+}
+
+Result<void> WzImageProperty::TryAddChildProperty(
+    std::unique_ptr<WzImageProperty> prop) {
+  auto* raw = prop.get();
+  auto result = TryAddChildProperty(raw);
+  if (result.has_value()) {
+    (void)prop.release();
+  }
+  return result;
+}
+
+Result<void> WzImageProperty::TryRemoveChildProperty(WzImageProperty* prop) {
+  if (!prop) {
+    return std::unexpected(
+        Error::InvalidArgument("Cannot remove a null WZ image property"));
+  }
+  auto* properties = WzProperties();
+  if (!properties) {
+    return std::unexpected(
+        Error::InvalidArgument("WZ object is not a property container"));
+  }
+  auto removed = properties->Take(prop);
+  if (!removed) {
+    return std::unexpected(
+        Error::NotFound("WZ image property is not owned by this property"));
+  }
+  if (removed) MarkParentImageChanged();
+  return {};
+}
+
+Result<void> WzImageProperty::TryClearChildProperties() {
+  auto* properties = WzProperties();
+  if (!properties) {
+    return std::unexpected(
+        Error::InvalidArgument("WZ object is not a property container"));
+  }
+  if (properties->size() == 0) return {};
+  properties->clear();
+  MarkParentImageChanged();
+  return {};
+}
+
+Result<void> WzImageProperty::TryRemove() {
+  auto* parent = Parent();
+  if (!parent) {
+    delete this;
+    return {};
+  }
+  if (parent->ObjectType() == WzObjectType::Image) {
+    return static_cast<WzImage*>(parent)->TryRemoveProperty(this);
+  } else if (parent->ObjectType() == WzObjectType::Property) {
+    return static_cast<WzImageProperty*>(parent)->TryRemoveChildProperty(this);
+  }
+  return std::unexpected(
+      Error::NotFound("WZ image property has no removable parent"));
+}
+
+void WzImageProperty::Remove() {
+  (void)TryRemove();
 }
 
 Result<WzPropertyCollection> WzImageProperty::ParsePropertyList(
@@ -162,6 +312,24 @@ Result<WzPropertyCollection> WzImageProperty::ParsePropertyList(
   return properties;
 }
 
+Result<void> WzImageProperty::WritePropertyList(
+    WzBinaryWriter* writer, const WzPropertyCollection& properties) {
+  if (properties.size() == 1 &&
+      properties[0]->PropertyType() == WzPropertyType::Lua) {
+    return properties[0]->WriteValue(writer);
+  }
+
+  writer->WriteUInt16(0);
+  writer->WriteCompressedInt(static_cast<int32_t>(properties.size()));
+  for (auto* prop : properties) {
+    writer->WriteStringValue(prop->Name(), 0x00, 0x01);
+    auto result = IsExtendedProperty(prop) ? WriteExtendedValue(writer, prop)
+                                           : prop->WriteValue(writer);
+    if (!result.has_value()) return result;
+  }
+  return {};
+}
+
 Result<std::unique_ptr<WzImageProperty>> WzImageProperty::ParseExtendedProp(
     int64_t offset,
     WzBinaryReader* reader,
@@ -190,7 +358,9 @@ Result<std::unique_ptr<WzImageProperty>> WzImageProperty::ParseExtendedProp(
     reader->SetPosition(reader->Position() + 2);
     auto r = ParsePropertyList(offset, reader, subProp.get(), parentImg);
     if (!r.has_value()) return std::unexpected(r.error());
-    subProp->AddProperties(r.value());
+    for (auto& child : r.value().TakeItems()) {
+      subProp->WzProperties()->Add(std::move(child));
+    }
     return subProp;
   } else if (iname == "Canvas") {
     auto canvasProp = std::make_unique<WzCanvasProperty>(name);
@@ -200,7 +370,9 @@ Result<std::unique_ptr<WzImageProperty>> WzImageProperty::ParseExtendedProp(
       reader->SetPosition(reader->Position() + 2);
       auto r = ParsePropertyList(offset, reader, canvasProp.get(), parentImg);
       if (!r.has_value()) return std::unexpected(r.error());
-      canvasProp->AddProperties(r.value());
+      for (auto& child : r.value().TakeItems()) {
+        canvasProp->WzProperties()->Add(std::move(child));
+      }
     }
     auto png =
         std::make_unique<WzPngProperty>(reader, parentImg->ParseEverything());
@@ -227,7 +399,7 @@ Result<std::unique_ptr<WzImageProperty>> WzImageProperty::ParseExtendedProp(
       if (!entryProp.has_value()) {
         return std::unexpected(entryProp.error());
       }
-      convexProp->AddProperty(std::move(entryProp.value()));
+      convexProp->WzProperties()->Add(std::move(entryProp.value()));
     }
     return convexProp;
   } else if (iname == "Sound_DX8") {
@@ -259,7 +431,9 @@ Result<std::unique_ptr<WzImageProperty>> WzImageProperty::ParseExtendedProp(
         reader->SetPosition(reader->Position() + 2);
         auto r = ParsePropertyList(offset, reader, rawProp.get(), parentImg);
         if (!r.has_value()) return std::unexpected(r.error());
-        rawProp->AddProperties(r.value());
+        for (auto& child : r.value().TakeItems()) {
+          rawProp->WzProperties()->Add(std::move(child));
+        }
       }
     }
     rawProp->Parse(parentImg->ParseEverything());
@@ -272,7 +446,9 @@ Result<std::unique_ptr<WzImageProperty>> WzImageProperty::ParseExtendedProp(
       reader->SetPosition(reader->Position() + 2);
       auto r = ParsePropertyList(offset, reader, videoProp.get(), parentImg);
       if (!r.has_value()) return std::unexpected(r.error());
-      videoProp->AddProperties(r.value());
+      for (auto& child : r.value().TakeItems()) {
+        videoProp->WzProperties()->Add(std::move(child));
+      }
     }
     videoProp->Parse(parentImg->ParseEverything());
     return videoProp;

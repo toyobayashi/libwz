@@ -1,4 +1,5 @@
 build
+.worktrees
 dist
 tmp
 index.js

@@ -53,11 +53,16 @@ class WzFile final : public WzObject {
   WzFileParseStatus ParseWzFile();
   WzObject* GetObjectFromPath(const std::string& path,
                               bool checkFirstDirectoryName = true);
+  Result<void> SaveToDisk(
+      const std::string& path,
+      std::optional<bool> saveAs64Bit = std::nullopt,
+      WzMapleVersion preferredVersion = WzMapleVersion::UNKNOWN);
 
  private:
   static WzObject* TraverseComponent(WzObject* curObj,
                                      const std::string& component);
   static constexpr uint16_t wzVersionHeader64bit_start = 770;
+  void CreateWZVersionHash();
 
   std::string path_;
   std::unique_ptr<WzDirectory> wzDir_;

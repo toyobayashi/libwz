@@ -15,6 +15,7 @@ class WzSubProperty : public WzImageProperty, public IPropertyContainer {
   WzPropertyType PropertyType() const override {
     return WzPropertyType::SubProperty;
   }
+  Result<void> WriteValue(WzBinaryWriter* writer) const override;
   WzPropertyCollection* WzProperties() override { return &properties_; }
   using IPropertyContainer::AddProperty;
   void AddProperty(WzImageProperty* prop) override;

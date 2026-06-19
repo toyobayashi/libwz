@@ -13,7 +13,13 @@ class WzUOLProperty : public WzImageProperty {
   WZ_DISALLOW_COPY_AND_MOVE(WzUOLProperty)
   WzPropertyType PropertyType() const override { return WzPropertyType::UOL; }
   const std::string& Value() const { return val_; }
-  void SetValue(const std::string& value) override { val_ = value; }
+  Result<void> WriteValue(WzBinaryWriter* writer) const override;
+  void SetValue(const std::string& value) override {
+    if (val_ == value) return;
+    val_ = value;
+    linkVal_ = nullptr;
+    MarkParentImageChanged();
+  }
 
   // All accessors delegate to the resolved LinkValue (matches C# UOLRES path)
   WzPropertyCollection* WzProperties() override;

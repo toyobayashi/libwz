@@ -68,6 +68,7 @@ set(WZ_SOURCES
     src/Util/WzMutableKey.cpp
     src/Util/WzKeyGenerator.cpp
     src/Util/WzBinaryReader.cpp
+    src/Util/WzBinaryWriter.cpp
     src/Util/WzTool.cpp
     src/Util/ListFileParser.cpp
     src/PngUtility.cpp
@@ -112,6 +113,7 @@ set(WZ_HEADERS
     include/wz/CRC32.h
     include/wz/WzFileManager.h
     include/wz/Util/WzBinaryReader.h
+    include/wz/Util/WzBinaryWriter.h
     include/wz/Util/WzMutableKey.h
     include/wz/Util/WzKeyGenerator.h
     include/wz/Util/WzTool.h
@@ -174,6 +176,10 @@ if(BUILD_TESTS)
         tests/TestResult.cpp
         tests/TestPortalType.cpp
         tests/TestPngUtility.cpp
+        tests/TestWzBinaryWriter.cpp
+        tests/TestPropertyWriteValue.cpp
+        tests/TestEditing.cpp
+        tests/TestRepack.cpp
     )
     if(BUILD_CAPI)
         list(APPEND WZ_TEST_SOURCES tests/TestCapiError.cpp)

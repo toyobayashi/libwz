@@ -27,14 +27,25 @@ inline void ThrowIfError(Napi::Env env) {
   Napi::Error::New(env, msg ? msg : "libwz error").ThrowAsJavaScriptException();
 }
 
-#define WZ_NODE_API_CALL(env, expr)    \
-  do {                                 \
-    wz_error_code wz_api_err = (expr); \
-    if (wz_api_err != WZ_ERROR_NONE) { \
-      ThrowIfError((env));             \
-      return Napi::Value();            \
-    }                                  \
+#define WZ_NODE_API_CALL(env, expr)                                            \
+  do {                                                                         \
+    wz_error_code wz_api_err = (expr);                                         \
+    if (wz_api_err != WZ_ERROR_NONE) {                                         \
+      ThrowIfError((env));                                                     \
+      return Napi::Value();                                                    \
+    }                                                                          \
   } while (false)
+
+bool ReadInt64BigInt(Napi::Env env, const Napi::Value& value, int64_t* out) {
+  bool lossless = false;
+  *out = value.As<Napi::BigInt>().Int64Value(&lossless);
+  if (!lossless) {
+    Napi::RangeError::New(env, "bigint value is outside int64 range")
+        .ThrowAsJavaScriptException();
+    return false;
+  }
+  return true;
+}
 
 Napi::Value NullableString(Napi::Env env, const char* s) {
   if (!s) return env.Null();
@@ -85,10 +96,11 @@ Napi::Value OpenFile(const Napi::CallbackInfo& info) {
   int gameVersion = info[1].As<Napi::Number>().Int32Value();
   int version = info[2].As<Napi::Number>().Int32Value();
   wz_file file = nullptr;
-  WZ_NODE_API_CALL(env, wz_open_file(path.c_str(),
-                                   static_cast<short>(gameVersion),
-                                   static_cast<wz_maple_version>(version),
-                                   &file));
+  WZ_NODE_API_CALL(env,
+                   wz_open_file(path.c_str(),
+                                static_cast<short>(gameVersion),
+                                static_cast<wz_maple_version>(version),
+                                &file));
   return file ? ToHandle(env, file) : env.Null();
 }
 
@@ -103,6 +115,18 @@ Napi::Value OpenFileWithIv(const Napi::CallbackInfo& info) {
   return file ? ToHandle(env, file) : env.Null();
 }
 
+Napi::Value CreateFile(const Napi::CallbackInfo& info) {
+  Napi::Env env = info.Env();
+  int gameVersion = info[0].As<Napi::Number>().Int32Value();
+  int version = info[1].As<Napi::Number>().Int32Value();
+  wz_file file = nullptr;
+  WZ_NODE_API_CALL(env,
+                   wz_create_file(static_cast<short>(gameVersion),
+                                  static_cast<wz_maple_version>(version),
+                                  &file));
+  return file ? ToHandle(env, file) : env.Null();
+}
+
 Napi::Value ParseFile(const Napi::CallbackInfo& info) {
   Napi::Env env = info.Env();
   wz_parse_status status = WZ_PARSE_FAILED_UNKNOWN;
@@ -113,6 +137,29 @@ Napi::Value ParseFile(const Napi::CallbackInfo& info) {
 Napi::Value CloseFile(const Napi::CallbackInfo& info) {
   wz_close_file(FromHandle<wz_file>(info[0]));
   return info.Env().Undefined();
+}
+
+Napi::Value FileSaveToDisk(const Napi::CallbackInfo& info) {
+  Napi::Env env = info.Env();
+  std::string path = info[1].As<Napi::String>().Utf8Value();
+  WZ_NODE_API_CALL(
+      env, wz_file_save_to_disk(FromHandle<wz_file>(info[0]), path.c_str()));
+  return env.Undefined();
+}
+
+Napi::Value FileSaveToDiskEx(const Napi::CallbackInfo& info) {
+  Napi::Env env = info.Env();
+  std::string path = info[1].As<Napi::String>().Utf8Value();
+  bool saveAs64Bit = info[2].As<Napi::Boolean>().Value();
+  int version = info[3].As<Napi::Number>().Int32Value();
+  WZ_NODE_API_CALL(
+      env,
+      wz_file_save_to_disk_ex(FromHandle<wz_file>(info[0]),
+                              path.c_str(),
+                              1,
+                              saveAs64Bit ? 1 : 0,
+                              static_cast<wz_maple_version>(version)));
+  return env.Undefined();
 }
 
 Napi::Value FileName(const Napi::CallbackInfo& info) {
@@ -173,8 +220,9 @@ Napi::Value FileObjectFromPath(const Napi::CallbackInfo& info) {
   Napi::Env env = info.Env();
   wz_file file = FromHandle<wz_file>(info[0]);
   wz_object obj = nullptr;
-  WZ_NODE_API_CALL(env, wz_file_get_object_from_path(
-                            file, path.c_str(), check ? 1 : 0, &obj));
+  WZ_NODE_API_CALL(
+      env,
+      wz_file_get_object_from_path(file, path.c_str(), check ? 1 : 0, &obj));
   return NullableObject(env, obj);
 }
 
@@ -221,8 +269,9 @@ Napi::Value DirGetImageByName(const Napi::CallbackInfo& info) {
   Napi::Env env = info.Env();
   std::string name = info[1].As<Napi::String>().Utf8Value();
   wz_image image = nullptr;
-  WZ_NODE_API_CALL(env, wz_dir_get_image_by_name(
-      FromHandle<wz_dir>(info[0]), name.c_str(), &image));
+  WZ_NODE_API_CALL(env,
+                   wz_dir_get_image_by_name(
+                       FromHandle<wz_dir>(info[0]), name.c_str(), &image));
   return image ? ToHandle(env, image) : env.Null();
 }
 
@@ -239,9 +288,46 @@ Napi::Value DirGetDirectoryByName(const Napi::CallbackInfo& info) {
   Napi::Env env = info.Env();
   std::string name = info[1].As<Napi::String>().Utf8Value();
   wz_dir dir = nullptr;
-  WZ_NODE_API_CALL(env, wz_dir_get_directory_by_name(
-      FromHandle<wz_dir>(info[0]), name.c_str(), &dir));
+  WZ_NODE_API_CALL(env,
+                   wz_dir_get_directory_by_name(
+                       FromHandle<wz_dir>(info[0]), name.c_str(), &dir));
   return dir ? ToHandle(env, dir) : env.Null();
+}
+
+Napi::Value DirCreateDirectory(const Napi::CallbackInfo& info) {
+  Napi::Env env = info.Env();
+  std::string name = info[1].As<Napi::String>().Utf8Value();
+  wz_dir dir = nullptr;
+  WZ_NODE_API_CALL(
+      env,
+      wz_dir_create_directory(FromHandle<wz_dir>(info[0]), name.c_str(), &dir));
+  return dir ? ToHandle(env, dir) : env.Null();
+}
+
+Napi::Value DirCreateImage(const Napi::CallbackInfo& info) {
+  Napi::Env env = info.Env();
+  std::string name = info[1].As<Napi::String>().Utf8Value();
+  wz_image image = nullptr;
+  WZ_NODE_API_CALL(
+      env,
+      wz_dir_create_image(FromHandle<wz_dir>(info[0]), name.c_str(), &image));
+  return image ? ToHandle(env, image) : env.Null();
+}
+
+Napi::Value DirRemoveDirectory(const Napi::CallbackInfo& info) {
+  Napi::Env env = info.Env();
+  WZ_NODE_API_CALL(env,
+                   wz_dir_remove_directory(FromHandle<wz_dir>(info[0]),
+                                           FromHandle<wz_dir>(info[1])));
+  return env.Undefined();
+}
+
+Napi::Value DirRemoveImage(const Napi::CallbackInfo& info) {
+  Napi::Env env = info.Env();
+  WZ_NODE_API_CALL(env,
+                   wz_dir_remove_image(FromHandle<wz_dir>(info[0]),
+                                       FromHandle<wz_image>(info[1])));
+  return env.Undefined();
 }
 
 Napi::Value DirInt64(const Napi::CallbackInfo& info,
@@ -318,8 +404,9 @@ Napi::Value ImageGetFromPath(const Napi::CallbackInfo& info) {
   Napi::Env env = info.Env();
   std::string path = info[1].As<Napi::String>().Utf8Value();
   wz_property prop = nullptr;
-  WZ_NODE_API_CALL(env, wz_image_get_from_path(
-      FromHandle<wz_image>(info[0]), path.c_str(), &prop));
+  WZ_NODE_API_CALL(env,
+                   wz_image_get_from_path(
+                       FromHandle<wz_image>(info[0]), path.c_str(), &prop));
   return prop ? ToHandle(env, prop) : env.Null();
 }
 
@@ -365,16 +452,18 @@ Napi::Value ObjectWzFileParent(const Napi::CallbackInfo& info) {
 Napi::Value ObjectTopMostDirectory(const Napi::CallbackInfo& info) {
   Napi::Env env = info.Env();
   wz_object obj = nullptr;
-  WZ_NODE_API_CALL(env, wz_object_get_top_most_wz_directory(
-      FromHandle<wz_object>(info[0]), &obj));
+  WZ_NODE_API_CALL(env,
+                   wz_object_get_top_most_wz_directory(
+                       FromHandle<wz_object>(info[0]), &obj));
   return NullableObject(env, obj);
 }
 
 Napi::Value ObjectTopMostImage(const Napi::CallbackInfo& info) {
   Napi::Env env = info.Env();
   wz_object obj = nullptr;
-  WZ_NODE_API_CALL(env, wz_object_get_top_most_wz_image(
-      FromHandle<wz_object>(info[0]), &obj));
+  WZ_NODE_API_CALL(
+      env,
+      wz_object_get_top_most_wz_image(FromHandle<wz_object>(info[0]), &obj));
   return NullableObject(env, obj);
 }
 
@@ -385,6 +474,20 @@ Napi::Value ObjectAt(const Napi::CallbackInfo& info) {
   wz_object obj = nullptr;
   WZ_NODE_API_CALL(env, wz_object_at(parent, name.c_str(), &obj));
   return NullableObject(env, obj);
+}
+
+Napi::Value ObjectSetName(const Napi::CallbackInfo& info) {
+  Napi::Env env = info.Env();
+  std::string name = info[1].As<Napi::String>().Utf8Value();
+  WZ_NODE_API_CALL(
+      env, wz_object_set_name(FromHandle<wz_object>(info[0]), name.c_str()));
+  return env.Undefined();
+}
+
+Napi::Value ObjectRemove(const Napi::CallbackInfo& info) {
+  Napi::Env env = info.Env();
+  WZ_NODE_API_CALL(env, wz_object_remove(FromHandle<wz_object>(info[0])));
+  return env.Undefined();
 }
 
 Napi::Value PropType(const Napi::CallbackInfo& info) {
@@ -442,8 +545,9 @@ Napi::Value PropGetChildByName(const Napi::CallbackInfo& info) {
   Napi::Env env = info.Env();
   std::string name = info[1].As<Napi::String>().Utf8Value();
   wz_property prop = nullptr;
-  WZ_NODE_API_CALL(env, wz_property_get_child_by_name(
-      FromHandle<wz_property>(info[0]), name.c_str(), &prop));
+  WZ_NODE_API_CALL(env,
+                   wz_property_get_child_by_name(
+                       FromHandle<wz_property>(info[0]), name.c_str(), &prop));
   return prop ? ToHandle(env, prop) : env.Null();
 }
 
@@ -451,9 +555,62 @@ Napi::Value PropGetFromPath(const Napi::CallbackInfo& info) {
   Napi::Env env = info.Env();
   std::string path = info[1].As<Napi::String>().Utf8Value();
   wz_property prop = nullptr;
-  WZ_NODE_API_CALL(env, wz_property_get_from_path(
-      FromHandle<wz_property>(info[0]), path.c_str(), &prop));
+  WZ_NODE_API_CALL(env,
+                   wz_property_get_from_path(
+                       FromHandle<wz_property>(info[0]), path.c_str(), &prop));
   return prop ? ToHandle(env, prop) : env.Null();
+}
+
+Napi::Value PropertyFree(const Napi::CallbackInfo& info) {
+  Napi::Env env = info.Env();
+  WZ_NODE_API_CALL(env, wz_property_free(FromHandle<wz_property>(info[0])));
+  return env.Undefined();
+}
+
+Napi::Value ImageAddProperty(const Napi::CallbackInfo& info) {
+  Napi::Env env = info.Env();
+  WZ_NODE_API_CALL(env,
+                   wz_image_add_property(FromHandle<wz_image>(info[0]),
+                                         FromHandle<wz_property>(info[1])));
+  return env.Undefined();
+}
+
+Napi::Value PropertyAddChild(const Napi::CallbackInfo& info) {
+  Napi::Env env = info.Env();
+  WZ_NODE_API_CALL(env,
+                   wz_property_add_child(FromHandle<wz_property>(info[0]),
+                                         FromHandle<wz_property>(info[1])));
+  return env.Undefined();
+}
+
+Napi::Value ImageRemoveProperty(const Napi::CallbackInfo& info) {
+  Napi::Env env = info.Env();
+  WZ_NODE_API_CALL(env,
+                   wz_image_remove_property(FromHandle<wz_image>(info[0]),
+                                            FromHandle<wz_property>(info[1])));
+  return env.Undefined();
+}
+
+Napi::Value PropertyRemoveChild(const Napi::CallbackInfo& info) {
+  Napi::Env env = info.Env();
+  WZ_NODE_API_CALL(env,
+                   wz_property_remove_child(FromHandle<wz_property>(info[0]),
+                                            FromHandle<wz_property>(info[1])));
+  return env.Undefined();
+}
+
+Napi::Value ImageClearProperties(const Napi::CallbackInfo& info) {
+  Napi::Env env = info.Env();
+  WZ_NODE_API_CALL(env,
+                   wz_image_clear_properties(FromHandle<wz_image>(info[0])));
+  return env.Undefined();
+}
+
+Napi::Value PropertyClearChildren(const Napi::CallbackInfo& info) {
+  Napi::Env env = info.Env();
+  WZ_NODE_API_CALL(
+      env, wz_property_clear_children(FromHandle<wz_property>(info[0])));
+  return env.Undefined();
 }
 
 Napi::Value PropGetInt(const Napi::CallbackInfo& info) {
@@ -504,6 +661,102 @@ Napi::Value PropGetString(const Napi::CallbackInfo& info) {
   return NullableString(env, value);
 }
 
+Napi::Value CreatePropertyNull(const Napi::CallbackInfo& info) {
+  Napi::Env env = info.Env();
+  std::string name = info[0].As<Napi::String>().Utf8Value();
+  wz_property prop = nullptr;
+  WZ_NODE_API_CALL(env, wz_property_create_null(name.c_str(), &prop));
+  return prop ? ToHandle(env, prop) : env.Null();
+}
+
+Napi::Value CreatePropertyShort(const Napi::CallbackInfo& info) {
+  Napi::Env env = info.Env();
+  std::string name = info[0].As<Napi::String>().Utf8Value();
+  int value = info[1].As<Napi::Number>().Int32Value();
+  wz_property prop = nullptr;
+  WZ_NODE_API_CALL(env,
+                   wz_property_create_short(
+                       name.c_str(), static_cast<int16_t>(value), &prop));
+  return prop ? ToHandle(env, prop) : env.Null();
+}
+
+Napi::Value CreatePropertyInt(const Napi::CallbackInfo& info) {
+  Napi::Env env = info.Env();
+  std::string name = info[0].As<Napi::String>().Utf8Value();
+  int value = info[1].As<Napi::Number>().Int32Value();
+  wz_property prop = nullptr;
+  WZ_NODE_API_CALL(env, wz_property_create_int(name.c_str(), value, &prop));
+  return prop ? ToHandle(env, prop) : env.Null();
+}
+
+Napi::Value CreatePropertyLong(const Napi::CallbackInfo& info) {
+  Napi::Env env = info.Env();
+  std::string name = info[0].As<Napi::String>().Utf8Value();
+  int64_t value = 0;
+  if (!ReadInt64BigInt(env, info[1], &value)) return Napi::Value();
+  wz_property prop = nullptr;
+  WZ_NODE_API_CALL(env, wz_property_create_long(name.c_str(), value, &prop));
+  return prop ? ToHandle(env, prop) : env.Null();
+}
+
+Napi::Value CreatePropertyFloat(const Napi::CallbackInfo& info) {
+  Napi::Env env = info.Env();
+  std::string name = info[0].As<Napi::String>().Utf8Value();
+  double value = info[1].As<Napi::Number>().DoubleValue();
+  wz_property prop = nullptr;
+  WZ_NODE_API_CALL(
+      env,
+      wz_property_create_float(name.c_str(), static_cast<float>(value), &prop));
+  return prop ? ToHandle(env, prop) : env.Null();
+}
+
+Napi::Value CreatePropertyDouble(const Napi::CallbackInfo& info) {
+  Napi::Env env = info.Env();
+  std::string name = info[0].As<Napi::String>().Utf8Value();
+  double value = info[1].As<Napi::Number>().DoubleValue();
+  wz_property prop = nullptr;
+  WZ_NODE_API_CALL(env, wz_property_create_double(name.c_str(), value, &prop));
+  return prop ? ToHandle(env, prop) : env.Null();
+}
+
+Napi::Value CreatePropertyString(const Napi::CallbackInfo& info) {
+  Napi::Env env = info.Env();
+  std::string name = info[0].As<Napi::String>().Utf8Value();
+  std::string value = info[1].As<Napi::String>().Utf8Value();
+  wz_property prop = nullptr;
+  WZ_NODE_API_CALL(
+      env, wz_property_create_string(name.c_str(), value.c_str(), &prop));
+  return prop ? ToHandle(env, prop) : env.Null();
+}
+
+Napi::Value CreatePropertySub(const Napi::CallbackInfo& info) {
+  Napi::Env env = info.Env();
+  std::string name = info[0].As<Napi::String>().Utf8Value();
+  wz_property prop = nullptr;
+  WZ_NODE_API_CALL(env, wz_property_create_sub(name.c_str(), &prop));
+  return prop ? ToHandle(env, prop) : env.Null();
+}
+
+Napi::Value CreatePropertyVector(const Napi::CallbackInfo& info) {
+  Napi::Env env = info.Env();
+  std::string name = info[0].As<Napi::String>().Utf8Value();
+  int x = info[1].As<Napi::Number>().Int32Value();
+  int y = info[2].As<Napi::Number>().Int32Value();
+  wz_property prop = nullptr;
+  WZ_NODE_API_CALL(env, wz_property_create_vector(name.c_str(), x, y, &prop));
+  return prop ? ToHandle(env, prop) : env.Null();
+}
+
+Napi::Value CreatePropertyUol(const Napi::CallbackInfo& info) {
+  Napi::Env env = info.Env();
+  std::string name = info[0].As<Napi::String>().Utf8Value();
+  std::string value = info[1].As<Napi::String>().Utf8Value();
+  wz_property prop = nullptr;
+  WZ_NODE_API_CALL(env,
+                   wz_property_create_uol(name.c_str(), value.c_str(), &prop));
+  return prop ? ToHandle(env, prop) : env.Null();
+}
+
 Napi::Value PropGetBytes(const Napi::CallbackInfo& info) {
   return ReadBytes(info, wz_property_get_bytes);
 }
@@ -511,8 +764,9 @@ Napi::Value PropGetBytes(const Napi::CallbackInfo& info) {
 Napi::Value PropLinked(const Napi::CallbackInfo& info) {
   Napi::Env env = info.Env();
   wz_property prop = nullptr;
-  WZ_NODE_API_CALL(env, wz_property_get_linked_wz_image_property(
-      FromHandle<wz_property>(info[0]), &prop));
+  WZ_NODE_API_CALL(env,
+                   wz_property_get_linked_wz_image_property(
+                       FromHandle<wz_property>(info[0]), &prop));
   return prop ? ToHandle(env, prop) : env.Null();
 }
 
@@ -561,6 +815,47 @@ Napi::Value SetIntValue(const Napi::CallbackInfo& info) {
   wz_property prop = FromHandle<wz_property>(info[0]);
   int value = info[1].As<Napi::Number>().Int32Value();
   WZ_NODE_API_CALL(env, wz_int_set_value(prop, value));
+  return env.Undefined();
+}
+
+Napi::Value SetShortValue(const Napi::CallbackInfo& info) {
+  Napi::Env env = info.Env();
+  wz_property prop = FromHandle<wz_property>(info[0]);
+  int value = info[1].As<Napi::Number>().Int32Value();
+  WZ_NODE_API_CALL(env, wz_short_set_value(prop, static_cast<int16_t>(value)));
+  return env.Undefined();
+}
+
+Napi::Value SetLongValue(const Napi::CallbackInfo& info) {
+  Napi::Env env = info.Env();
+  wz_property prop = FromHandle<wz_property>(info[0]);
+  int64_t value = 0;
+  if (!ReadInt64BigInt(env, info[1], &value)) return Napi::Value();
+  WZ_NODE_API_CALL(env, wz_long_set_value(prop, value));
+  return env.Undefined();
+}
+
+Napi::Value SetFloatValue(const Napi::CallbackInfo& info) {
+  Napi::Env env = info.Env();
+  wz_property prop = FromHandle<wz_property>(info[0]);
+  double value = info[1].As<Napi::Number>().DoubleValue();
+  WZ_NODE_API_CALL(env, wz_float_set_value(prop, static_cast<float>(value)));
+  return env.Undefined();
+}
+
+Napi::Value SetDoubleValue(const Napi::CallbackInfo& info) {
+  Napi::Env env = info.Env();
+  wz_property prop = FromHandle<wz_property>(info[0]);
+  double value = info[1].As<Napi::Number>().DoubleValue();
+  WZ_NODE_API_CALL(env, wz_double_set_value(prop, value));
+  return env.Undefined();
+}
+
+Napi::Value SetStringValue(const Napi::CallbackInfo& info) {
+  Napi::Env env = info.Env();
+  wz_property prop = FromHandle<wz_property>(info[0]);
+  std::string value = info[1].As<Napi::String>().Utf8Value();
+  WZ_NODE_API_CALL(env, wz_string_set_value(prop, value.c_str()));
   return env.Undefined();
 }
 
@@ -616,8 +911,9 @@ Napi::Value CanvasBool(const Napi::CallbackInfo& info,
 Napi::Value CanvasLinked(const Napi::CallbackInfo& info) {
   Napi::Env env = info.Env();
   wz_property prop = nullptr;
-  WZ_NODE_API_CALL(env, wz_canvas_get_linked_wz_image_property(
-      FromHandle<wz_property>(info[0]), &prop));
+  WZ_NODE_API_CALL(env,
+                   wz_canvas_get_linked_wz_image_property(
+                       FromHandle<wz_property>(info[0]), &prop));
   return prop ? ToHandle(env, prop) : env.Null();
 }
 
@@ -627,6 +923,14 @@ Napi::Value UolValue(const Napi::CallbackInfo& info) {
   const char* value = nullptr;
   WZ_NODE_API_CALL(env, wz_uol_get_value(prop, &value));
   return NullableString(env, value);
+}
+
+Napi::Value SetUolValue(const Napi::CallbackInfo& info) {
+  Napi::Env env = info.Env();
+  wz_property prop = FromHandle<wz_property>(info[0]);
+  std::string value = info[1].As<Napi::String>().Utf8Value();
+  WZ_NODE_API_CALL(env, wz_uol_set_value(prop, value.c_str()));
+  return env.Undefined();
 }
 
 Napi::Value UolLinkValue(const Napi::CallbackInfo& info) {
@@ -682,8 +986,9 @@ Napi::Value BinaryInt(const Napi::CallbackInfo& info,
 Napi::Value BinaryBool(const Napi::CallbackInfo& info) {
   Napi::Env env = info.Env();
   int is_encrypted = 0;
-  WZ_NODE_API_CALL(env, wz_binary_is_header_encrypted(
-      FromHandle<wz_property>(info[0]), &is_encrypted));
+  WZ_NODE_API_CALL(env,
+                   wz_binary_is_header_encrypted(
+                       FromHandle<wz_property>(info[0]), &is_encrypted));
   bool v = is_encrypted != 0;
   return Napi::Boolean::New(env, v);
 }
@@ -729,8 +1034,8 @@ Napi::Value ToolIvForVersion(const Napi::CallbackInfo& info) {
   Napi::Env env = info.Env();
   int version = info[0].As<Napi::Number>().Int32Value();
   const uint8_t* iv = nullptr;
-  WZ_NODE_API_CALL(env,
-         wz_get_iv_for_version(static_cast<wz_maple_version>(version), &iv));
+  WZ_NODE_API_CALL(
+      env, wz_get_iv_for_version(static_cast<wz_maple_version>(version), &iv));
   Napi::ArrayBuffer storage = Napi::ArrayBuffer::New(env, 4);
   auto bytes = static_cast<uint8_t*>(storage.Data());
   if (iv) std::memcpy(bytes, iv, 4);
@@ -740,8 +1045,11 @@ Napi::Value ToolIvForVersion(const Napi::CallbackInfo& info) {
 Napi::Object Init(Napi::Env env, Napi::Object exports) {
   exports.Set("openFile", Napi::Function::New(env, OpenFile));
   exports.Set("openFileWithIv", Napi::Function::New(env, OpenFileWithIv));
+  exports.Set("createFile", Napi::Function::New(env, CreateFile));
   exports.Set("parseFile", Napi::Function::New(env, ParseFile));
   exports.Set("closeFile", Napi::Function::New(env, CloseFile));
+  exports.Set("fileSaveToDisk", Napi::Function::New(env, FileSaveToDisk));
+  exports.Set("fileSaveToDiskEx", Napi::Function::New(env, FileSaveToDiskEx));
   exports.Set("fileName", Napi::Function::New(env, FileName));
   exports.Set("filePath", Napi::Function::New(env, FilePath));
   exports.Set("fileVersion", Napi::Function::New(env, FileVersion));
@@ -770,6 +1078,12 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
   exports.Set("dirGetDirectory", Napi::Function::New(env, DirGetDirectory));
   exports.Set("dirGetDirectoryByName",
               Napi::Function::New(env, DirGetDirectoryByName));
+  exports.Set("dirCreateDirectory",
+              Napi::Function::New(env, DirCreateDirectory));
+  exports.Set("dirCreateImage", Napi::Function::New(env, DirCreateImage));
+  exports.Set("dirRemoveDirectory",
+              Napi::Function::New(env, DirRemoveDirectory));
+  exports.Set("dirRemoveImage", Napi::Function::New(env, DirRemoveImage));
   exports.Set("dirBlockSize",
               Napi::Function::New(env, [](const Napi::CallbackInfo& i) {
                 return DirInt(i, wz_dir_block_size);
@@ -810,6 +1124,11 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
               Napi::Function::New(env, ImageCountProperties));
   exports.Set("imageGetProperty", Napi::Function::New(env, ImageGetProperty));
   exports.Set("imageGetFromPath", Napi::Function::New(env, ImageGetFromPath));
+  exports.Set("imageAddProperty", Napi::Function::New(env, ImageAddProperty));
+  exports.Set("imageRemoveProperty",
+              Napi::Function::New(env, ImageRemoveProperty));
+  exports.Set("imageClearProperties",
+              Napi::Function::New(env, ImageClearProperties));
 
   exports.Set("objectType", Napi::Function::New(env, ObjectType));
   exports.Set("objectName", Napi::Function::New(env, ObjectName));
@@ -822,6 +1141,8 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
   exports.Set("objectTopMostImage",
               Napi::Function::New(env, ObjectTopMostImage));
   exports.Set("objectAt", Napi::Function::New(env, ObjectAt));
+  exports.Set("objectSetName", Napi::Function::New(env, ObjectSetName));
+  exports.Set("objectRemove", Napi::Function::New(env, ObjectRemove));
 
   exports.Set("propType", Napi::Function::New(env, PropType));
   exports.Set("propIsRaw", Napi::Function::New(env, PropIsRaw));
@@ -840,26 +1161,54 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
   exports.Set("propGetString", Napi::Function::New(env, PropGetString));
   exports.Set("propGetBytes", Napi::Function::New(env, PropGetBytes));
   exports.Set("propLinked", Napi::Function::New(env, PropLinked));
+  exports.Set("propertyCreateNull",
+              Napi::Function::New(env, CreatePropertyNull));
+  exports.Set("propertyCreateShort",
+              Napi::Function::New(env, CreatePropertyShort));
+  exports.Set("propertyCreateInt", Napi::Function::New(env, CreatePropertyInt));
+  exports.Set("propertyCreateLong",
+              Napi::Function::New(env, CreatePropertyLong));
+  exports.Set("propertyCreateFloat",
+              Napi::Function::New(env, CreatePropertyFloat));
+  exports.Set("propertyCreateDouble",
+              Napi::Function::New(env, CreatePropertyDouble));
+  exports.Set("propertyCreateString",
+              Napi::Function::New(env, CreatePropertyString));
+  exports.Set("propertyCreateSub", Napi::Function::New(env, CreatePropertySub));
+  exports.Set("propertyCreateVector",
+              Napi::Function::New(env, CreatePropertyVector));
+  exports.Set("propertyCreateUol", Napi::Function::New(env, CreatePropertyUol));
+  exports.Set("propertyFree", Napi::Function::New(env, PropertyFree));
+  exports.Set("propertyAddChild", Napi::Function::New(env, PropertyAddChild));
+  exports.Set("propertyRemoveChild",
+              Napi::Function::New(env, PropertyRemoveChild));
+  exports.Set("propertyClearChildren",
+              Napi::Function::New(env, PropertyClearChildren));
 
   exports.Set("intValue",
               Napi::Function::New(env, [](const Napi::CallbackInfo& i) {
                 return ScalarValue(i, wz_int_get_value);
               }));
   exports.Set("intSetValue", Napi::Function::New(env, SetIntValue));
-  exports.Set("shortValue",
-              Napi::Function::New(env, [](const Napi::CallbackInfo& i)
-                                            -> Napi::Value {
-                Napi::Env env = i.Env();
-                int16_t raw = 0;
-                wz_property prop = FromHandle<wz_property>(i[0]);
-                WZ_NODE_API_CALL(env, wz_short_get_value(prop, &raw));
-                int32_t v = static_cast<int32_t>(raw);
-                return Napi::Number::New(env, v);
-              }));
+  exports.Set(
+      "shortValue",
+      Napi::Function::New(env, [](const Napi::CallbackInfo& i) -> Napi::Value {
+        Napi::Env env = i.Env();
+        int16_t raw = 0;
+        wz_property prop = FromHandle<wz_property>(i[0]);
+        WZ_NODE_API_CALL(env, wz_short_get_value(prop, &raw));
+        int32_t v = static_cast<int32_t>(raw);
+        return Napi::Number::New(env, v);
+      }));
+  exports.Set("shortSetValue", Napi::Function::New(env, SetShortValue));
   exports.Set("longValue", Napi::Function::New(env, LongValue));
+  exports.Set("longSetValue", Napi::Function::New(env, SetLongValue));
   exports.Set("floatValue", Napi::Function::New(env, FloatValue));
+  exports.Set("floatSetValue", Napi::Function::New(env, SetFloatValue));
   exports.Set("doubleValue", Napi::Function::New(env, DoubleValue));
+  exports.Set("doubleSetValue", Napi::Function::New(env, SetDoubleValue));
   exports.Set("stringValue", Napi::Function::New(env, StringValue));
+  exports.Set("stringSetValue", Napi::Function::New(env, SetStringValue));
 
   exports.Set("pngWidth", Napi::Function::New(env, PngWidth));
   exports.Set("pngHeight", Napi::Function::New(env, PngHeight));
@@ -886,6 +1235,7 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
   exports.Set("canvasLinked", Napi::Function::New(env, CanvasLinked));
 
   exports.Set("uolValue", Napi::Function::New(env, UolValue));
+  exports.Set("uolSetValue", Napi::Function::New(env, SetUolValue));
   exports.Set("uolLinkValue", Napi::Function::New(env, UolLinkValue));
   exports.Set("vectorX", Napi::Function::New(env, VectorX));
   exports.Set("vectorY", Napi::Function::New(env, VectorY));

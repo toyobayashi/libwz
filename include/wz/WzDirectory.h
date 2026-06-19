@@ -1,7 +1,9 @@
 #ifndef WZ_WZDIRECTORY_H_
 #define WZ_WZDIRECTORY_H_
 #include <array>
+#include <istream>
 #include <memory>
+#include <ostream>
 #include <string>
 #include <vector>
 #include "wz/Result.h"
@@ -12,6 +14,7 @@
 namespace wz {
 
 class WzBinaryReader;
+class WzBinaryWriter;
 class WzFile;
 class WzImage;
 
@@ -30,6 +33,7 @@ class WzDirectory final : public WzObject {
 
   WzObjectType ObjectType() const override { return WzObjectType::Directory; }
   WzFile* WzFileParent() const override { return wzFile_; }
+  Result<void> TryRemove() override;
   void Remove() override;
 
   int BlockSize() const { return size_; }
@@ -50,6 +54,12 @@ class WzDirectory final : public WzObject {
 
   void AddImage(WzImage* img);
   void AddDirectory(WzDirectory* dir);
+  Result<WzDirectory*> CreateDirectory(const std::string& name);
+  Result<WzImage*> CreateImage(const std::string& name);
+  Result<void> TryAddDirectory(std::unique_ptr<WzDirectory> dir);
+  Result<void> TryAddImage(std::unique_ptr<WzImage> img);
+  Result<void> TryRemoveImage(WzImage* image);
+  Result<void> TryRemoveDirectory(WzDirectory* dir);
   void ClearImages();
   void ClearDirectories();
   WzImage* GetImageByName(const std::string& name);
@@ -61,8 +71,17 @@ class WzDirectory final : public WzObject {
   WzObject* operator[](const std::string& name) const;
 
   const std::array<uint8_t, 4>& WzIv() const { return wz_iv_; }
+  void SetWzIv(const std::array<uint8_t, 4>& iv);
   uint32_t Hash() const { return hash_; }
-  void SetHash(uint32_t h) { hash_ = h; }
+  void SetHash(uint32_t h);
+
+  Result<int> GenerateDataFile(const std::array<uint8_t, 4>* useIv,
+                               bool isDefaultUserKey,
+                               std::ostream* tempStream);
+  Result<void> SaveDirectory(WzBinaryWriter* writer);
+  Result<void> SaveImages(WzBinaryWriter* writer, std::istream* tempStream);
+  Result<uint32_t> GetOffsets(uint32_t currentOffset);
+  Result<uint32_t> GetImgOffsets(uint32_t currentOffset);
 
  private:
   std::vector<std::unique_ptr<WzImage>> images_;
@@ -71,6 +90,7 @@ class WzDirectory final : public WzObject {
   int64_t offset_ = 0;
   uint32_t hash_ = 0;
   int size_ = 0;
+  int offsetSize_ = 0;
   int checksum_ = 0;
   std::array<uint8_t, 4> wz_iv_ = {};
   WzFile* wzFile_ = nullptr;

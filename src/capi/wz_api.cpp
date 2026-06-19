@@ -2,6 +2,8 @@
 
 #include <array>
 #include <cstring>
+#include <memory>
+#include <optional>
 #include <string>
 
 #include "wz/wz.h"
@@ -104,6 +106,35 @@ static wz_property wrap_prop(wz::WzImageProperty* p) {
   return reinterpret_cast<wz_property>(p);
 }
 
+static bool is_mutable_property_container(wz::WzImageProperty* p) {
+  if (!p) return false;
+  switch (p->PropertyType()) {
+    case wz::WzPropertyType::SubProperty:
+    case wz::WzPropertyType::Canvas:
+    case wz::WzPropertyType::Convex:
+    case wz::WzPropertyType::Raw:
+      return p->WzProperties() != nullptr;
+    default:
+      return false;
+  }
+}
+
+static wz::WzFile* unwrap_file(wz_file f) {
+  return reinterpret_cast<wz::WzFile*>(f);
+}
+
+static wz::WzDirectory* unwrap_dir(wz_dir d) {
+  return reinterpret_cast<wz::WzDirectory*>(d);
+}
+
+static wz::WzImage* unwrap_image(wz_image i) {
+  return reinterpret_cast<wz::WzImage*>(i);
+}
+
+static wz::WzObject* unwrap_object(wz_object o) {
+  return reinterpret_cast<wz::WzObject*>(o);
+}
+
 extern "C" {
 
 wz_error_code wz_get_last_error_info(const wz_last_error_info** info) {
@@ -124,6 +155,18 @@ wz_error_code wz_open_file(const char* file_path,
   if (!file_path) return set_error_invalid_arg("wz_open_file", "file_path");
   auto* f = new wz::WzFile(
       file_path, game_version, static_cast<wz::WzMapleVersion>(version));
+  *out_file = reinterpret_cast<wz_file>(f);
+  return wz_clear_last_error();
+}
+
+wz_error_code wz_create_file(int16_t game_version,
+                             wz_maple_version version,
+                             wz_file* out_file) {
+  if (auto ec = init_out("wz_create_file", out_file); ec != WZ_ERROR_NONE) {
+    return ec;
+  }
+  auto* f =
+      new wz::WzFile(game_version, static_cast<wz::WzMapleVersion>(version));
   *out_file = reinterpret_cast<wz_file>(f);
   return wz_clear_last_error();
 }
@@ -161,8 +204,31 @@ wz_error_code wz_parse(wz_file file, wz_parse_status* out_status) {
 
 wz_error_code wz_close_file(wz_file file) {
   if (!file) return wz_clear_last_error();
-  delete reinterpret_cast<wz::WzFile*>(file);
+  delete unwrap_file(file);
   return wz_clear_last_error();
+}
+
+wz_error_code wz_file_save_to_disk(wz_file file, const char* file_path) {
+  if (!file) return set_error_null("wz_file_save_to_disk");
+  if (!file_path) {
+    return set_error_invalid_arg("wz_file_save_to_disk", "file_path");
+  }
+  return result_void(unwrap_file(file)->SaveToDisk(file_path));
+}
+
+wz_error_code wz_file_save_to_disk_ex(wz_file file,
+                                      const char* file_path,
+                                      int has_save_as_64bit,
+                                      int save_as_64bit,
+                                      wz_maple_version version) {
+  if (!file) return set_error_null("wz_file_save_to_disk_ex");
+  if (!file_path) {
+    return set_error_invalid_arg("wz_file_save_to_disk_ex", "file_path");
+  }
+  std::optional<bool> save_as_64;
+  if (has_save_as_64bit) save_as_64 = save_as_64bit != 0;
+  return result_void(unwrap_file(file)->SaveToDisk(
+      file_path, save_as_64, static_cast<wz::WzMapleVersion>(version)));
 }
 
 wz_error_code wz_file_name(wz_file file, const char** out_name) {
@@ -369,6 +435,54 @@ wz_error_code wz_dir_get_directory_by_name(wz_dir dir,
   *out_dir = reinterpret_cast<wz_dir>(
       reinterpret_cast<wz::WzDirectory*>(dir)->GetDirectoryByName(name));
   return wz_clear_last_error();
+}
+
+wz_error_code wz_dir_create_directory(wz_dir dir,
+                                      const char* name,
+                                      wz_dir* out_dir) {
+  if (auto ec = init_out("wz_dir_create_directory", out_dir);
+      ec != WZ_ERROR_NONE) {
+    return ec;
+  }
+  if (!dir) return set_error_null("wz_dir_create_directory");
+  if (!name) return set_error_invalid_arg("wz_dir_create_directory", "name");
+  auto result = unwrap_dir(dir)->CreateDirectory(name);
+  if (!result.has_value()) {
+    return wz_set_last_error(static_cast<wz_error_code>(result.error().code()),
+                             result.error().message());
+  }
+  *out_dir = reinterpret_cast<wz_dir>(result.value());
+  return wz_clear_last_error();
+}
+
+wz_error_code wz_dir_create_image(wz_dir dir,
+                                  const char* name,
+                                  wz_image* out_image) {
+  if (auto ec = init_out("wz_dir_create_image", out_image);
+      ec != WZ_ERROR_NONE) {
+    return ec;
+  }
+  if (!dir) return set_error_null("wz_dir_create_image");
+  if (!name) return set_error_invalid_arg("wz_dir_create_image", "name");
+  auto result = unwrap_dir(dir)->CreateImage(name);
+  if (!result.has_value()) {
+    return wz_set_last_error(static_cast<wz_error_code>(result.error().code()),
+                             result.error().message());
+  }
+  *out_image = reinterpret_cast<wz_image>(result.value());
+  return wz_clear_last_error();
+}
+
+wz_error_code wz_dir_remove_directory(wz_dir dir, wz_dir child) {
+  if (!dir) return set_error_null("wz_dir_remove_directory");
+  if (!child) return set_error_null("wz_dir_remove_directory");
+  return result_void(unwrap_dir(dir)->TryRemoveDirectory(unwrap_dir(child)));
+}
+
+wz_error_code wz_dir_remove_image(wz_dir dir, wz_image child) {
+  if (!dir) return set_error_null("wz_dir_remove_image");
+  if (!child) return set_error_null("wz_dir_remove_image");
+  return result_void(unwrap_dir(dir)->TryRemoveImage(unwrap_image(child)));
 }
 
 wz_error_code wz_dir_block_size(wz_dir dir, int* out_block_size) {
@@ -626,6 +740,17 @@ wz_error_code wz_object_at(wz_object obj,
   return wz_clear_last_error();
 }
 
+wz_error_code wz_object_set_name(wz_object obj, const char* name) {
+  if (!obj) return set_error_null("wz_object_set_name");
+  if (!name) return set_error_invalid_arg("wz_object_set_name", "name");
+  return result_void(unwrap_object(obj)->Rename(name));
+}
+
+wz_error_code wz_object_remove(wz_object obj) {
+  if (!obj) return set_error_null("wz_object_remove");
+  return result_void(unwrap_object(obj)->TryRemove());
+}
+
 wz_error_code wz_property_get_type(wz_property prop,
                                    wz_property_type* out_type) {
   if (auto ec = init_out("wz_property_get_type", out_type);
@@ -730,6 +855,190 @@ wz_error_code wz_property_get_from_path(wz_property prop,
   if (!path) return set_error_invalid_arg("wz_property_get_from_path", "path");
   *out_property = wrap_prop(unwrap_prop(prop)->GetFromPath(path));
   return wz_clear_last_error();
+}
+
+wz_error_code wz_property_create_null(const char* name,
+                                      wz_property* out_property) {
+  if (auto ec = init_out("wz_property_create_null", out_property);
+      ec != WZ_ERROR_NONE) {
+    return ec;
+  }
+  if (!name) return set_error_invalid_arg("wz_property_create_null", "name");
+  *out_property = wrap_prop(new wz::WzNullProperty(name));
+  return wz_clear_last_error();
+}
+
+wz_error_code wz_property_create_short(const char* name,
+                                       int16_t value,
+                                       wz_property* out_property) {
+  if (auto ec = init_out("wz_property_create_short", out_property);
+      ec != WZ_ERROR_NONE) {
+    return ec;
+  }
+  if (!name) return set_error_invalid_arg("wz_property_create_short", "name");
+  *out_property = wrap_prop(new wz::WzShortProperty(name, value));
+  return wz_clear_last_error();
+}
+
+wz_error_code wz_property_create_int(const char* name,
+                                     int32_t value,
+                                     wz_property* out_property) {
+  if (auto ec = init_out("wz_property_create_int", out_property);
+      ec != WZ_ERROR_NONE) {
+    return ec;
+  }
+  if (!name) return set_error_invalid_arg("wz_property_create_int", "name");
+  *out_property = wrap_prop(new wz::WzIntProperty(name, value));
+  return wz_clear_last_error();
+}
+
+wz_error_code wz_property_create_long(const char* name,
+                                      int64_t value,
+                                      wz_property* out_property) {
+  if (auto ec = init_out("wz_property_create_long", out_property);
+      ec != WZ_ERROR_NONE) {
+    return ec;
+  }
+  if (!name) return set_error_invalid_arg("wz_property_create_long", "name");
+  *out_property = wrap_prop(new wz::WzLongProperty(name, value));
+  return wz_clear_last_error();
+}
+
+wz_error_code wz_property_create_float(const char* name,
+                                       float value,
+                                       wz_property* out_property) {
+  if (auto ec = init_out("wz_property_create_float", out_property);
+      ec != WZ_ERROR_NONE) {
+    return ec;
+  }
+  if (!name) return set_error_invalid_arg("wz_property_create_float", "name");
+  *out_property = wrap_prop(new wz::WzFloatProperty(name, value));
+  return wz_clear_last_error();
+}
+
+wz_error_code wz_property_create_double(const char* name,
+                                        double value,
+                                        wz_property* out_property) {
+  if (auto ec = init_out("wz_property_create_double", out_property);
+      ec != WZ_ERROR_NONE) {
+    return ec;
+  }
+  if (!name) return set_error_invalid_arg("wz_property_create_double", "name");
+  *out_property = wrap_prop(new wz::WzDoubleProperty(name, value));
+  return wz_clear_last_error();
+}
+
+wz_error_code wz_property_create_string(const char* name,
+                                        const char* value,
+                                        wz_property* out_property) {
+  if (auto ec = init_out("wz_property_create_string", out_property);
+      ec != WZ_ERROR_NONE) {
+    return ec;
+  }
+  if (!name) return set_error_invalid_arg("wz_property_create_string", "name");
+  if (!value) {
+    return set_error_invalid_arg("wz_property_create_string", "value");
+  }
+  *out_property = wrap_prop(new wz::WzStringProperty(name, value));
+  return wz_clear_last_error();
+}
+
+wz_error_code wz_property_create_sub(const char* name,
+                                     wz_property* out_property) {
+  if (auto ec = init_out("wz_property_create_sub", out_property);
+      ec != WZ_ERROR_NONE) {
+    return ec;
+  }
+  if (!name) return set_error_invalid_arg("wz_property_create_sub", "name");
+  *out_property = wrap_prop(new wz::WzSubProperty(name));
+  return wz_clear_last_error();
+}
+
+wz_error_code wz_property_create_vector(const char* name,
+                                        int32_t x,
+                                        int32_t y,
+                                        wz_property* out_property) {
+  if (auto ec = init_out("wz_property_create_vector", out_property);
+      ec != WZ_ERROR_NONE) {
+    return ec;
+  }
+  if (!name) return set_error_invalid_arg("wz_property_create_vector", "name");
+  *out_property = wrap_prop(new wz::WzVectorProperty(name, x, y));
+  return wz_clear_last_error();
+}
+
+wz_error_code wz_property_create_uol(const char* name,
+                                     const char* value,
+                                     wz_property* out_property) {
+  if (auto ec = init_out("wz_property_create_uol", out_property);
+      ec != WZ_ERROR_NONE) {
+    return ec;
+  }
+  if (!name) return set_error_invalid_arg("wz_property_create_uol", "name");
+  if (!value) return set_error_invalid_arg("wz_property_create_uol", "value");
+  *out_property = wrap_prop(new wz::WzUOLProperty(name, value));
+  return wz_clear_last_error();
+}
+
+wz_error_code wz_property_free(wz_property prop) {
+  auto* p = unwrap_prop(prop);
+  if (!p) return set_error_null("wz_property_free");
+  if (p->Parent()) {
+    return wz_set_last_error(
+        WZ_ERROR_INVALID_ARGUMENT,
+        "wz_property_free: property is owned by a WZ tree");
+  }
+  delete p;
+  return wz_clear_last_error();
+}
+
+wz_error_code wz_image_add_property(wz_image img, wz_property prop) {
+  if (!img) return set_error_null("wz_image_add_property");
+  auto* p = unwrap_prop(prop);
+  if (!p) return set_error_null("wz_image_add_property");
+  return result_void(unwrap_image(img)->TryAddProperty(p));
+}
+
+wz_error_code wz_property_add_child(wz_property parent, wz_property child) {
+  auto* parentProp = unwrap_prop(parent);
+  if (!parentProp) return set_error_null("wz_property_add_child");
+  auto* childProp = unwrap_prop(child);
+  if (!childProp) return set_error_null("wz_property_add_child");
+  if (!is_mutable_property_container(parentProp))
+    return set_error_wrong_type("wz_property_add_child");
+  return result_void(parentProp->TryAddChildProperty(childProp));
+}
+
+wz_error_code wz_image_remove_property(wz_image img, wz_property prop) {
+  if (!img) return set_error_null("wz_image_remove_property");
+  auto* p = unwrap_prop(prop);
+  if (!p) return set_error_null("wz_image_remove_property");
+  return result_void(unwrap_image(img)->TryRemoveProperty(p));
+}
+
+wz_error_code wz_property_remove_child(wz_property parent, wz_property child) {
+  auto* parentProp = unwrap_prop(parent);
+  if (!parentProp) return set_error_null("wz_property_remove_child");
+  auto* childProp = unwrap_prop(child);
+  if (!childProp) return set_error_null("wz_property_remove_child");
+  if (!is_mutable_property_container(parentProp)) {
+    return set_error_wrong_type("wz_property_remove_child");
+  }
+  return result_void(parentProp->TryRemoveChildProperty(childProp));
+}
+
+wz_error_code wz_image_clear_properties(wz_image img) {
+  if (!img) return set_error_null("wz_image_clear_properties");
+  unwrap_image(img)->ClearProperties();
+  return wz_clear_last_error();
+}
+
+wz_error_code wz_property_clear_children(wz_property prop) {
+  auto* p = unwrap_prop(prop);
+  if (!p) return set_error_null("wz_property_clear_children");
+  if (!is_mutable_property_container(p))
+    return set_error_wrong_type("wz_property_clear_children");
+  return result_void(p->TryClearChildProperties());
 }
 
 wz_error_code wz_property_get_int(wz_property prop, int32_t* out_value) {
@@ -850,6 +1159,15 @@ wz_error_code wz_short_get_value(wz_property prop, int16_t* out_value) {
   return wz_clear_last_error();
 }
 
+wz_error_code wz_short_set_value(wz_property prop, int16_t value) {
+  if (!prop) return set_error_null("wz_short_set_value");
+  if (unwrap_prop(prop)->PropertyType() != wz::WzPropertyType::Short) {
+    return set_error_wrong_type("wz_short_set_value");
+  }
+  static_cast<wz::WzShortProperty*>(unwrap_prop(prop))->SetValue(value);
+  return wz_clear_last_error();
+}
+
 wz_error_code wz_long_get_value(wz_property prop, int64_t* out_value) {
   if (auto ec = init_out("wz_long_get_value", out_value); ec != WZ_ERROR_NONE) {
     return ec;
@@ -859,6 +1177,15 @@ wz_error_code wz_long_get_value(wz_property prop, int64_t* out_value) {
     return set_error_wrong_type("wz_long_get_value");
   }
   *out_value = static_cast<wz::WzLongProperty*>(unwrap_prop(prop))->Value();
+  return wz_clear_last_error();
+}
+
+wz_error_code wz_long_set_value(wz_property prop, int64_t value) {
+  if (!prop) return set_error_null("wz_long_set_value");
+  if (unwrap_prop(prop)->PropertyType() != wz::WzPropertyType::Long) {
+    return set_error_wrong_type("wz_long_set_value");
+  }
+  static_cast<wz::WzLongProperty*>(unwrap_prop(prop))->SetValue(value);
   return wz_clear_last_error();
 }
 
@@ -875,6 +1202,15 @@ wz_error_code wz_float_get_value(wz_property prop, float* out_value) {
   return wz_clear_last_error();
 }
 
+wz_error_code wz_float_set_value(wz_property prop, float value) {
+  if (!prop) return set_error_null("wz_float_set_value");
+  if (unwrap_prop(prop)->PropertyType() != wz::WzPropertyType::Float) {
+    return set_error_wrong_type("wz_float_set_value");
+  }
+  static_cast<wz::WzFloatProperty*>(unwrap_prop(prop))->SetValue(value);
+  return wz_clear_last_error();
+}
+
 wz_error_code wz_double_get_value(wz_property prop, double* out_value) {
   if (auto ec = init_out("wz_double_get_value", out_value);
       ec != WZ_ERROR_NONE) {
@@ -885,6 +1221,15 @@ wz_error_code wz_double_get_value(wz_property prop, double* out_value) {
     return set_error_wrong_type("wz_double_get_value");
   }
   *out_value = static_cast<wz::WzDoubleProperty*>(unwrap_prop(prop))->Value();
+  return wz_clear_last_error();
+}
+
+wz_error_code wz_double_set_value(wz_property prop, double value) {
+  if (!prop) return set_error_null("wz_double_set_value");
+  if (unwrap_prop(prop)->PropertyType() != wz::WzPropertyType::Double) {
+    return set_error_wrong_type("wz_double_set_value");
+  }
+  static_cast<wz::WzDoubleProperty*>(unwrap_prop(prop))->SetValue(value);
   return wz_clear_last_error();
 }
 
@@ -900,6 +1245,16 @@ wz_error_code wz_string_get_value(wz_property prop, const char** out_value) {
   static thread_local std::string s;
   s = static_cast<wz::WzStringProperty*>(unwrap_prop(prop))->Value();
   *out_value = s.c_str();
+  return wz_clear_last_error();
+}
+
+wz_error_code wz_string_set_value(wz_property prop, const char* value) {
+  if (!prop) return set_error_null("wz_string_set_value");
+  if (!value) return set_error_invalid_arg("wz_string_set_value", "value");
+  if (unwrap_prop(prop)->PropertyType() != wz::WzPropertyType::String) {
+    return set_error_wrong_type("wz_string_set_value");
+  }
+  static_cast<wz::WzStringProperty*>(unwrap_prop(prop))->SetValue(value);
   return wz_clear_last_error();
 }
 
@@ -1104,6 +1459,17 @@ wz_error_code wz_uol_get_value(wz_property uol_prop, const char** out_value) {
   static thread_local std::string s;
   s = static_cast<wz::WzUOLProperty*>(p)->Value();
   *out_value = s.c_str();
+  return wz_clear_last_error();
+}
+
+wz_error_code wz_uol_set_value(wz_property uol_prop, const char* value) {
+  auto* p = unwrap_prop(uol_prop);
+  if (!p) return set_error_null("wz_uol_set_value");
+  if (!value) return set_error_invalid_arg("wz_uol_set_value", "value");
+  if (p->PropertyType() != wz::WzPropertyType::UOL) {
+    return set_error_wrong_type("wz_uol_set_value");
+  }
+  static_cast<wz::WzUOLProperty*>(p)->SetValue(value);
   return wz_clear_last_error();
 }
 

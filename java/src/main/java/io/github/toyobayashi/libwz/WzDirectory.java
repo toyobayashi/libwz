@@ -18,6 +18,10 @@ public class WzDirectory extends WzObject {
     private static native int nativeBlockSize(long ptr);
     private static native int nativeChecksum(long ptr);
     private static native long nativeOffset(long ptr);
+    private static native long nativeAddDirectory(long ptr, String name);
+    private static native long nativeAddImage(long ptr, String name);
+    private static native void nativeRemoveDirectory(long ptr, long childPtr);
+    private static native void nativeRemoveImage(long ptr, long childPtr);
 
     @Override public String getName() { return nativeName(nativePtr); }
     public int countImages() { return nativeCountImagesTotal(nativePtr); }
@@ -76,11 +80,59 @@ public class WzDirectory extends WzObject {
     public int getChecksum() { return nativeChecksum(nativePtr); }
     public long getOffset() { return nativeOffset(nativePtr); }
 
+    public WzDirectory addDirectory(String name) {
+        long p = nativeAddDirectory(nativePtr, name);
+        return p == 0 ? null : new WzDirectory(p);
+    }
+
+    public WzImage addImage(String name) {
+        long p = nativeAddImage(nativePtr, name);
+        return p == 0 ? null : new WzImage(p);
+    }
+
+    public void removeDirectory(WzDirectory directory) {
+        List<Long> ptrs = directory.collectNativeSubtreePointers();
+        nativeRemoveDirectory(nativePtr, directory.nativePtr());
+        invalidateNativePtrs(ptrs);
+    }
+
+    public void removeImage(WzImage image) {
+        List<Long> ptrs = image.collectNativeSubtreePointers();
+        nativeRemoveImage(nativePtr, image.nativePtr());
+        invalidateNativePtrs(ptrs);
+    }
+
     @Override
     protected void dispose() {
         if (ownsNative() && nativePtr != 0) {
+            List<Long> ptrs = collectNativeSubtreePointers();
             nativeDispose(nativePtr);
-            nativePtr = 0;
+            invalidateNativePtrs(ptrs);
+        }
+    }
+
+    @Override
+    protected List<Long> collectNativeSubtreePointers() {
+        List<Long> ptrs = super.collectNativeSubtreePointers();
+        collectDirectoryChildrenPointers(nativePtr, ptrs);
+        return ptrs;
+    }
+
+    static void collectDirectoryPointers(long ptr, List<Long> ptrs) {
+        addNativePtr(ptrs, ptr);
+        collectDirectoryChildrenPointers(ptr, ptrs);
+    }
+
+    private static void collectDirectoryChildrenPointers(long ptr,
+                                                         List<Long> ptrs) {
+        if (ptr == 0) return;
+        int imageCount = nativeCountImages(ptr);
+        for (int i = 0; i < imageCount; i++) {
+            WzImage.collectImagePointers(nativeGetImage(ptr, i), ptrs);
+        }
+        int directoryCount = nativeCountDirectories(ptr);
+        for (int i = 0; i < directoryCount; i++) {
+            collectDirectoryPointers(nativeGetDirectory(ptr, i), ptrs);
         }
     }
 }

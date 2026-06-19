@@ -38,6 +38,7 @@ class WzBinaryProperty : public WzImageProperty {
                    bool parseNow);
   WZ_DISALLOW_COPY_AND_MOVE(WzBinaryProperty)
   WzPropertyType PropertyType() const override { return WzPropertyType::Sound; }
+  Result<void> WriteValue(WzBinaryWriter* writer) const override;
 
   const std::vector<uint8_t>& Header() const { return header_; }
   int Length() const { return lenMs_; }

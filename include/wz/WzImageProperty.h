@@ -42,11 +42,18 @@ class WzImageProperty : public WzObject {
 
   WzObjectType ObjectType() const override { return WzObjectType::Property; }
   WzFile* WzFileParent() const override;
+  Result<void> TryRemove() override;
+  void Remove() override;
 
   virtual WzPropertyType PropertyType() const = 0;
   virtual bool IsRawDataProperty() const { return false; }
   virtual bool IsVideoProperty() const { return false; }
   virtual WzPropertyCollection* WzProperties() { return nullptr; }
+  Result<void> TryAddChildProperty(WzImageProperty* prop);
+  Result<void> TryAddChildProperty(std::unique_ptr<WzImageProperty> prop);
+  Result<void> TryRemoveChildProperty(WzImageProperty* prop);
+  Result<void> TryClearChildProperties();
+  virtual Result<void> WriteValue(WzBinaryWriter* writer) const;
 
   virtual WzImageProperty* operator[](const std::string& name);
 
@@ -54,6 +61,7 @@ class WzImageProperty : public WzObject {
   WzImageProperty* GetLinkedWzImageProperty();
 
   WzImage* ParentImage() const;
+  void MarkParentImageChanged() const;
 
   virtual void SetValue(const std::string& value);
   virtual void SetValue(int32_t value);
@@ -66,6 +74,8 @@ class WzImageProperty : public WzObject {
                                                         WzBinaryReader* reader,
                                                         WzObject* parent,
                                                         WzImage* parentImg);
+  static Result<void> WritePropertyList(WzBinaryWriter* writer,
+                                        const WzPropertyCollection& properties);
   static Result<std::unique_ptr<WzImageProperty>> ParseExtendedProp(
       int64_t offset,
       WzBinaryReader* reader,

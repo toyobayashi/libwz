@@ -4,12 +4,15 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <limits>
 #include <memory>
+#include <sstream>
 #include "wz/Properties/WzCanvasProperty.h"
 #include "wz/Properties/WzConvexProperty.h"
 #include "wz/Properties/WzSubProperty.h"
 #include "wz/Properties/WzVectorProperty.h"
 #include "wz/Util/WzBinaryReader.h"
+#include "wz/Util/WzBinaryWriter.h"
 #include "wz/Util/WzPath.h"
 #include "wz/Util/WzTool.h"
 #include "wz/WzAESConstant.h"
@@ -75,6 +78,18 @@ uint32_t WzFile::CheckAndGetVersionHash(int wzVersionHeader,
   if (wzVersionHeader == decryptedVersionNumber)
     return static_cast<uint32_t>(versionHash);
   return 0;
+}
+
+void WzFile::CreateWZVersionHash() {
+  std::string verStr = std::to_string(mapleStoryPatchVersion_);
+  uint32_t versionHash = 0;
+  for (char ch : verStr) {
+    versionHash = (versionHash * 32) + static_cast<uint8_t>(ch) + 1;
+  }
+  versionHash_ = versionHash;
+  wzVersionHeader_ = static_cast<uint8_t>(
+      ~(((versionHash >> 24) & 0xFF) ^ ((versionHash >> 16) & 0xFF) ^
+        ((versionHash >> 8) & 0xFF) ^ (versionHash & 0xFF)));
 }
 
 void WzFile::Check64BitClient(WzBinaryReader* reader) {
@@ -212,6 +227,120 @@ WzFileParseStatus WzFile::ParseMainWzDirectory() {
 
 WzFileParseStatus WzFile::ParseWzFile() {
   return ParseMainWzDirectory();
+}
+
+Result<void> WzFile::SaveToDisk(const std::string& path,
+                                std::optional<bool> saveAs64Bit,
+                                WzMapleVersion preferredVersion) {
+  if (!wzDir_) {
+    return std::unexpected(
+        Error::InvalidArgument("Cannot save WZ file without a directory"));
+  }
+  if (path.empty()) {
+    return std::unexpected(
+        Error::InvalidArgument("Cannot save WZ file to an empty path"));
+  }
+  if (mapleStoryPatchVersion_ < 0) {
+    return std::unexpected(Error::InvalidArgument(
+        "Cannot save WZ file before a version has been resolved"));
+  }
+
+  const std::array<uint8_t, 4> saveIv =
+      preferredVersion == WzMapleVersion::UNKNOWN
+          ? wz_iv_
+          : WzTool::GetIvByMapleVersion(preferredVersion);
+  const bool isSameIv = saveIv == wzDir_->WzIv();
+  const bool isDefaultUserKey = true;
+  bool saveAs64 = !wz_withEncryptVersionHeader_;
+  if (saveAs64Bit.has_value()) {
+    saveAs64 = saveAs64Bit.value();
+  }
+
+  CreateWZVersionHash();
+  wzDir_->SetHash(versionHash_);
+
+  std::stringstream tempStream(std::ios::in | std::ios::out | std::ios::binary);
+  WzTool::ClearWzObjectValueLengthCache();
+  auto generateResult = wzDir_->GenerateDataFile(
+      isSameIv ? nullptr : &saveIv, isDefaultUserKey, &tempStream);
+  if (!generateResult.has_value()) {
+    return std::unexpected(generateResult.error());
+  }
+  wzDir_->SetWzIv(saveIv);
+
+  WzTool::ClearWzObjectValueLengthCache();
+  const uint32_t directoryStart =
+      header_.FStart() + (saveAs64 ? 0u : sizeof(uint16_t));
+  auto directoryEnd = wzDir_->GetOffsets(directoryStart);
+  if (!directoryEnd.has_value()) {
+    return std::unexpected(directoryEnd.error());
+  }
+  auto totalLength = wzDir_->GetImgOffsets(directoryEnd.value());
+  if (!totalLength.has_value()) {
+    return std::unexpected(totalLength.error());
+  }
+  if (totalLength.value() < header_.FStart()) {
+    return std::unexpected(
+        Error::DataError("WZ total length precedes file start"));
+  }
+  const uint64_t fileSize =
+      static_cast<uint64_t>(totalLength.value()) - header_.FStart();
+  if (fileSize > std::numeric_limits<uint32_t>::max()) {
+    return std::unexpected(Error::DataError("WZ file size exceeds 32-bit"));
+  }
+  header_.SetFSize(fileSize);
+
+  std::ofstream output(wz::to_path(path), std::ios::binary | std::ios::trunc);
+  if (!output.is_open()) {
+    return std::unexpected(Error::IoError("Failed to open WZ output file"));
+  }
+  WzBinaryWriter writer(output, saveIv, versionHash_);
+
+  for (char ch : header_.Ident()) {
+    writer.WriteByte(static_cast<uint8_t>(ch));
+  }
+  writer.WriteUInt64(header_.FSize());
+  writer.WriteUInt32(header_.FStart());
+  writer.WriteNullTerminatedString(header_.Copyright());
+
+  const int64_t extraHeaderLength =
+      static_cast<int64_t>(header_.FStart()) - writer.Position();
+  if (extraHeaderLength < 0) {
+    return std::unexpected(
+        Error::DataError("WZ header is longer than its file start offset"));
+  }
+  for (int64_t i = 0; i < extraHeaderLength; ++i) {
+    writer.WriteByte(0);
+  }
+  if (!saveAs64) {
+    writer.WriteUInt16(wzVersionHeader_);
+  }
+
+  writer.SetHeader(header_);
+  auto saveDirResult = wzDir_->SaveDirectory(&writer);
+  if (!saveDirResult.has_value()) {
+    return std::unexpected(saveDirResult.error());
+  }
+  writer.ClearStringCache();
+
+  tempStream.clear();
+  tempStream.seekg(0, std::ios::beg);
+  auto saveImagesResult = wzDir_->SaveImages(&writer, &tempStream);
+  if (!saveImagesResult.has_value()) {
+    return std::unexpected(saveImagesResult.error());
+  }
+  writer.ClearStringCache();
+
+  if (!output) {
+    return std::unexpected(Error::IoError("Failed to write WZ output file"));
+  }
+
+  wz_iv_ = saveIv;
+  if (preferredVersion != WzMapleVersion::UNKNOWN) {
+    maplepLocalVersion_ = preferredVersion;
+  }
+  wz_withEncryptVersionHeader_ = !saveAs64;
+  return {};
 }
 
 WzObject* WzFile::GetObjectFromPath(const std::string& path,

@@ -14,7 +14,12 @@ class WzStringProperty : public WzImageProperty {
     return WzPropertyType::String;
   }
   const std::string& Value() const { return value_; }
-  void SetValue(const std::string& value) override { value_ = value; }
+  Result<void> WriteValue(WzBinaryWriter* writer) const override;
+  void SetValue(const std::string& value) override {
+    if (value_ == value) return;
+    value_ = value;
+    MarkParentImageChanged();
+  }
   std::string GetString() const override { return value_; }
   int32_t GetInt() const override;
   int16_t GetShort() const override;

@@ -23,11 +23,13 @@ class WzObject {
 
   virtual ~WzObject() = default;
   virtual std::string Name() const { return name_; }
-  virtual void SetName(const std::string& name) { name_ = name; }
+  virtual void SetName(const std::string& name) { (void)Rename(name); }
+  virtual Result<void> Rename(const std::string& name);
   virtual WzObjectType ObjectType() const = 0;
   virtual WzObject* Parent() const { return parent_; }
   virtual void SetParent(WzObject* p) { parent_ = p; }
   virtual WzFile* WzFileParent() const;
+  virtual Result<void> TryRemove();
   virtual void Remove() {}
 
   std::string FullPath() const;

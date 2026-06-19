@@ -1,5 +1,7 @@
 const assert = require("node:assert/strict");
 const path = require("node:path");
+const fs = require("node:fs");
+const os = require("node:os");
 const test = require("node:test");
 const wz = require("..");
 
@@ -58,6 +60,7 @@ test("opens, parses, and wraps borrowed objects without owning them", () => {
     const root = file.getWzDirectory();
     assert.ok(root instanceof wz.WzDirectory);
     assert.equal(root.getName(), "TamingMob_GMS_87.wz");
+    assert.equal(typeof root.getOffset(), "bigint");
     assert.ok(root.countImages() > 0);
 
     const images = root.wzImages();
@@ -66,6 +69,7 @@ test("opens, parses, and wraps borrowed objects without owning them", () => {
 
     const image = root.getImage(0);
     assert.ok(image instanceof wz.WzImage);
+    assert.equal(typeof image.getOffset(), "bigint");
     image.close();
     assert.ok(root.getImage(0) instanceof wz.WzImage);
   } finally {
@@ -101,6 +105,13 @@ test("WzFile participates in explicit resource management", () => {
   assert.throws(() => fileRef.getName(), /disposed/i);
 });
 
+test("detectMapleVersion returns maple version and file version", () => {
+  const detected = wz.WzTool.detectMapleVersion(sampleWz);
+  assert.equal(typeof detected, "object");
+  assert.equal(detected.mapleVersion, wz.MapleVersion.GMS);
+  assert.equal(detected.version, 87);
+});
+
 test("parses the same legacy WZ files covered by UnitTest_WzFile", () => {
   for (const [fileName, mapleVersion] of legacyWzFiles) {
     const file = new wz.WzFile(path.join(commonWzDir, fileName), mapleVersion);
@@ -111,5 +122,162 @@ test("parses the same legacy WZ files covered by UnitTest_WzFile", () => {
     } finally {
       file.close();
     }
+  }
+});
+
+test("creates, edits, saves, and reopens a WZ file", () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "libwz-node-"));
+  const outPath = path.join(tmpDir, "Task8.wz");
+  const file = wz.WzFile.create(87, wz.MapleVersion.GMS);
+  try {
+    const root = file.getWzDirectory();
+    assert.ok(root instanceof wz.WzDirectory);
+
+    const image = root.createImage("Edit.img");
+    assert.ok(image instanceof wz.WzImage);
+    const value = wz.WzProperty.createInt("answer", 42);
+    image.addProperty(value);
+    value.setValue(84);
+
+    assert.equal(image.wzProperties().length, 1);
+    assert.equal(image.getFromPath("answer").getValue(), 84);
+    const duplicate = wz.WzProperty.createInt("answer", 1);
+    assert.throws(() => image.addProperty(duplicate));
+    duplicate.close();
+
+    const detached = wz.WzProperty.createString("detached", "free me");
+    detached.close();
+
+    file.saveToDiskEx(outPath, false, wz.MapleVersion.GMS);
+  } finally {
+    file.close();
+  }
+
+  const reopened = new wz.WzFile(outPath, wz.MapleVersion.GMS);
+  try {
+    assert.equal(reopened.parseWzFile(), wz.ParseStatus.SUCCESS);
+    const image = reopened.getWzDirectory().getImageByName("Edit.img");
+    assert.ok(image instanceof wz.WzImage);
+    image.parseImage();
+    const value = image.getFromPath("answer");
+    assert.ok(value instanceof wz.WzIntProperty);
+    assert.equal(value.getValue(), 84);
+  } finally {
+    reopened.close();
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test("property removal invalidates aliases for the same native handle", () => {
+  const file = wz.WzFile.create(87, wz.MapleVersion.GMS);
+  try {
+    const image = file.getWzDirectory().createImage("Aliases.img");
+    const prop = wz.WzProperty.createInt("value", 1);
+    image.addProperty(prop);
+    const alias = image.getFromPath("value");
+    assert.ok(alias instanceof wz.WzIntProperty);
+
+    image.removeProperty(prop);
+
+    assert.throws(() => prop.nativePtr(), /disposed/i);
+    assert.throws(() => alias.nativePtr(), /disposed/i);
+  } finally {
+    file.close();
+  }
+});
+
+test("clearProperties invalidates known child wrappers", () => {
+  const file = wz.WzFile.create(87, wz.MapleVersion.GMS);
+  try {
+    const image = file.getWzDirectory().createImage("Clear.img");
+    const parent = wz.WzProperty.createSub("parent");
+    const child = wz.WzProperty.createInt("child", 7);
+    parent.addProperty(child);
+    image.addProperty(parent);
+    const parentAlias = image.getFromPath("parent");
+    const childAlias = parentAlias.getChildByName("child");
+    assert.ok(childAlias instanceof wz.WzIntProperty);
+
+    image.clearProperties();
+
+    assert.throws(() => parent.nativePtr(), /disposed/i);
+    assert.throws(() => parentAlias.nativePtr(), /disposed/i);
+    assert.throws(() => child.nativePtr(), /disposed/i);
+    assert.throws(() => childAlias.nativePtr(), /disposed/i);
+  } finally {
+    file.close();
+  }
+});
+
+test("long property bigints must fit in int64", () => {
+  const tooLarge = 1n << 80n;
+  assert.throws(() => wz.WzProperty.createLong("tooLarge", tooLarge), RangeError);
+
+  const prop = wz.WzProperty.createLong("ok", 1n);
+  try {
+    assert.throws(() => prop.setValue(tooLarge), RangeError);
+  } finally {
+    prop.close();
+  }
+});
+
+test("closing a WZ file invalidates known wrappers in its tree", () => {
+  const file = wz.WzFile.create(87, wz.MapleVersion.GMS);
+  const root = file.getWzDirectory();
+  const image = root.createImage("Close.img");
+  const prop = wz.WzProperty.createInt("value", 1);
+  image.addProperty(prop);
+  const propAlias = image.getFromPath("value");
+  assert.ok(propAlias instanceof wz.WzIntProperty);
+
+  file.close();
+
+  assert.throws(() => root.getName(), /disposed/i);
+  assert.throws(() => image.getName(), /disposed/i);
+  assert.throws(() => prop.getValue(), /disposed/i);
+  assert.throws(() => propAlias.getValue(), /disposed/i);
+});
+
+test("removeDirectory invalidates known descendant wrappers", () => {
+  const file = wz.WzFile.create(87, wz.MapleVersion.GMS);
+  try {
+    const root = file.getWzDirectory();
+    const dir = root.createDirectory("RemoveDir");
+    const image = dir.createImage("Nested.img");
+    const prop = wz.WzProperty.createInt("value", 2);
+    image.addProperty(prop);
+    const imageAlias = dir.getImageByName("Nested.img");
+    const propAlias = imageAlias.getFromPath("value");
+    assert.ok(propAlias instanceof wz.WzIntProperty);
+
+    root.removeDirectory(dir);
+
+    assert.throws(() => dir.getName(), /disposed/i);
+    assert.throws(() => image.getName(), /disposed/i);
+    assert.throws(() => imageAlias.getName(), /disposed/i);
+    assert.throws(() => prop.getValue(), /disposed/i);
+    assert.throws(() => propAlias.getValue(), /disposed/i);
+  } finally {
+    file.close();
+  }
+});
+
+test("removeImage invalidates known property wrappers", () => {
+  const file = wz.WzFile.create(87, wz.MapleVersion.GMS);
+  try {
+    const root = file.getWzDirectory();
+    const image = root.createImage("RemoveImage.img");
+    const prop = wz.WzProperty.createInt("value", 3);
+    image.addProperty(prop);
+    const propAlias = image.getFromPath("value");
+    assert.ok(propAlias instanceof wz.WzIntProperty);
+
+    root.removeImage(image);
+
+    assert.throws(() => image.getName(), /disposed/i);
+    assert.throws(() => prop.getValue(), /disposed/i);
+    assert.throws(() => propAlias.getValue(), /disposed/i);
+  } finally {
+    file.close();
   }
 });

@@ -1,6 +1,7 @@
 #include "wz/Properties/WzLuaProperty.h"
 #include <filesystem>
 #include <fstream>
+#include "wz/Util/WzBinaryWriter.h"
 #include "wz/Util/WzKeyGenerator.h"
 #include "wz/Util/WzPath.h"
 
@@ -10,6 +11,15 @@ WzLuaProperty::WzLuaProperty(const std::string& name,
     : encryptedBytes_(encryptedBytes),
       wzKey_(WzKeyGenerator::GenerateLuaWzKey()) {
   SetName(name);
+}
+
+Result<void> WzLuaProperty::WriteValue(WzBinaryWriter* writer) const {
+  writer->WriteByte(0x01);
+  writer->WriteCompressedInt(static_cast<int32_t>(encryptedBytes_.size()));
+  writer->BaseStream().write(
+      reinterpret_cast<const char*>(encryptedBytes_.data()),
+      static_cast<std::streamsize>(encryptedBytes_.size()));
+  return {};
 }
 
 std::string WzLuaProperty::GetString() const {

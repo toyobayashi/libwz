@@ -23,6 +23,8 @@ class WzTool {
   static uint32_t RotateRight(uint32_t x, uint8_t n);
   static int GetCompressedIntLength(int i);
   static int GetEncodedStringLength(const std::string& s);
+  static int GetWzObjectValueLength(const std::string& s, uint8_t type);
+  static void ClearWzObjectValueLengthCache();
   static std::array<uint8_t, 4> GetIvByMapleVersion(WzMapleVersion ver);
   static WzMapleVersion DetectMapleVersion(const std::string& wzFilePath,
                                            int16_t* fileVersion);

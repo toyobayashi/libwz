@@ -4,7 +4,9 @@
 #include <fstream>
 #include <mutex>
 #include "wz/Util/WzBinaryReader.h"
+#include "wz/Util/WzBinaryWriter.h"
 #include "wz/Util/WzPath.h"
+#include "wz/WzImage.h"
 
 namespace wz {
 
@@ -17,19 +19,46 @@ WzRawDataProperty::WzRawDataProperty(const std::string& name,
 
 WzRawDataProperty::~WzRawDataProperty() = default;
 
+Result<void> WzRawDataProperty::WriteValue(WzBinaryWriter* writer) const {
+  auto* self = const_cast<WzRawDataProperty*>(this);
+  auto data = self->GetBytes(false);
+  if (!data.has_value()) return std::unexpected(data.error());
+
+  writer->WriteStringValue(RAW_DATA_HEADER,
+                           WzImage::WzImageHeaderByte_WithoutOffset,
+                           WzImage::WzImageHeaderByte_WithOffset);
+  writer->WriteByte(type_);
+  if (type_ == 1) {
+    if (properties_.size() > 0) {
+      writer->WriteByte(1);
+      auto result = WzImageProperty::WritePropertyList(writer, properties_);
+      if (!result.has_value()) return result;
+    } else {
+      writer->WriteByte(0);
+    }
+  }
+  writer->WriteCompressedInt(static_cast<int32_t>(data.value().size()));
+  writer->BaseStream().write(reinterpret_cast<const char*>(data.value().data()),
+                             static_cast<std::streamsize>(data.value().size()));
+  return {};
+}
+
 void WzRawDataProperty::AddProperty(WzImageProperty* prop) {
   AddProperty(std::unique_ptr<WzImageProperty>(prop));
 }
 
 void WzRawDataProperty::AddProperty(std::unique_ptr<WzImageProperty> prop) {
+  if (!prop) return;
   prop->SetParent(this);
   properties_.Add(std::move(prop));
+  MarkParentImageChanged();
 }
 
 void WzRawDataProperty::RemoveProperty(const std::string& propertyName) {
   for (size_t i = 0; i < properties_.size(); i++) {
     if (properties_[i]->Name() == propertyName) {
       properties_.erase_at(i);
+      MarkParentImageChanged();
       return;
     }
   }
@@ -39,11 +68,14 @@ void WzRawDataProperty::RemoveProperty(WzImageProperty* prop) {
   auto it = std::find(properties_.begin(), properties_.end(), prop);
   if (it != properties_.end()) {
     properties_.erase(it);
+    MarkParentImageChanged();
   }
 }
 
 void WzRawDataProperty::ClearProperties() {
+  if (properties_.size() == 0) return;
   properties_.clear();
+  MarkParentImageChanged();
 }
 
 void WzRawDataProperty::Parse(bool parseNow) {

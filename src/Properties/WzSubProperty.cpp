@@ -1,6 +1,7 @@
 #include "wz/Properties/WzSubProperty.h"
 #include <algorithm>
 #include <cctype>
+#include "wz/Util/WzBinaryWriter.h"
 #include "wz/WzImage.h"
 
 namespace wz {
@@ -12,19 +13,34 @@ WzSubProperty::WzSubProperty(const std::string& name) : properties_(this) {
 
 WzSubProperty::~WzSubProperty() = default;
 
+Result<void> WzSubProperty::WriteValue(WzBinaryWriter* writer) const {
+  const bool isLuaProperty =
+      properties_.size() == 1 &&
+      properties_[0]->PropertyType() == WzPropertyType::Lua;
+  if (!isLuaProperty) {
+    writer->WriteStringValue("Property",
+                             WzImage::WzImageHeaderByte_WithoutOffset,
+                             WzImage::WzImageHeaderByte_WithOffset);
+  }
+  return WzImageProperty::WritePropertyList(writer, properties_);
+}
+
 void WzSubProperty::AddProperty(WzImageProperty* prop) {
   AddProperty(std::unique_ptr<WzImageProperty>(prop));
 }
 
 void WzSubProperty::AddProperty(std::unique_ptr<WzImageProperty> prop) {
+  if (!prop) return;
   prop->SetParent(this);
   properties_.Add(std::move(prop));
+  MarkParentImageChanged();
 }
 
 void WzSubProperty::RemoveProperty(const std::string& propertyName) {
   for (size_t i = 0; i < properties_.size(); i++) {
     if (properties_[i]->Name() == propertyName) {
       properties_.erase_at(i);
+      MarkParentImageChanged();
       return;
     }
   }
@@ -34,11 +50,14 @@ void WzSubProperty::RemoveProperty(WzImageProperty* prop) {
   auto it = std::find(properties_.begin(), properties_.end(), prop);
   if (it != properties_.end()) {
     properties_.erase(it);
+    MarkParentImageChanged();
   }
 }
 
 void WzSubProperty::ClearProperties() {
+  if (properties_.size() == 0) return;
   properties_.clear();
+  MarkParentImageChanged();
 }
 
 WzImageProperty* WzSubProperty::operator[](const std::string& name) {

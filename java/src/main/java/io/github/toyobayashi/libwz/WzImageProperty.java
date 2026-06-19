@@ -1,7 +1,11 @@
 package io.github.toyobayashi.libwz;
 
+import java.util.ArrayList;
+import java.util.List;
+
 public abstract class WzImageProperty extends WzObject {
     WzImageProperty(long ptr) { super(ptr); }
+    WzImageProperty(long ptr, boolean ownsNative) { super(ptr, ownsNative); }
 
     private static native int nativePropertyType(long ptr);
     private static native String nativeName(long ptr);
@@ -9,6 +13,10 @@ public abstract class WzImageProperty extends WzObject {
     static native long nativeGetChild(long ptr, int index);
     private static native long nativeGetChildByName(long ptr, String name);
     private static native long nativeGetFromPath(long ptr, String path);
+    private static native void nativeFree(long ptr);
+    private static native void nativeAddProperty(long ptr, long childPtr);
+    private static native void nativeRemoveProperty(long ptr, long childPtr);
+    private static native void nativeClearProperties(long ptr);
     private static native int nativeGetInt(long ptr);
     private static native short nativeGetShort(long ptr);
     private static native long nativeGetLong(long ptr);
@@ -56,4 +64,66 @@ public abstract class WzImageProperty extends WzObject {
     public double getDouble() { return nativeGetDouble(nativePtr); }
     public String getString() { return nativeGetString(nativePtr); }
     public byte[] getBytes() { return nativeGetBytes(nativePtr); }
+
+    public void addProperty(WzImageProperty property) {
+        nativeAddProperty(nativePtr, property.nativePtr());
+        property.releaseNativeOwnership();
+    }
+
+    public void removeProperty(WzImageProperty property) {
+        List<Long> ptrs = property.collectNativeSubtreePointers();
+        nativeRemoveProperty(nativePtr, property.nativePtr());
+        invalidateNativePtrs(ptrs);
+    }
+
+    public void clearProperties() {
+        int count = nativeCountChildren(nativePtr);
+        List<Long> ptrs = new ArrayList<>();
+        for (int i = 0; i < count; i++) {
+            collectPropertyPointers(nativeGetChild(nativePtr, i), ptrs);
+        }
+        nativeClearProperties(nativePtr);
+        invalidateNativePtrs(ptrs);
+    }
+
+    @Override
+    protected void dispose() {
+        if (ownsNative() && nativePtr != 0) {
+            List<Long> ptrs = collectNativeSubtreePointers();
+            nativeFree(nativePtr);
+            invalidateNativePtrs(ptrs);
+        }
+    }
+
+    @Override
+    protected List<Long> collectNativeSubtreePointers() {
+        List<Long> ptrs = super.collectNativeSubtreePointers();
+        collectPropertyChildrenPointers(nativePtr, ptrs);
+        return ptrs;
+    }
+
+    static void collectPropertyPointers(long ptr, List<Long> ptrs) {
+        addNativePtr(ptrs, ptr);
+        collectPropertyChildrenPointers(ptr, ptrs);
+    }
+
+    private static void collectPropertyChildrenPointers(long ptr,
+                                                        List<Long> ptrs) {
+        if (ptr == 0 || !isPropertyContainer(ptr)) return;
+        int count = nativeCountChildren(ptr);
+        for (int i = 0; i < count; i++) {
+            collectPropertyPointers(nativeGetChild(ptr, i), ptrs);
+        }
+    }
+
+    private static boolean isPropertyContainer(long ptr) {
+        return isPropertyContainerType(nativePropertyType(ptr));
+    }
+
+    static boolean isPropertyContainerType(int type) {
+        return type == WzEnums.PropertyType.SUB.value
+            || type == WzEnums.PropertyType.CANVAS.value
+            || type == WzEnums.PropertyType.CONVEX.value
+            || type == WzEnums.PropertyType.RAW.value;
+    }
 }
