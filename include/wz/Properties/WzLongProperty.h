@@ -12,7 +12,11 @@ class WzLongProperty : public WzImageProperty {
   WzPropertyType PropertyType() const override { return WzPropertyType::Long; }
   int64_t Value() const { return value_; }
   Result<void> WriteValue(WzBinaryWriter* writer) const override;
-  void SetValue(int64_t value) override { value_ = value; }
+  void SetValue(int64_t value) override {
+    if (value_ == value) return;
+    value_ = value;
+    MarkParentImageChanged();
+  }
   int32_t GetInt() const override { return static_cast<int32_t>(value_); }
   int16_t GetShort() const override { return static_cast<int16_t>(value_); }
   int64_t GetLong() const override { return value_; }

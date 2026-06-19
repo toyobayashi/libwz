@@ -53,6 +53,10 @@ class WzDirectory final : public WzObject {
 
   void AddImage(WzImage* img);
   void AddDirectory(WzDirectory* dir);
+  Result<WzDirectory*> CreateDirectory(const std::string& name);
+  Result<WzImage*> CreateImage(const std::string& name);
+  Result<void> TryAddDirectory(std::unique_ptr<WzDirectory> dir);
+  Result<void> TryAddImage(std::unique_ptr<WzImage> img);
   void ClearImages();
   void ClearDirectories();
   WzImage* GetImageByName(const std::string& name);

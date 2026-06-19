@@ -53,11 +53,12 @@ class WzImage final : public WzObject, public IPropertyContainer {
   using IPropertyContainer::AddProperty;
   WzPropertyCollection* WzProperties() override;
   Result<WzPropertyCollection*> WzPropertiesResult();
+  Result<void> TryAddProperty(std::unique_ptr<WzImageProperty> prop);
   void AddProperty(WzImageProperty* prop) override;
   void AddProperty(std::unique_ptr<WzImageProperty> prop) override;
   void RemoveProperty(const std::string& propertyName) override;
   void RemoveProperty(WzImageProperty* prop) override;
-  std::unique_ptr<WzImageProperty> TakeProperty(WzImageProperty* prop);
+  Result<std::unique_ptr<WzImageProperty>> TakeProperty(WzImageProperty* prop);
   void ClearProperties() override;
 
   WzImageProperty* GetFromPath(const std::string& path);

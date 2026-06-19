@@ -8,9 +8,11 @@
 #include <vector>
 
 #include "wz/Properties/WzIntProperty.h"
+#include "wz/Properties/WzSubProperty.h"
 #include "wz/Util/WzBinaryReader.h"
 #include "wz/Util/WzBinaryWriter.h"
 #include "wz/WzAESConstant.h"
+#include "wz/WzDirectory.h"
 #include "wz/WzImage.h"
 
 namespace {
@@ -33,6 +35,23 @@ TEST(EditingTest, AddPropertySetsParentAndMarksImageChanged) {
   EXPECT_TRUE(image.Changed());
 }
 
+TEST(EditingTest, TryAddPropertyRejectsDuplicateName) {
+  wz::WzImage image("test.img");
+  ASSERT_TRUE(
+      image.TryAddProperty(std::make_unique<wz::WzIntProperty>("count", 42))
+          .has_value());
+  image.SetChanged(false);
+
+  auto result =
+      image.TryAddProperty(std::make_unique<wz::WzIntProperty>("COUNT", 7));
+
+  ASSERT_FALSE(result.has_value());
+  EXPECT_EQ(result.error().code(), wz::ErrorCode::InvalidArgument);
+  EXPECT_FALSE(image.Changed());
+  ASSERT_EQ(image.WzProperties()->size(), 1);
+  EXPECT_EQ((*image.WzProperties())[0]->GetInt(), 42);
+}
+
 TEST(EditingTest, TakePropertyClearsParentAndMarksImageChanged) {
   wz::WzImage image("test.img");
   auto prop = std::make_unique<wz::WzIntProperty>("count", 42);
@@ -42,9 +61,10 @@ TEST(EditingTest, TakePropertyClearsParentAndMarksImageChanged) {
 
   auto detached = image.TakeProperty(rawProp);
 
-  ASSERT_NE(detached, nullptr);
-  EXPECT_EQ(detached.get(), rawProp);
-  EXPECT_EQ(detached->Parent(), nullptr);
+  ASSERT_TRUE(detached.has_value()) << detached.error().message();
+  ASSERT_NE(detached.value(), nullptr);
+  EXPECT_EQ(detached.value().get(), rawProp);
+  EXPECT_EQ(detached.value()->Parent(), nullptr);
   EXPECT_TRUE(image.Changed());
   EXPECT_EQ(image.WzProperties()->size(), 0);
 }
@@ -60,6 +80,80 @@ TEST(EditingTest, RemovePropertyDestroysPropertyAndMarksImageChanged) {
 
   EXPECT_TRUE(image.Changed());
   EXPECT_EQ(image.WzProperties()->size(), 0);
+}
+
+TEST(EditingTest, NestedScalarValueChangeMarksParentImageChanged) {
+  wz::WzImage image("test.img");
+  auto sub = std::make_unique<wz::WzSubProperty>("info");
+  auto scalar = std::make_unique<wz::WzIntProperty>("count", 42);
+  auto* rawScalar = scalar.get();
+  sub->AddProperty(std::move(scalar));
+  ASSERT_TRUE(image.TryAddProperty(std::move(sub)).has_value());
+  image.SetChanged(false);
+
+  rawScalar->SetValue(43);
+
+  EXPECT_TRUE(image.Changed());
+}
+
+TEST(EditingTest, UnchangedScalarSetValueDoesNotMarkParentImageChanged) {
+  wz::WzImage image("test.img");
+  auto prop = std::make_unique<wz::WzIntProperty>("count", 42);
+  auto* rawProp = prop.get();
+  ASSERT_TRUE(image.TryAddProperty(std::move(prop)).has_value());
+  image.SetChanged(false);
+
+  rawProp->SetValue(42);
+
+  EXPECT_FALSE(image.Changed());
+}
+
+TEST(EditingTest, DirectoryFactoriesSetParentAndRejectDuplicates) {
+  wz::WzDirectory root("root");
+
+  auto imageResult = root.CreateImage("item.img");
+  auto directoryResult = root.CreateDirectory("Character");
+
+  ASSERT_TRUE(imageResult.has_value()) << imageResult.error().message();
+  ASSERT_TRUE(directoryResult.has_value()) << directoryResult.error().message();
+  EXPECT_EQ(imageResult.value()->Parent(), &root);
+  EXPECT_EQ(directoryResult.value()->Parent(), &root);
+  EXPECT_EQ(root.GetImageByName("ITEM.IMG"), imageResult.value());
+  EXPECT_EQ(root.GetDirectoryByName("character"), directoryResult.value());
+
+  auto duplicateImage = root.CreateImage("ITEM.IMG");
+  auto duplicateDirectory = root.CreateDirectory("character");
+
+  ASSERT_FALSE(duplicateImage.has_value());
+  ASSERT_FALSE(duplicateDirectory.has_value());
+  EXPECT_EQ(duplicateImage.error().code(), wz::ErrorCode::InvalidArgument);
+  EXPECT_EQ(duplicateDirectory.error().code(), wz::ErrorCode::InvalidArgument);
+}
+
+TEST(EditingTest, PropertyRenameMarksParentImageChanged) {
+  wz::WzImage image("test.img");
+  auto prop = std::make_unique<wz::WzIntProperty>("count", 42);
+  auto* rawProp = prop.get();
+  ASSERT_TRUE(image.TryAddProperty(std::move(prop)).has_value());
+  image.SetChanged(false);
+
+  auto result = rawProp->Rename("total");
+
+  ASSERT_TRUE(result.has_value()) << result.error().message();
+  EXPECT_EQ(rawProp->Name(), "total");
+  EXPECT_TRUE(image.Changed());
+}
+
+TEST(EditingTest, ImageRenameIsValidatedButDoesNotMarkImageChanged) {
+  wz::WzImage image("test.img");
+  image.SetChanged(false);
+
+  auto result = image.Rename("");
+
+  ASSERT_FALSE(result.has_value());
+  EXPECT_EQ(result.error().code(), wz::ErrorCode::InvalidArgument);
+  EXPECT_EQ(image.Name(), "test.img");
+  EXPECT_FALSE(image.Changed());
 }
 
 TEST(EditingTest, SaveChangedImageWritesPropertyHeaderAndBlockSize) {

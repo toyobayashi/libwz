@@ -11,6 +11,19 @@ WzFile* WzObject::WzFileParent() const {
   return nullptr;
 }
 
+Result<void> WzObject::Rename(const std::string& name) {
+  if (name.empty()) {
+    return std::unexpected(
+        Error::InvalidArgument("WZ object name cannot be empty"));
+  }
+  if (name_ == name) return {};
+  name_ = name;
+  if (ObjectType() == WzObjectType::Property) {
+    static_cast<WzImageProperty*>(this)->MarkParentImageChanged();
+  }
+  return {};
+}
+
 std::string WzObject::FullPath() const {
   if (ObjectType() == WzObjectType::File) {
     auto* file = static_cast<const WzFile*>(this);

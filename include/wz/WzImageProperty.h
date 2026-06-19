@@ -55,6 +55,7 @@ class WzImageProperty : public WzObject {
   WzImageProperty* GetLinkedWzImageProperty();
 
   WzImage* ParentImage() const;
+  void MarkParentImageChanged() const;
 
   virtual void SetValue(const std::string& value);
   virtual void SetValue(int32_t value);

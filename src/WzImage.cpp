@@ -74,17 +74,31 @@ void WzImage::AddProperty(WzImageProperty* prop) {
   AddProperty(std::unique_ptr<WzImageProperty>(prop));
 }
 
-void WzImage::AddProperty(std::unique_ptr<WzImageProperty> prop) {
-  if (!prop) return;
+Result<void> WzImage::TryAddProperty(std::unique_ptr<WzImageProperty> prop) {
+  if (!prop) {
+    return std::unexpected(
+        Error::InvalidArgument("Cannot add a null WZ image property"));
+  }
+  if (prop->Name().empty()) {
+    return std::unexpected(
+        Error::InvalidArgument("WZ image property name cannot be empty"));
+  }
   // Check for duplicate name (case-insensitive) matching C#
   auto existing = GetPropertyByName(prop->Name());
-  if (existing.has_value() && existing.value() != nullptr) {
-    return;
+  if (!existing.has_value()) return std::unexpected(existing.error());
+  if (existing.value() != nullptr) {
+    return std::unexpected(Error::InvalidArgument(
+        "Duplicate WZ image property name: " + prop->Name()));
   }
   auto parseResult = EnsureParsed();
-  if (!parseResult.has_value()) return;
+  if (!parseResult.has_value()) return std::unexpected(parseResult.error());
   properties_.Add(std::move(prop));
   SetChanged(true);
+  return {};
+}
+
+void WzImage::AddProperty(std::unique_ptr<WzImageProperty> prop) {
+  (void)TryAddProperty(std::move(prop));
 }
 
 void WzImage::RemoveProperty(const std::string& propertyName) {
@@ -97,18 +111,19 @@ void WzImage::RemoveProperty(const std::string& propertyName) {
 }
 
 void WzImage::RemoveProperty(WzImageProperty* prop) {
-  TakeProperty(prop);
+  (void)TakeProperty(prop);
 }
 
-std::unique_ptr<WzImageProperty> WzImage::TakeProperty(WzImageProperty* prop) {
+Result<std::unique_ptr<WzImageProperty>> WzImage::TakeProperty(
+    WzImageProperty* prop) {
   // C#: check containment BEFORE parsing
   auto it = std::find(properties_.begin(), properties_.end(), prop);
-  if (it == properties_.end()) return nullptr;
+  if (it == properties_.end()) return std::unique_ptr<WzImageProperty>();
 
   auto parseResult = EnsureParsed();
-  if (!parseResult.has_value()) return nullptr;
+  if (!parseResult.has_value()) return std::unexpected(parseResult.error());
   auto removed = properties_.Take(prop);
-  if (!removed) return nullptr;
+  if (!removed) return std::unique_ptr<WzImageProperty>();
   SetChanged(true);
   return removed;
 }

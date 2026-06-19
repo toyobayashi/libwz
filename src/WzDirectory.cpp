@@ -190,16 +190,66 @@ Result<void> WzDirectory::ParseImages() {
 }
 
 void WzDirectory::AddImage(WzImage* img) {
-  img->SetParent(this);
-  images_.push_back(std::unique_ptr<WzImage>(img));
+  (void)TryAddImage(std::unique_ptr<WzImage>(img));
 }
 
 void WzDirectory::AddDirectory(WzDirectory* dir) {
+  (void)TryAddDirectory(std::unique_ptr<WzDirectory>(dir));
+}
+
+Result<WzDirectory*> WzDirectory::CreateDirectory(const std::string& name) {
+  auto dir = std::make_unique<WzDirectory>(name);
+  auto* raw = dir.get();
+  auto result = TryAddDirectory(std::move(dir));
+  if (!result.has_value()) return std::unexpected(result.error());
+  return raw;
+}
+
+Result<WzImage*> WzDirectory::CreateImage(const std::string& name) {
+  auto img = std::make_unique<WzImage>(name);
+  auto* raw = img.get();
+  auto result = TryAddImage(std::move(img));
+  if (!result.has_value()) return std::unexpected(result.error());
+  return raw;
+}
+
+Result<void> WzDirectory::TryAddDirectory(std::unique_ptr<WzDirectory> dir) {
+  if (!dir) {
+    return std::unexpected(
+        Error::InvalidArgument("Cannot add a null WZ directory"));
+  }
+  if (dir->Name().empty()) {
+    return std::unexpected(
+        Error::InvalidArgument("WZ directory name cannot be empty"));
+  }
+  if (GetDirectoryByName(dir->Name())) {
+    return std::unexpected(
+        Error::InvalidArgument("Duplicate WZ directory name: " + dir->Name()));
+  }
   dir->SetWzFile(wzFile_);
   dir->SetHash(hash_);
   dir->SetWzIv(wz_iv_);
   dir->SetParent(this);
-  subDirs_.push_back(std::unique_ptr<WzDirectory>(dir));
+  subDirs_.push_back(std::move(dir));
+  return {};
+}
+
+Result<void> WzDirectory::TryAddImage(std::unique_ptr<WzImage> img) {
+  if (!img) {
+    return std::unexpected(
+        Error::InvalidArgument("Cannot add a null WZ image"));
+  }
+  if (img->Name().empty()) {
+    return std::unexpected(
+        Error::InvalidArgument("WZ image name cannot be empty"));
+  }
+  if (GetImageByName(img->Name())) {
+    return std::unexpected(
+        Error::InvalidArgument("Duplicate WZ image name: " + img->Name()));
+  }
+  img->SetParent(this);
+  images_.push_back(std::move(img));
+  return {};
 }
 
 void WzDirectory::ClearImages() {

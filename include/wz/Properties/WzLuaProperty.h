@@ -16,7 +16,9 @@ class WzLuaProperty : public WzImageProperty {
   const std::vector<uint8_t>& Value() const { return encryptedBytes_; }
   Result<void> WriteValue(WzBinaryWriter* writer) const override;
   void SetValue(const std::vector<uint8_t>& value) override {
+    if (encryptedBytes_ == value) return;
     encryptedBytes_ = value;
+    MarkParentImageChanged();
   }
   std::string GetString() const override;
   std::vector<uint8_t> EncodeDecode(const std::vector<uint8_t>& input) const;
