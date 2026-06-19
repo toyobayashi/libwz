@@ -1,6 +1,8 @@
 #include "wz/Util/WzTool.h"
 #include <fstream>
 #include <memory>
+#include <string>
+#include <unordered_set>
 #include "wz/Util/WzPath.h"
 #include "wz/WzAESConstant.h"
 #include "wz/WzDirectory.h"
@@ -15,6 +17,12 @@
 #endif
 
 namespace wz {
+
+namespace {
+
+std::unordered_set<std::string> objectValueLengthCache;
+
+}  // namespace
 
 #ifdef _WIN32
 std::filesystem::path WzTool::ToPath(const std::string& utf8_path) {
@@ -43,11 +51,15 @@ std::filesystem::path WzTool::ToPath(const std::string& utf8_path) {
 #endif
 
 uint32_t WzTool::RotateLeft(uint32_t x, uint8_t n) {
-  return static_cast<uint32_t>((((x) << (n)) | ((x) >> (32 - (n)))));
+  n &= 0x1F;
+  if (n == 0) return x;
+  return static_cast<uint32_t>((x << n) | (x >> (32 - n)));
 }
 
 uint32_t WzTool::RotateRight(uint32_t x, uint8_t n) {
-  return static_cast<uint32_t>((((x) >> (n)) | ((x) << (32 - (n)))));
+  n &= 0x1F;
+  if (n == 0) return x;
+  return static_cast<uint32_t>((x >> n) | (x << (32 - n)));
 }
 
 int WzTool::GetCompressedIntLength(int i) {
@@ -70,6 +82,19 @@ int WzTool::GetEncodedStringLength(const std::string& s) {
   int prefixLength = (length > (unicode ? 126 : 127)) ? 5 : 1;
   int encodedLength = unicode ? length * 2 : length;
   return prefixLength + encodedLength;
+}
+
+int WzTool::GetWzObjectValueLength(const std::string& s, uint8_t type) {
+  std::string storeName = std::to_string(type) + "_" + s;
+  if (s.length() > 4 && objectValueLengthCache.contains(storeName)) {
+    return 5;
+  }
+  objectValueLengthCache.insert(std::move(storeName));
+  return 1 + GetEncodedStringLength(s);
+}
+
+void WzTool::ClearWzObjectValueLengthCache() {
+  objectValueLengthCache.clear();
 }
 
 std::array<uint8_t, 4> WzTool::GetIvByMapleVersion(WzMapleVersion ver) {

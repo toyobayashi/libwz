@@ -1,6 +1,11 @@
 #include "wz/WzDirectory.h"
 #include <algorithm>
+#include <mutex>
+#include <sstream>
+#include <vector>
 #include "wz/Util/WzBinaryReader.h"
+#include "wz/Util/WzBinaryWriter.h"
+#include "wz/Util/WzTool.h"
 #include "wz/WzFile.h"
 #include "wz/WzImage.h"
 
@@ -145,6 +150,8 @@ void WzDirectory::AddImage(WzImage* img) {
 
 void WzDirectory::AddDirectory(WzDirectory* dir) {
   dir->SetWzFile(wzFile_);
+  dir->SetHash(hash_);
+  dir->SetWzIv(wz_iv_);
   dir->SetParent(this);
   subDirs_.push_back(std::unique_ptr<WzDirectory>(dir));
 }
@@ -216,6 +223,209 @@ WzObject* WzDirectory::operator[](const std::string& name) const {
     if (ToLower(dir->Name()) == lower) return dir.get();
   }
   return nullptr;
+}
+
+void WzDirectory::SetWzIv(const std::array<uint8_t, 4>& iv) {
+  wz_iv_ = iv;
+  for (auto& dir : subDirs_) {
+    dir->SetWzIv(iv);
+  }
+}
+
+void WzDirectory::SetHash(uint32_t h) {
+  hash_ = h;
+  for (auto& dir : subDirs_) {
+    dir->SetHash(h);
+  }
+}
+
+Result<int> WzDirectory::GenerateDataFile(const std::array<uint8_t, 4>* useIv,
+                                          bool isDefaultUserKey,
+                                          std::ostream* tempStream) {
+  if (!tempStream) {
+    return std::unexpected(
+        Error::InvalidArgument("Cannot generate WZ data with null stream"));
+  }
+
+  const bool useCustomIv = useIv != nullptr;
+  size_ = 0;
+  const int entryCount = static_cast<int>(subDirs_.size() + images_.size());
+  if (entryCount == 0) {
+    offsetSize_ = 1;
+    return size_;
+  }
+
+  size_ = WzTool::GetCompressedIntLength(entryCount);
+  offsetSize_ = size_;
+
+  for (auto& img : images_) {
+    img->SetChanged(img->Changed() || useCustomIv || !isDefaultUserKey);
+    if (img->Changed()) {
+      std::ostringstream imageData(std::ios::out | std::ios::binary);
+      WzBinaryWriter imageWriter(imageData, useCustomIv ? *useIv : wz_iv_);
+      auto saveResult =
+          img->SaveImage(&imageWriter, isDefaultUserKey, useCustomIv);
+      if (!saveResult.has_value()) {
+        return std::unexpected(saveResult.error());
+      }
+
+      const std::string bytes = imageData.str();
+      img->CalculateAndSetImageChecksum(
+          std::vector<uint8_t>(bytes.begin(), bytes.end()));
+      img->SetTempFileStart(static_cast<int64_t>(tempStream->tellp()));
+      tempStream->write(bytes.data(),
+                        static_cast<std::streamsize>(bytes.size()));
+      if (!*tempStream) {
+        return std::unexpected(
+            Error::IoError("Failed to write temporary WZ image data"));
+      }
+      img->SetTempFileEnd(static_cast<int64_t>(tempStream->tellp()));
+    } else {
+      img->SetTempFileStart(img->Offset());
+      img->SetTempFileEnd(img->Offset() + img->BlockSize());
+    }
+    img->UnparseImage();
+
+    const int nameLen = WzTool::GetWzObjectValueLength(
+        img->Name(), static_cast<uint8_t>(WzDirectoryType::WzImage_4));
+    const int imgLen = img->BlockSize();
+    size_ += nameLen;
+    size_ += WzTool::GetCompressedIntLength(imgLen);
+    size_ += imgLen;
+    size_ += WzTool::GetCompressedIntLength(img->Checksum());
+    size_ += 4;
+    offsetSize_ += nameLen;
+    offsetSize_ += WzTool::GetCompressedIntLength(imgLen);
+    offsetSize_ += WzTool::GetCompressedIntLength(img->Checksum());
+    offsetSize_ += 4;
+  }
+
+  for (auto& dir : subDirs_) {
+    const int nameLen = WzTool::GetWzObjectValueLength(
+        dir->Name(), static_cast<uint8_t>(WzDirectoryType::WzDirectory_3));
+    size_ += nameLen;
+    auto childSize = dir->GenerateDataFile(useIv, isDefaultUserKey, tempStream);
+    if (!childSize.has_value()) return std::unexpected(childSize.error());
+    size_ += childSize.value();
+    size_ += WzTool::GetCompressedIntLength(dir->BlockSize());
+    size_ += WzTool::GetCompressedIntLength(dir->Checksum());
+    size_ += 4;
+    offsetSize_ += nameLen;
+    offsetSize_ += WzTool::GetCompressedIntLength(dir->BlockSize());
+    offsetSize_ += WzTool::GetCompressedIntLength(dir->Checksum());
+    offsetSize_ += 4;
+  }
+  return size_;
+}
+
+Result<void> WzDirectory::SaveDirectory(WzBinaryWriter* writer) {
+  if (!writer) {
+    return std::unexpected(
+        Error::InvalidArgument("Cannot save WZ directory with null writer"));
+  }
+
+  offset_ = writer->Position();
+  const int entryCount = static_cast<int>(subDirs_.size() + images_.size());
+  if (entryCount == 0) {
+    size_ = 0;
+    return {};
+  }
+
+  writer->WriteCompressedInt(entryCount);
+  for (auto& img : images_) {
+    writer->WriteWzObjectValue(img->Name(), WzDirectoryType::WzImage_4);
+    writer->WriteCompressedInt(img->BlockSize());
+    writer->WriteCompressedInt(img->Checksum());
+    writer->WriteOffset(img->Offset());
+  }
+  for (auto& dir : subDirs_) {
+    writer->WriteWzObjectValue(dir->Name(), WzDirectoryType::WzDirectory_3);
+    writer->WriteCompressedInt(dir->BlockSize());
+    writer->WriteCompressedInt(dir->Checksum());
+    writer->WriteOffset(dir->Offset());
+  }
+  for (auto& dir : subDirs_) {
+    if (dir->BlockSize() > 0) {
+      auto saveResult = dir->SaveDirectory(writer);
+      if (!saveResult.has_value()) {
+        return std::unexpected(saveResult.error());
+      }
+    } else {
+      writer->WriteByte(0);
+    }
+  }
+  return {};
+}
+
+Result<void> WzDirectory::SaveImages(WzBinaryWriter* writer,
+                                     std::istream* tempStream) {
+  if (!writer || !tempStream) {
+    return std::unexpected(
+        Error::InvalidArgument("Cannot save WZ images with null stream"));
+  }
+
+  for (auto& img : images_) {
+    const int64_t start = img->TempFileStart();
+    const int64_t end = img->TempFileEnd();
+    if (end < start) {
+      return std::unexpected(
+          Error::DataError("Invalid WZ image temporary byte range"));
+    }
+    const int64_t length = end - start;
+    if (img->Changed()) {
+      tempStream->seekg(start, std::ios::beg);
+      std::vector<char> buffer(static_cast<size_t>(img->BlockSize()));
+      tempStream->read(buffer.data(),
+                       static_cast<std::streamsize>(buffer.size()));
+      if (tempStream->gcount() != static_cast<std::streamsize>(buffer.size())) {
+        return std::unexpected(
+            Error::IoError("Failed to read changed WZ image data"));
+      }
+      writer->BaseStream().write(buffer.data(),
+                                 static_cast<std::streamsize>(buffer.size()));
+    } else {
+      if (!img->Reader()) {
+        return std::unexpected(Error::InvalidArgument(
+            "Cannot copy unchanged WZ image without reader"));
+      }
+      std::lock_guard<std::recursive_mutex> lock(img->Reader()->Mutex());
+      const int64_t originalPos = img->Reader()->Position();
+      img->Reader()->SetPosition(start);
+      auto bytes = img->Reader()->ReadBytes(static_cast<size_t>(length));
+      writer->BaseStream().write(reinterpret_cast<const char*>(bytes.data()),
+                                 static_cast<std::streamsize>(bytes.size()));
+      img->Reader()->SetPosition(originalPos);
+    }
+    if (!writer->BaseStream()) {
+      return std::unexpected(Error::IoError("Failed to write WZ image data"));
+    }
+  }
+
+  for (auto& dir : subDirs_) {
+    auto saveResult = dir->SaveImages(writer, tempStream);
+    if (!saveResult.has_value()) return std::unexpected(saveResult.error());
+  }
+  return {};
+}
+
+uint32_t WzDirectory::GetOffsets(uint32_t currentOffset) {
+  offset_ = currentOffset;
+  currentOffset += static_cast<uint32_t>(offsetSize_);
+  for (auto& dir : subDirs_) {
+    currentOffset = dir->GetOffsets(currentOffset);
+  }
+  return currentOffset;
+}
+
+uint32_t WzDirectory::GetImgOffsets(uint32_t currentOffset) {
+  for (auto& img : images_) {
+    img->SetOffset(currentOffset);
+    currentOffset += static_cast<uint32_t>(img->BlockSize());
+  }
+  for (auto& dir : subDirs_) {
+    currentOffset = dir->GetImgOffsets(currentOffset);
+  }
+  return currentOffset;
 }
 
 }  // namespace wz

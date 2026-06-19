@@ -179,6 +179,7 @@ if(BUILD_TESTS)
         tests/TestWzBinaryWriter.cpp
         tests/TestPropertyWriteValue.cpp
         tests/TestEditing.cpp
+        tests/TestRepack.cpp
     )
     if(BUILD_CAPI)
         list(APPEND WZ_TEST_SOURCES tests/TestCapiError.cpp)
