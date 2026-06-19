@@ -91,20 +91,23 @@ public class WzDirectory extends WzObject {
     }
 
     public void removeDirectory(WzDirectory directory) {
-        nativeRemoveDirectory(nativePtr, directory.nativePtr());
-        directory.updateNativePtr(0);
+        long ptr = directory.nativePtr();
+        nativeRemoveDirectory(nativePtr, ptr);
+        invalidateNativePtr(ptr);
     }
 
     public void removeImage(WzImage image) {
-        nativeRemoveImage(nativePtr, image.nativePtr());
-        image.updateNativePtr(0);
+        long ptr = image.nativePtr();
+        nativeRemoveImage(nativePtr, ptr);
+        invalidateNativePtr(ptr);
     }
 
     @Override
     protected void dispose() {
         if (ownsNative() && nativePtr != 0) {
-            nativeDispose(nativePtr);
-            nativePtr = 0;
+            long ptr = nativePtr;
+            nativeDispose(ptr);
+            invalidateNativePtr(ptr);
         }
     }
 }

@@ -1,7 +1,17 @@
 package io.github.toyobayashi.libwz;
 
+import java.lang.ref.WeakReference;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+
 public abstract class WzObject implements AutoCloseable {
     static { NativeLibraryLoader.load(); }
+
+    private static final Map<Long, List<WeakReference<WzObject>>> HANDLE_REGISTRY =
+        new HashMap<>();
 
     protected long nativePtr;
     private boolean ownsNative;
@@ -11,8 +21,8 @@ public abstract class WzObject implements AutoCloseable {
     }
 
     protected WzObject(long ptr, boolean ownsNative) {
-        this.nativePtr = ptr;
         this.ownsNative = ownsNative;
+        updateNativePtr(ptr);
     }
 
     public long nativePtr() { return nativePtr; }
@@ -39,8 +49,9 @@ public abstract class WzObject implements AutoCloseable {
     public void setName(String name) { nativeSetName(nativePtr, name); }
 
     public void remove() {
-        nativeRemove(nativePtr);
-        nativePtr = 0;
+        long ptr = nativePtr;
+        nativeRemove(ptr);
+        invalidateNativePtr(ptr);
     }
 
     public WzObject getParent() {
@@ -78,9 +89,55 @@ public abstract class WzObject implements AutoCloseable {
         return WzObjectFactory.wrap(type, p);
     }
 
-    void updateNativePtr(long ptr) { this.nativePtr = ptr; }
+    void updateNativePtr(long ptr) {
+        synchronized (HANDLE_REGISTRY) {
+            unregisterLocked(nativePtr, this);
+            nativePtr = ptr;
+            if (ptr != 0) {
+                cleanupLocked(ptr);
+                HANDLE_REGISTRY
+                    .computeIfAbsent(ptr, ignored -> new ArrayList<>())
+                    .add(new WeakReference<>(this));
+            }
+        }
+    }
+
     void releaseNativeOwnership() { this.ownsNative = false; }
     protected boolean ownsNative() { return ownsNative; }
+
+    static void invalidateNativePtr(long ptr) {
+        if (ptr == 0) return;
+        synchronized (HANDLE_REGISTRY) {
+            List<WeakReference<WzObject>> refs = HANDLE_REGISTRY.remove(ptr);
+            if (refs == null) return;
+            for (WeakReference<WzObject> ref : refs) {
+                WzObject obj = ref.get();
+                if (obj != null && obj.nativePtr == ptr) {
+                    obj.nativePtr = 0;
+                    obj.ownsNative = false;
+                }
+            }
+        }
+    }
+
+    private static void unregisterLocked(long ptr, WzObject object) {
+        if (ptr == 0) return;
+        List<WeakReference<WzObject>> refs = HANDLE_REGISTRY.get(ptr);
+        if (refs == null) return;
+        Iterator<WeakReference<WzObject>> it = refs.iterator();
+        while (it.hasNext()) {
+            WzObject obj = it.next().get();
+            if (obj == null || obj == object) it.remove();
+        }
+        if (refs.isEmpty()) HANDLE_REGISTRY.remove(ptr);
+    }
+
+    private static void cleanupLocked(long ptr) {
+        List<WeakReference<WzObject>> refs = HANDLE_REGISTRY.get(ptr);
+        if (refs == null) return;
+        refs.removeIf(ref -> ref.get() == null);
+        if (refs.isEmpty()) HANDLE_REGISTRY.remove(ptr);
+    }
 
     @Override
     public void close() { dispose(); }

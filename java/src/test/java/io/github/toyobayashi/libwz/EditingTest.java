@@ -135,6 +135,77 @@ class EditingTest {
     }
 
     @Test
+    void removalInvalidatesAliasedJavaWrappers() {
+        try (WzFile file = WzFile.create((short)95, MapleVersion.GMS)) {
+            WzDirectory root = file.getWzDirectory();
+            WzImage image = root.addImage("Item.img");
+            WzImage imageAlias = root.getImageByName("Item.img");
+            WzIntProperty property = WzPropertyFactory.createInt("id", 123);
+            image.addProperty(property);
+            WzImageProperty propertyAlias = image.getFromPath("id");
+            assertNotNull(imageAlias);
+            assertNotNull(propertyAlias);
+
+            image.removeProperty(property);
+            assertEquals(0, property.nativePtr());
+            assertEquals(0, propertyAlias.nativePtr());
+
+            root.removeImage(imageAlias);
+            assertEquals(0, image.nativePtr());
+            assertEquals(0, imageAlias.nativePtr());
+        }
+    }
+
+    @Test
+    void removingWzFileUsesCloseLifecycle() {
+        WzFile file = WzFile.create((short)95, MapleVersion.GMS);
+        assertNotNull(file.getWzDirectory());
+
+        file.remove();
+        assertEquals(0, file.nativePtr());
+        file.close();
+        assertEquals(0, file.nativePtr());
+    }
+
+    @Test
+    void borrowedWzFileRemoveThrowsWithoutInvalidatingOwner() {
+        try (WzFile file = WzFile.create((short)95, MapleVersion.GMS)) {
+            WzFile borrowed = file.getWzDirectory().getWzFileParent();
+            assertNotNull(borrowed);
+
+            assertThrows(UnsupportedOperationException.class, borrowed::remove);
+            assertEquals(file.nativePtr(), borrowed.nativePtr());
+            assertNotNull(file.getWzDirectory());
+        }
+    }
+
+    @Test
+    void clearPropertiesInvalidatesDirectChildAliases() {
+        try (WzFile file = WzFile.create((short)95, MapleVersion.GMS)) {
+            WzImage image = file.getWzDirectory().addImage("Item.img");
+            image.addProperty(WzPropertyFactory.createInt("id", 123));
+            WzImageProperty imageChildAlias = image.getFromPath("id");
+            assertNotNull(imageChildAlias);
+
+            image.clearProperties();
+            assertEquals(0, imageChildAlias.nativePtr());
+
+            WzSubProperty sub = WzPropertyFactory.createSub("info");
+            WzStringProperty name = WzPropertyFactory.createString("name", "old");
+            sub.addProperty(name);
+            image.addProperty(sub);
+            WzImageProperty subAlias = image.getFromPath("info");
+            WzImageProperty nestedAlias = sub.getFromPath("name");
+            assertNotNull(subAlias);
+            assertNotNull(nestedAlias);
+
+            sub.clearProperties();
+            assertEquals(0, nestedAlias.nativePtr());
+            assertEquals(sub.nativePtr(), subAlias.nativePtr());
+        }
+    }
+
+    @Test
     void savesInMemoryFileToDisk() throws Exception {
         Path temp = Files.createTempFile("libwz-editing-", ".wz");
         Files.deleteIfExists(temp);

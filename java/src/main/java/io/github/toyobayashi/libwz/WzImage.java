@@ -43,21 +43,27 @@ public class WzImage extends WzObject {
     }
 
     public void removeProperty(WzImageProperty property) {
-        nativeRemoveProperty(nativePtr, property.nativePtr());
-        property.updateNativePtr(0);
+        long ptr = property.nativePtr();
+        nativeRemoveProperty(nativePtr, ptr);
+        invalidateNativePtr(ptr);
     }
 
-    /**
-     * Clears all native child properties. Java wrappers obtained before this
-     * call are invalid after it returns.
-     */
-    public void clearProperties() { nativeClearProperties(nativePtr); }
+    public void clearProperties() {
+        int count = nativeCountProperties(nativePtr);
+        long[] childPtrs = new long[count];
+        for (int i = 0; i < count; i++) {
+            childPtrs[i] = nativeGetProperty(nativePtr, i);
+        }
+        nativeClearProperties(nativePtr);
+        for (long ptr : childPtrs) invalidateNativePtr(ptr);
+    }
 
     @Override
     protected void dispose() {
         if (ownsNative() && nativePtr != 0) {
-            nativeDispose(nativePtr);
-            nativePtr = 0;
+            long ptr = nativePtr;
+            nativeDispose(ptr);
+            invalidateNativePtr(ptr);
         }
     }
 }

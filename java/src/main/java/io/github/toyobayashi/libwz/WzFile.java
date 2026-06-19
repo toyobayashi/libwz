@@ -5,7 +5,7 @@ import io.github.toyobayashi.libwz.WzEnums.*;
 public class WzFile extends WzObject {
     public WzFile(String path, short gameVersion, MapleVersion version) {
         super(0, true);
-        this.nativePtr = nativeOpen(path, gameVersion, version.value);
+        updateNativePtr(nativeOpen(path, gameVersion, version.value));
     }
 
     public WzFile(String path, MapleVersion version) {
@@ -14,7 +14,7 @@ public class WzFile extends WzObject {
 
     public WzFile(String path, byte[] iv) {
         super(0, true);
-        this.nativePtr = nativeOpenWithIv(path, iv);
+        updateNativePtr(nativeOpenWithIv(path, iv));
     }
 
     WzFile(long ptr) { super(ptr); }
@@ -42,6 +42,15 @@ public class WzFile extends WzObject {
 
     public static WzFile create(short gameVersion, MapleVersion version) {
         return new WzFile(nativeCreate(gameVersion, version.value), true);
+    }
+
+    @Override
+    public void remove() {
+        if (!ownsNative()) {
+            throw new UnsupportedOperationException(
+                "Cannot remove a borrowed WzFile wrapper");
+        }
+        close();
     }
 
     public ParseStatus parseWzFile() {
@@ -92,8 +101,9 @@ public class WzFile extends WzObject {
     @Override
     protected void dispose() {
         if (ownsNative() && nativePtr != 0) {
-            nativeDispose(nativePtr);
-            nativePtr = 0;
+            long ptr = nativePtr;
+            nativeDispose(ptr);
+            invalidateNativePtr(ptr);
         }
     }
 }
