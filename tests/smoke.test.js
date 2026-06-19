@@ -60,6 +60,7 @@ test("opens, parses, and wraps borrowed objects without owning them", () => {
     const root = file.getWzDirectory();
     assert.ok(root instanceof wz.WzDirectory);
     assert.equal(root.getName(), "TamingMob_GMS_87.wz");
+    assert.equal(typeof root.getOffset(), "bigint");
     assert.ok(root.countImages() > 0);
 
     const images = root.wzImages();
@@ -68,6 +69,7 @@ test("opens, parses, and wraps borrowed objects without owning them", () => {
 
     const image = root.getImage(0);
     assert.ok(image instanceof wz.WzImage);
+    assert.equal(typeof image.getOffset(), "bigint");
     image.close();
     assert.ok(root.getImage(0) instanceof wz.WzImage);
   } finally {
@@ -101,6 +103,13 @@ test("WzFile participates in explicit resource management", () => {
     assert.equal(file.parseWzFile(), wz.ParseStatus.SUCCESS);
   }
   assert.throws(() => fileRef.getName(), /disposed/i);
+});
+
+test("detectMapleVersion returns maple version and file version", () => {
+  const detected = wz.WzTool.detectMapleVersion(sampleWz);
+  assert.equal(typeof detected, "object");
+  assert.equal(detected.mapleVersion, wz.MapleVersion.GMS);
+  assert.equal(detected.version, 87);
 });
 
 test("parses the same legacy WZ files covered by UnitTest_WzFile", () => {

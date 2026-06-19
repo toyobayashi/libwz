@@ -12,6 +12,11 @@ interface NativeObjectInfo {
   ptr: NativeHandle;
 }
 
+export interface DetectedMapleVersion {
+  mapleVersion: MapleVersionValue;
+  version: number;
+}
+
 interface NativeBinding {
   openFile(path: string, gameVersion: number, mapleVersion: MapleVersionValue): NullableNativeHandle;
   openFileWithIv(path: string, iv: ArrayBufferViewLike): NullableNativeHandle;
@@ -55,14 +60,14 @@ interface NativeBinding {
   dirRemoveImage(ptr: NativeHandle, child: NativeHandle): void;
   dirBlockSize(ptr: NativeHandle): number;
   dirChecksum(ptr: NativeHandle): number;
-  dirOffset(ptr: NativeHandle): number;
+  dirOffset(ptr: NativeHandle): bigint;
 
   imageName(ptr: NativeHandle): string;
   imageParsed(ptr: NativeHandle): boolean;
   imageChanged(ptr: NativeHandle): boolean;
   imageBlockSize(ptr: NativeHandle): number;
   imageChecksum(ptr: NativeHandle): number;
-  imageOffset(ptr: NativeHandle): number;
+  imageOffset(ptr: NativeHandle): bigint;
   imageIsLua(ptr: NativeHandle): boolean;
   imageParse(ptr: NativeHandle): void;
   imageCountProperties(ptr: NativeHandle): number;
@@ -146,7 +151,7 @@ interface NativeBinding {
   luaData(ptr: NativeHandle): Uint8Array;
   luaString(ptr: NativeHandle): string;
 
-  detectMapleVersion(path: string): MapleVersionValue;
+  detectMapleVersion(path: string): DetectedMapleVersion;
   ivForVersion(version: MapleVersionValue): Uint8Array;
 }
 
@@ -618,7 +623,7 @@ export class WzDirectory extends WzObject {
     return native.dirChecksum(this.nativePtr());
   }
 
-  getOffset(): number {
+  getOffset(): bigint {
     return native.dirOffset(this.nativePtr());
   }
 }
@@ -644,7 +649,7 @@ export class WzImage extends WzObject {
     return native.imageChecksum(this.nativePtr());
   }
 
-  getOffset(): number {
+  getOffset(): bigint {
     return native.imageOffset(this.nativePtr());
   }
 
