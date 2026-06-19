@@ -30,6 +30,7 @@ class WzBinaryWriter {
   WzHeader* GetHeader() { return &header_; }
   void SetHeader(const WzHeader& h) { header_ = h; }
   std::ostream& BaseStream() { return *output_; }
+  void ClearStringCache();
 
   int64_t Position();
 

@@ -4,6 +4,7 @@
 #include <utility>
 #include "wz/Properties/WzLuaProperty.h"
 #include "wz/Util/WzBinaryReader.h"
+#include "wz/Util/WzBinaryWriter.h"
 #include "wz/Util/WzTool.h"
 #include "wz/WzDirectory.h"
 #include "wz/WzFile.h"
@@ -74,6 +75,7 @@ void WzImage::AddProperty(WzImageProperty* prop) {
 }
 
 void WzImage::AddProperty(std::unique_ptr<WzImageProperty> prop) {
+  if (!prop) return;
   // Check for duplicate name (case-insensitive) matching C#
   auto existing = GetPropertyByName(prop->Name());
   if (existing.has_value() && existing.value() != nullptr) {
@@ -95,14 +97,20 @@ void WzImage::RemoveProperty(const std::string& propertyName) {
 }
 
 void WzImage::RemoveProperty(WzImageProperty* prop) {
+  TakeProperty(prop);
+}
+
+std::unique_ptr<WzImageProperty> WzImage::TakeProperty(WzImageProperty* prop) {
   // C#: check containment BEFORE parsing
   auto it = std::find(properties_.begin(), properties_.end(), prop);
-  if (it == properties_.end()) return;
+  if (it == properties_.end()) return nullptr;
 
   auto parseResult = EnsureParsed();
-  if (!parseResult.has_value()) return;
-  properties_.erase(it);
+  if (!parseResult.has_value()) return nullptr;
+  auto removed = properties_.Take(prop);
+  if (!removed) return nullptr;
   SetChanged(true);
+  return removed;
 }
 
 void WzImage::ClearProperties() {
@@ -154,16 +162,18 @@ Result<WzImageProperty*> WzImage::GetFromPathResult(const std::string& path) {
   return ret;
 }
 
-Result<bool> WzImage::ParseImage() {
-  if (Parsed()) return true;
-  if (Changed()) {
-    SetParsed(true);
-    return true;
+Result<bool> WzImage::ParseImage(bool forceReadFromData) {
+  if (!forceReadFromData) {
+    if (Parsed()) return true;
+    if (Changed()) {
+      SetParsed(true);
+      return true;
+    }
   }
   if (!reader_) return false;
 
   std::lock_guard<std::recursive_mutex> lock(reader_->Mutex());
-  if (Parsed()) return true;
+  if (!forceReadFromData && Parsed()) return true;
 
   // int64_t originalPos = reader_->Position();
   reader_->SetPosition(offset_);
@@ -197,6 +207,70 @@ Result<bool> WzImage::ParseImage() {
   }
   parsed_ = true;
   return true;
+}
+
+Result<void> WzImage::SaveImage(WzBinaryWriter* writer,
+                                bool isDefaultUserKey,
+                                bool forceReadFromData) {
+  if (!writer) {
+    return std::unexpected(
+        Error::InvalidArgument("Cannot save WzImage with a null writer"));
+  }
+
+  if (Changed() || !isDefaultUserKey || forceReadFromData) {
+    if (reader_ && (!parsed_ || forceReadFromData)) {
+      SetParseEverything(true);
+      auto parseResult = ParseImage(forceReadFromData);
+      if (!parseResult.has_value()) {
+        return std::unexpected(parseResult.error());
+      }
+      if (!parseResult.value()) {
+        return std::unexpected(
+            Error::ParseError("Unable to parse image before saving"));
+      }
+    }
+
+    const int64_t startPos = writer->Position();
+    writer->WriteStringValue("Property",
+                             WzImageHeaderByte_WithoutOffset,
+                             WzImageHeaderByte_WithOffset);
+    auto writeResult = WzImageProperty::WritePropertyList(writer, properties_);
+    if (!writeResult.has_value()) return writeResult;
+    writer->ClearStringCache();
+    SetBlockSize(static_cast<int>(writer->Position() - startPos));
+    return {};
+  }
+
+  if (!reader_) {
+    return std::unexpected(
+        Error::InvalidArgument("Cannot copy unchanged WzImage without reader"));
+  }
+  if (size_ < 0) {
+    return std::unexpected(
+        Error::DataError("Cannot copy WzImage with negative block size"));
+  }
+
+  std::lock_guard<std::recursive_mutex> lock(reader_->Mutex());
+  const int64_t originalPos = reader_->Position();
+  reader_->SetPosition(offset_);
+  auto bytes = reader_->ReadBytes(static_cast<size_t>(size_));
+  writer->BaseStream().write(reinterpret_cast<const char*>(bytes.data()),
+                             static_cast<std::streamsize>(bytes.size()));
+  reader_->SetPosition(originalPos);
+  return {};
+}
+
+void WzImage::CalculateAndSetImageChecksum(const std::vector<uint8_t>& bytes) {
+  int64_t checksum = 0;
+  for (uint8_t byte : bytes) {
+    checksum += byte;
+  }
+  checksum_ = static_cast<int>(checksum);
+}
+
+void WzImage::UnparseImage() {
+  parsed_ = false;
+  properties_.clear();
 }
 
 Result<void> WzImage::EnsureParsed() {

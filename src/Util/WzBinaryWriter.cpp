@@ -119,6 +119,10 @@ int64_t WzBinaryWriter::Position() {
   return static_cast<int64_t>(output_->tellp());
 }
 
+void WzBinaryWriter::ClearStringCache() {
+  stringCache_.clear();
+}
+
 template <typename T>
 void WzBinaryWriter::WriteLittleEndian(T value) {
   uint8_t bytes[sizeof(T)];

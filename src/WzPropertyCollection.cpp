@@ -1,4 +1,6 @@
 #include "wz/WzPropertyCollection.h"
+#include <algorithm>
+#include <utility>
 #include "wz/WzImageProperty.h"
 
 namespace wz {
@@ -42,14 +44,35 @@ void WzPropertyCollection::Insert(size_t index,
 }
 
 void WzPropertyCollection::erase(iterator it) {
+  if (it.it_ != items_.end() && it.it_->get())
+    it.it_->get()->SetParent(nullptr);
   items_.erase(it.it_);
 }
 
 void WzPropertyCollection::erase_at(size_t index) {
-  items_.erase(items_.begin() + static_cast<ptrdiff_t>(index));
+  auto it = items_.begin() + static_cast<ptrdiff_t>(index);
+  if (it->get()) it->get()->SetParent(nullptr);
+  items_.erase(it);
+}
+
+std::unique_ptr<WzImageProperty> WzPropertyCollection::Take(
+    WzImageProperty* item) {
+  auto it =
+      std::find_if(items_.begin(), items_.end(), [item](const auto& current) {
+        return current.get() == item;
+      });
+  if (it == items_.end()) return nullptr;
+
+  auto result = std::move(*it);
+  items_.erase(it);
+  if (result) result->SetParent(nullptr);
+  return result;
 }
 
 void WzPropertyCollection::clear() {
+  for (auto& item : items_) {
+    if (item) item->SetParent(nullptr);
+  }
   items_.clear();
 }
 

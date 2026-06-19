@@ -42,6 +42,10 @@ class WzImage final : public WzObject, public IPropertyContainer {
   int64_t Offset() const { return offset_; }
   void SetOffset(int64_t v) { offset_ = v; }
   int BlockStart() const { return blockStart_; }
+  int64_t TempFileStart() const { return tempFileStart_; }
+  void SetTempFileStart(int64_t v) { tempFileStart_ = v; }
+  int64_t TempFileEnd() const { return tempFileEnd_; }
+  void SetTempFileEnd(int64_t v) { tempFileEnd_ = v; }
   bool ParseEverything() const { return parseEverything_; }
   void SetParseEverything(bool v) { parseEverything_ = v; }
   bool IsLuaWzImage() const;
@@ -53,14 +57,20 @@ class WzImage final : public WzObject, public IPropertyContainer {
   void AddProperty(std::unique_ptr<WzImageProperty> prop) override;
   void RemoveProperty(const std::string& propertyName) override;
   void RemoveProperty(WzImageProperty* prop) override;
+  std::unique_ptr<WzImageProperty> TakeProperty(WzImageProperty* prop);
   void ClearProperties() override;
 
   WzImageProperty* GetFromPath(const std::string& path);
   Result<WzImageProperty*> GetFromPathResult(const std::string& path);
-  Result<bool> ParseImage();
+  Result<bool> ParseImage(bool forceReadFromData = false);
 
   WzImageProperty* operator[](const std::string& name);
   Result<WzImageProperty*> GetPropertyByName(const std::string& name);
+  Result<void> SaveImage(WzBinaryWriter* writer,
+                         bool isDefaultUserKey = true,
+                         bool forceReadFromData = false);
+  void CalculateAndSetImageChecksum(const std::vector<uint8_t>& bytes);
+  void UnparseImage();
 
   WzBinaryReader* Reader() const { return reader_; }
 
@@ -72,6 +82,8 @@ class WzImage final : public WzObject, public IPropertyContainer {
   int size_ = 0;
   int checksum_ = 0;
   int64_t offset_ = 0;
+  int64_t tempFileStart_ = 0;
+  int64_t tempFileEnd_ = 0;
   int blockStart_ = 0;
   bool parseEverything_ = false;
   std::ifstream dataStream_;
