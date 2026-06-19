@@ -181,6 +181,53 @@ TEST(CapiEditing, SaveInMemoryFileToDiskAndReopen) {
   std::filesystem::remove(path, ec);
 }
 
+TEST(CapiEditing, SaveInMemoryFileToDiskExAndReopen) {
+  const auto path = TempPath("libwz_capi_editing_save_ex.wz");
+  std::error_code ec;
+  std::filesystem::remove(path, ec);
+
+  wz_file file = nullptr;
+  ASSERT_EQ(wz_create_file(95, WZ_GMS, &file), WZ_ERROR_NONE);
+  wz_dir root = nullptr;
+  ASSERT_EQ(wz_file_get_wz_directory(file, &root), WZ_ERROR_NONE);
+  wz_image image = nullptr;
+  ASSERT_EQ(wz_dir_create_image(root, "test.img", &image), WZ_ERROR_NONE);
+  wz_property prop = nullptr;
+  ASSERT_EQ(wz_property_create_int("count", 11, &prop), WZ_ERROR_NONE);
+  ASSERT_EQ(wz_image_add_property(image, prop), WZ_ERROR_NONE);
+
+  ASSERT_EQ(wz_file_save_to_disk_ex(file, path.string().c_str(), 1, 0, WZ_GMS),
+            WZ_ERROR_NONE);
+  wz_close_file(file);
+
+  wz_file reopened = nullptr;
+  ASSERT_EQ(wz_open_file(path.string().c_str(), 95, WZ_GMS, &reopened),
+            WZ_ERROR_NONE);
+  ASSERT_NE(reopened, nullptr);
+  wz_parse_status status = WZ_PARSE_FAILED_UNKNOWN;
+  ASSERT_EQ(wz_parse(reopened, &status), WZ_ERROR_NONE);
+  EXPECT_EQ(status, WZ_PARSE_SUCCESS);
+
+  wz_dir reopened_root = nullptr;
+  ASSERT_EQ(wz_file_get_wz_directory(reopened, &reopened_root), WZ_ERROR_NONE);
+  wz_image reopened_image = nullptr;
+  ASSERT_EQ(
+      wz_dir_get_image_by_name(reopened_root, "test.img", &reopened_image),
+      WZ_ERROR_NONE);
+  int parsed = 0;
+  ASSERT_EQ(wz_image_parse(reopened_image, &parsed), WZ_ERROR_NONE);
+  EXPECT_EQ(parsed, 1);
+  wz_property reopened_prop = nullptr;
+  ASSERT_EQ(wz_image_get_from_path(reopened_image, "count", &reopened_prop),
+            WZ_ERROR_NONE);
+  int32_t value = 0;
+  ASSERT_EQ(wz_int_get_value(reopened_prop, &value), WZ_ERROR_NONE);
+  EXPECT_EQ(value, 11);
+
+  wz_close_file(reopened);
+  std::filesystem::remove(path, ec);
+}
+
 TEST(CapiEditing, DirectoryCreateAndRemoveObjects) {
   wz_file file = nullptr;
   ASSERT_EQ(wz_create_file(95, WZ_GMS, &file), WZ_ERROR_NONE);
