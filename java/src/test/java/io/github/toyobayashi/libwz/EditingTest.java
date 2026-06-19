@@ -102,11 +102,17 @@ class EditingTest {
 
             file.saveToDiskEx(temp.toString(), false, MapleVersion.GMS);
             assertEquals(true, Files.exists(temp));
-            try (WzFile reopened = new WzFile(temp.toString(), MapleVersion.GMS)) {
+            try (WzFile reopened =
+                    new WzFile(temp.toString(), (short)95, MapleVersion.GMS)) {
                 assertEquals(ParseStatus.SUCCESS, reopened.parseWzFile());
                 WzImage reopenedImage =
                     reopened.getWzDirectory().getImageByName("Item.img");
                 assertNotNull(reopenedImage);
+                reopenedImage.parseImage();
+                assertEquals(1, reopenedImage.wzProperties().size());
+                WzImageProperty reopenedProperty = reopenedImage.getFromPath("id");
+                assertNotNull(reopenedProperty);
+                assertEquals(123, ((WzIntProperty)reopenedProperty).getValue());
             }
         } finally {
             Files.deleteIfExists(temp);
