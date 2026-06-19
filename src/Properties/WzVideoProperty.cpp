@@ -4,7 +4,9 @@
 #include <fstream>
 #include <mutex>
 #include "wz/Util/WzBinaryReader.h"
+#include "wz/Util/WzBinaryWriter.h"
 #include "wz/Util/WzPath.h"
+#include "wz/WzImage.h"
 
 namespace wz {
 
@@ -15,6 +17,29 @@ WzVideoProperty::WzVideoProperty(const std::string& name,
 }
 
 WzVideoProperty::~WzVideoProperty() = default;
+
+Result<void> WzVideoProperty::WriteValue(WzBinaryWriter* writer) const {
+  auto* self = const_cast<WzVideoProperty*>(this);
+  auto data = self->GetBytes(false);
+  if (!data.has_value()) return std::unexpected(data.error());
+
+  writer->WriteStringValue(CANVAS_VIDEO_HEADER,
+                           WzImage::WzImageHeaderByte_WithoutOffset,
+                           WzImage::WzImageHeaderByte_WithOffset);
+  writer->WriteByte(0);
+  if (properties_.size() > 0) {
+    writer->WriteByte(1);
+    auto result = WzImageProperty::WritePropertyList(writer, properties_);
+    if (!result.has_value()) return result;
+  } else {
+    writer->WriteByte(0);
+  }
+  writer->WriteByte(static_cast<uint8_t>(type_));
+  writer->WriteCompressedInt(static_cast<int32_t>(data.value().size()));
+  writer->BaseStream().write(reinterpret_cast<const char*>(data.value().data()),
+                             static_cast<std::streamsize>(data.value().size()));
+  return {};
+}
 
 void WzVideoProperty::AddProperty(WzImageProperty* prop) {
   AddProperty(std::unique_ptr<WzImageProperty>(prop));

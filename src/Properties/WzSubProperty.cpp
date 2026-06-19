@@ -1,6 +1,7 @@
 #include "wz/Properties/WzSubProperty.h"
 #include <algorithm>
 #include <cctype>
+#include "wz/Util/WzBinaryWriter.h"
 #include "wz/WzImage.h"
 
 namespace wz {
@@ -11,6 +12,13 @@ WzSubProperty::WzSubProperty(const std::string& name) : properties_(this) {
 }
 
 WzSubProperty::~WzSubProperty() = default;
+
+Result<void> WzSubProperty::WriteValue(WzBinaryWriter* writer) const {
+  writer->WriteStringValue("Property",
+                           WzImage::WzImageHeaderByte_WithoutOffset,
+                           WzImage::WzImageHeaderByte_WithOffset);
+  return WzImageProperty::WritePropertyList(writer, properties_);
+}
 
 void WzSubProperty::AddProperty(WzImageProperty* prop) {
   AddProperty(std::unique_ptr<WzImageProperty>(prop));

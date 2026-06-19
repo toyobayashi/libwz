@@ -11,6 +11,7 @@ class WzFloatProperty : public WzImageProperty {
   WZ_DISALLOW_COPY_AND_MOVE(WzFloatProperty)
   WzPropertyType PropertyType() const override { return WzPropertyType::Float; }
   float Value() const { return value_; }
+  Result<void> WriteValue(WzBinaryWriter* writer) const override;
   void SetValue(float value) override { value_ = value; }
   float GetFloat() const override { return value_; }
   double GetDouble() const override { return value_; }

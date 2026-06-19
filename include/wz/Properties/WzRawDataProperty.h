@@ -19,6 +19,7 @@ class WzRawDataProperty : public WzImageProperty, public IPropertyContainer {
 
   WzPropertyType PropertyType() const override { return WzPropertyType::Raw; }
   bool IsRawDataProperty() const override { return true; }
+  Result<void> WriteValue(WzBinaryWriter* writer) const override;
   WzPropertyCollection* WzProperties() override { return &properties_; }
   using IPropertyContainer::AddProperty;
   void AddProperty(WzImageProperty* prop) override;

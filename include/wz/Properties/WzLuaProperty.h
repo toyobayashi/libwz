@@ -14,6 +14,7 @@ class WzLuaProperty : public WzImageProperty {
   WZ_DISALLOW_COPY_AND_MOVE(WzLuaProperty)
   WzPropertyType PropertyType() const override { return WzPropertyType::Lua; }
   const std::vector<uint8_t>& Value() const { return encryptedBytes_; }
+  Result<void> WriteValue(WzBinaryWriter* writer) const override;
   void SetValue(const std::vector<uint8_t>& value) override {
     encryptedBytes_ = value;
   }

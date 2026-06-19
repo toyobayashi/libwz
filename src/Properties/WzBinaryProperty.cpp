@@ -4,7 +4,9 @@
 #include <fstream>
 #include <mutex>
 #include "wz/Util/WzBinaryReader.h"
+#include "wz/Util/WzBinaryWriter.h"
 #include "wz/Util/WzPath.h"
+#include "wz/WzImage.h"
 
 namespace wz {
 
@@ -45,6 +47,24 @@ WzBinaryProperty::WzBinaryProperty(const std::string& name,
     fileBytes_ = reader->ReadBytes(soundDataLen_);
   else
     reader->SetPosition(offs_ + soundDataLen_);
+}
+
+Result<void> WzBinaryProperty::WriteValue(WzBinaryWriter* writer) const {
+  auto* self = const_cast<WzBinaryProperty*>(this);
+  auto data = self->GetBytes(false);
+  if (!data.has_value()) return std::unexpected(data.error());
+
+  writer->WriteStringValue("Sound_DX8",
+                           WzImage::WzImageHeaderByte_WithoutOffset,
+                           WzImage::WzImageHeaderByte_WithOffset);
+  writer->WriteByte(0);
+  writer->WriteCompressedInt(static_cast<int32_t>(data.value().size()));
+  writer->WriteCompressedInt(lenMs_);
+  writer->BaseStream().write(reinterpret_cast<const char*>(header_.data()),
+                             static_cast<std::streamsize>(header_.size()));
+  writer->BaseStream().write(reinterpret_cast<const char*>(data.value().data()),
+                             static_cast<std::streamsize>(data.value().size()));
+  return {};
 }
 
 void WzBinaryProperty::ParseWzSoundPropertyHeader() {

@@ -30,6 +30,7 @@ class WzVectorProperty : public WzImageProperty {
   WzPropertyType PropertyType() const override {
     return WzPropertyType::Vector;
   }
+  Result<void> WriteValue(WzBinaryWriter* writer) const override;
   std::unique_ptr<WzIntProperty> X;
   std::unique_ptr<WzIntProperty> Y;
 

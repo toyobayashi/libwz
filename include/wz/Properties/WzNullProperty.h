@@ -9,6 +9,7 @@ class WzNullProperty : public WzImageProperty {
   explicit WzNullProperty(const std::string& name) { SetName(name); }
   WZ_DISALLOW_COPY_AND_MOVE(WzNullProperty)
   WzPropertyType PropertyType() const override { return WzPropertyType::Null; }
+  Result<void> WriteValue(WzBinaryWriter* writer) const override;
 };
 }  // namespace wz
 #endif  // WZ_PROPERTIES_WZNULLPROPERTY_H_

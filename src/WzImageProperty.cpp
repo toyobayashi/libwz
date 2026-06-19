@@ -19,10 +19,49 @@
 #include "wz/Properties/WzVectorProperty.h"
 #include "wz/Properties/WzVideoProperty.h"
 #include "wz/Util/WzBinaryReader.h"
+#include "wz/Util/WzBinaryWriter.h"
 #include "wz/WzFile.h"
 #include "wz/WzImage.h"
 
 namespace wz {
+
+namespace {
+
+bool IsExtendedProperty(const WzImageProperty* prop) {
+  if (!prop) return false;
+  switch (prop->PropertyType()) {
+    case WzPropertyType::SubProperty:
+    case WzPropertyType::Canvas:
+    case WzPropertyType::Vector:
+    case WzPropertyType::Convex:
+    case WzPropertyType::Sound:
+    case WzPropertyType::UOL:
+      return true;
+    case WzPropertyType::Raw:
+      return prop->IsRawDataProperty() || prop->IsVideoProperty();
+    default:
+      return false;
+  }
+}
+
+Result<void> WriteExtendedValue(WzBinaryWriter* writer,
+                                const WzImageProperty* prop) {
+  writer->WriteByte(9);
+
+  const int64_t beforePos = writer->Position();
+  writer->WriteInt32(0);
+  auto result = prop->WriteValue(writer);
+  if (!result.has_value()) return result;
+
+  const int64_t newPos = writer->Position();
+  const int32_t len = static_cast<int32_t>(newPos - beforePos);
+  writer->BaseStream().seekp(beforePos);
+  writer->WriteInt32(len - 4);
+  writer->BaseStream().seekp(newPos);
+  return {};
+}
+
+}  // namespace
 
 WzFile* WzImageProperty::WzFileParent() const {
   auto* img = ParentImage();
@@ -79,6 +118,12 @@ void WzImageProperty::SetValue(double value) {
 }
 void WzImageProperty::SetValue(const std::vector<uint8_t>& value) {
   (void)value;
+}
+
+Result<void> WzImageProperty::WriteValue(WzBinaryWriter* writer) const {
+  (void)writer;
+  return std::unexpected(Error::NotImplemented(
+      "WriteValue is not implemented for this property type"));
 }
 
 void IPropertyContainer::AddProperties(WzPropertyCollection& props) {
@@ -160,6 +205,19 @@ Result<WzPropertyCollection> WzImageProperty::ParsePropertyList(
     }
   }
   return properties;
+}
+
+Result<void> WzImageProperty::WritePropertyList(
+    WzBinaryWriter* writer, const WzPropertyCollection& properties) {
+  writer->WriteUInt16(0);
+  writer->WriteCompressedInt(static_cast<int32_t>(properties.size()));
+  for (auto* prop : properties) {
+    writer->WriteStringValue(prop->Name(), 0x00, 0x01);
+    auto result = IsExtendedProperty(prop) ? WriteExtendedValue(writer, prop)
+                                           : prop->WriteValue(writer);
+    if (!result.has_value()) return result;
+  }
+  return {};
 }
 
 Result<std::unique_ptr<WzImageProperty>> WzImageProperty::ParseExtendedProp(

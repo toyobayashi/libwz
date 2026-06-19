@@ -47,6 +47,7 @@ class WzImageProperty : public WzObject {
   virtual bool IsRawDataProperty() const { return false; }
   virtual bool IsVideoProperty() const { return false; }
   virtual WzPropertyCollection* WzProperties() { return nullptr; }
+  virtual Result<void> WriteValue(WzBinaryWriter* writer) const;
 
   virtual WzImageProperty* operator[](const std::string& name);
 
@@ -66,6 +67,8 @@ class WzImageProperty : public WzObject {
                                                         WzBinaryReader* reader,
                                                         WzObject* parent,
                                                         WzImage* parentImg);
+  static Result<void> WritePropertyList(WzBinaryWriter* writer,
+                                        const WzPropertyCollection& properties);
   static Result<std::unique_ptr<WzImageProperty>> ParseExtendedProp(
       int64_t offset,
       WzBinaryReader* reader,

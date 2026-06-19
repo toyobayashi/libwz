@@ -11,6 +11,7 @@ class WzShortProperty : public WzImageProperty {
   WZ_DISALLOW_COPY_AND_MOVE(WzShortProperty)
   WzPropertyType PropertyType() const override { return WzPropertyType::Short; }
   int16_t Value() const { return value_; }
+  Result<void> WriteValue(WzBinaryWriter* writer) const override;
   void SetValue(int32_t value) override {
     value_ = static_cast<int16_t>(value);
   }

@@ -177,6 +177,7 @@ if(BUILD_TESTS)
         tests/TestPortalType.cpp
         tests/TestPngUtility.cpp
         tests/TestWzBinaryWriter.cpp
+        tests/TestPropertyWriteValue.cpp
     )
     if(BUILD_CAPI)
         list(APPEND WZ_TEST_SOURCES tests/TestCapiError.cpp)

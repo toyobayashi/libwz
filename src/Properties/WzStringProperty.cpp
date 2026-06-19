@@ -5,9 +5,16 @@
 #include <filesystem>
 #include <fstream>
 #include <limits>
+#include "wz/Util/WzBinaryWriter.h"
 #include "wz/Util/WzPath.h"
 
 namespace wz {
+
+Result<void> WzStringProperty::WriteValue(WzBinaryWriter* writer) const {
+  writer->WriteByte(8);
+  writer->WriteStringValue(value_, 0x00, 0x01);
+  return {};
+}
 
 static int64_t safeParseInt64(const std::string& s) {
   char* end = nullptr;

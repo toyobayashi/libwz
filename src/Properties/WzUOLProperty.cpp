@@ -1,5 +1,6 @@
 #include "wz/Properties/WzUOLProperty.h"
 #include <algorithm>
+#include "wz/Util/WzBinaryWriter.h"
 #include "wz/WzDirectory.h"
 #include "wz/WzFile.h"
 #include "wz/WzImage.h"
@@ -8,6 +9,15 @@ namespace wz {
 WzUOLProperty::WzUOLProperty(const std::string& name, const std::string& value)
     : val_(value) {
   SetName(name);
+}
+
+Result<void> WzUOLProperty::WriteValue(WzBinaryWriter* writer) const {
+  writer->WriteStringValue("UOL",
+                           WzImage::WzImageHeaderByte_WithoutOffset,
+                           WzImage::WzImageHeaderByte_WithOffset);
+  writer->WriteByte(0);
+  writer->WriteStringValue(val_, 0x00, 0x01);
+  return {};
 }
 
 WzObject* WzUOLProperty::LinkValue() const {

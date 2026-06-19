@@ -6,6 +6,7 @@
 #include <vector>
 #include "wz/Properties/WzPngProperty.h"
 #include "wz/Properties/WzStringProperty.h"
+#include "wz/Util/WzBinaryWriter.h"
 #include "wz/WzFile.h"
 #include "wz/WzFileManager.h"
 #include "wz/WzImage.h"
@@ -19,6 +20,40 @@ WzCanvasProperty::WzCanvasProperty(const std::string& name)
 }
 
 WzCanvasProperty::~WzCanvasProperty() = default;
+
+Result<void> WzCanvasProperty::WriteValue(WzBinaryWriter* writer) const {
+  if (!imageProp_) {
+    return std::unexpected(Error::NotImplemented(
+        "Cannot write Canvas property without a PNG property"));
+  }
+  auto bytes = imageProp_->GetCompressedBytesForExtraction(false);
+  if (!bytes.has_value()) return std::unexpected(bytes.error());
+
+  writer->WriteStringValue("Canvas",
+                           WzImage::WzImageHeaderByte_WithoutOffset,
+                           WzImage::WzImageHeaderByte_WithOffset);
+  writer->WriteByte(0);
+  if (properties_.size() > 0) {
+    writer->WriteByte(1);
+    auto result = WzImageProperty::WritePropertyList(writer, properties_);
+    if (!result.has_value()) return result;
+  } else {
+    writer->WriteByte(0);
+  }
+
+  writer->WriteCompressedInt(imageProp_->Width());
+  writer->WriteCompressedInt(imageProp_->Height());
+  const int formatValue = static_cast<int>(imageProp_->Format());
+  writer->WriteCompressedInt(formatValue & 0xFF);
+  writer->WriteCompressedInt(formatValue >> 8);
+  writer->WriteInt32(0);
+  writer->WriteInt32(static_cast<int32_t>(bytes.value().size()) + 1);
+  writer->WriteByte(0);
+  writer->BaseStream().write(
+      reinterpret_cast<const char*>(bytes.value().data()),
+      static_cast<std::streamsize>(bytes.value().size()));
+  return {};
+}
 
 void WzCanvasProperty::AddProperty(WzImageProperty* prop) {
   AddProperty(std::unique_ptr<WzImageProperty>(prop));

@@ -14,6 +14,7 @@ class WzStringProperty : public WzImageProperty {
     return WzPropertyType::String;
   }
   const std::string& Value() const { return value_; }
+  Result<void> WriteValue(WzBinaryWriter* writer) const override;
   void SetValue(const std::string& value) override { value_ = value; }
   std::string GetString() const override { return value_; }
   int32_t GetInt() const override;

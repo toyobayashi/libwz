@@ -2,9 +2,31 @@
 #include <algorithm>
 #include <cctype>
 #include <vector>
+#include "wz/Util/WzBinaryWriter.h"
 #include "wz/WzImage.h"
 
 namespace wz {
+
+namespace {
+
+bool IsConvexChildProperty(const WzImageProperty* prop) {
+  if (!prop) return false;
+  switch (prop->PropertyType()) {
+    case WzPropertyType::SubProperty:
+    case WzPropertyType::Canvas:
+    case WzPropertyType::Vector:
+    case WzPropertyType::Convex:
+    case WzPropertyType::Sound:
+    case WzPropertyType::UOL:
+      return true;
+    case WzPropertyType::Raw:
+      return prop->IsRawDataProperty() || prop->IsVideoProperty();
+    default:
+      return false;
+  }
+}
+
+}  // namespace
 
 WzConvexProperty::WzConvexProperty() : properties_(this) {}
 WzConvexProperty::WzConvexProperty(const std::string& name)
@@ -13,6 +35,22 @@ WzConvexProperty::WzConvexProperty(const std::string& name)
 }
 
 WzConvexProperty::~WzConvexProperty() = default;
+
+Result<void> WzConvexProperty::WriteValue(WzBinaryWriter* writer) const {
+  writer->WriteStringValue("Shape2D#Convex2D",
+                           WzImage::WzImageHeaderByte_WithoutOffset,
+                           WzImage::WzImageHeaderByte_WithOffset);
+  writer->WriteCompressedInt(static_cast<int32_t>(properties_.size()));
+  for (auto* prop : properties_) {
+    if (!IsConvexChildProperty(prop)) {
+      return std::unexpected(Error::DataError(
+          "Cannot write Convex property with non-extended child"));
+    }
+    auto result = prop->WriteValue(writer);
+    if (!result.has_value()) return result;
+  }
+  return {};
+}
 
 void WzConvexProperty::AddProperty(WzImageProperty* prop) {
   AddProperty(std::unique_ptr<WzImageProperty>(prop));
