@@ -138,6 +138,57 @@ TEST(EditingTest, SaveChangedUnparsedImageParsesExistingProperties) {
   std::filesystem::remove(savedPath, ec);
 }
 
+TEST(EditingTest, SaveForceReadDoesNotDuplicateAlreadyParsedProperties) {
+  const auto sourcePath = TempPath("libwz_editing_force_parsed_source.bin");
+  const auto savedPath = TempPath("libwz_editing_force_parsed_saved.bin");
+  {
+    std::ofstream out(sourcePath, std::ios::binary);
+    wz::WzBinaryWriter writer(out, wz::WzAESConstant::WZ_GMSIV);
+    writer.WriteStringValue("Property",
+                            wz::WzImage::WzImageHeaderByte_WithoutOffset,
+                            wz::WzImage::WzImageHeaderByte_WithOffset);
+    wz::WzPropertyCollection properties;
+    properties.Add(std::make_unique<wz::WzIntProperty>("count", 7));
+    ASSERT_TRUE(wz::WzImageProperty::WritePropertyList(&writer, properties)
+                    .has_value());
+  }
+
+  {
+    std::ifstream source(sourcePath, std::ios::binary);
+    wz::WzBinaryReader reader(source, wz::WzAESConstant::WZ_GMSIV);
+    wz::WzImage image("test.img", reader, 0);
+    image.SetOffset(0);
+    image.SetBlockSize(
+        static_cast<int>(std::filesystem::file_size(sourcePath)));
+    ASSERT_TRUE(image.ParseImage().has_value());
+    ASSERT_TRUE(image.Parsed());
+    ASSERT_EQ(image.WzProperties()->size(), 1);
+
+    std::ofstream saved(savedPath, std::ios::binary);
+    wz::WzBinaryWriter writer(saved, wz::WzAESConstant::WZ_GMSIV);
+
+    auto result = image.SaveImage(&writer, true, true);
+
+    ASSERT_TRUE(result.has_value()) << result.error().message();
+  }
+
+  std::ifstream in(savedPath, std::ios::binary);
+  wz::WzBinaryReader reader(in, wz::WzAESConstant::WZ_GMSIV);
+
+  EXPECT_EQ(reader.ReadByte(), wz::WzImage::WzImageHeaderByte_WithoutOffset);
+  EXPECT_EQ(reader.ReadString(), "Property");
+  EXPECT_EQ(reader.ReadUInt16(), 0);
+  EXPECT_EQ(reader.ReadCompressedInt(), 1);
+  EXPECT_EQ(reader.ReadByte(), 0x00);
+  EXPECT_EQ(reader.ReadString(), "count");
+  EXPECT_EQ(reader.ReadByte(), 3);
+  EXPECT_EQ(reader.ReadCompressedInt(), 7);
+
+  std::error_code ec;
+  std::filesystem::remove(sourcePath, ec);
+  std::filesystem::remove(savedPath, ec);
+}
+
 TEST(EditingTest, CalculateAndSetImageChecksumSumsBytes) {
   wz::WzImage image("test.img");
 

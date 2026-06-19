@@ -218,9 +218,9 @@ Result<void> WzImage::SaveImage(WzBinaryWriter* writer,
   }
 
   if (Changed() || !isDefaultUserKey || forceReadFromData) {
-    if (reader_ && (!parsed_ || forceReadFromData)) {
+    if (reader_ && !parsed_) {
       SetParseEverything(true);
-      auto parseResult = ParseImage(forceReadFromData || !parsed_);
+      auto parseResult = ParseImage(true);
       if (!parseResult.has_value()) {
         return std::unexpected(parseResult.error());
       }
