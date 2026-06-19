@@ -90,6 +90,48 @@ class EditingTest {
         assertEquals(7, prop.getValue());
         prop.close();
         assertEquals(0, prop.nativePtr());
+        prop.close();
+        assertEquals(0, prop.nativePtr());
+    }
+
+    @Test
+    void removalInvalidatesJavaWrappers() {
+        try (WzFile file = WzFile.create((short)95, MapleVersion.GMS)) {
+            WzDirectory root = file.getWzDirectory();
+            WzDirectory directory = root.addDirectory("String");
+            WzImage image = root.addImage("Item.img");
+            WzIntProperty property = WzPropertyFactory.createInt("id", 123);
+            image.addProperty(property);
+
+            image.removeProperty(property);
+            assertEquals(0, property.nativePtr());
+
+            root.removeImage(image);
+            assertEquals(0, image.nativePtr());
+
+            root.removeDirectory(directory);
+            assertEquals(0, directory.nativePtr());
+        }
+    }
+
+    @Test
+    void objectRemoveInvalidatesTargetWrapper() {
+        try (WzFile file = WzFile.create((short)95, MapleVersion.GMS)) {
+            WzImage image = file.getWzDirectory().addImage("Old.img");
+            WzSubProperty sub = WzPropertyFactory.createSub("info");
+            WzIntProperty property = WzPropertyFactory.createInt("id", 123);
+            sub.addProperty(property);
+            image.addProperty(sub);
+
+            property.remove();
+            assertEquals(0, property.nativePtr());
+
+            sub.remove();
+            assertEquals(0, sub.nativePtr());
+
+            image.remove();
+            assertEquals(0, image.nativePtr());
+        }
     }
 
     @Test

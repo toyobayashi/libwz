@@ -69,8 +69,13 @@ public abstract class WzImageProperty extends WzObject {
 
     public void removeProperty(WzImageProperty property) {
         nativeRemoveProperty(nativePtr, property.nativePtr());
+        property.updateNativePtr(0);
     }
 
+    /**
+     * Clears all native child properties. Java wrappers obtained before this
+     * call are invalid after it returns.
+     */
     public void clearProperties() { nativeClearProperties(nativePtr); }
 
     @Override

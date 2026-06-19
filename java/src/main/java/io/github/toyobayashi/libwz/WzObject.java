@@ -38,7 +38,10 @@ public abstract class WzObject implements AutoCloseable {
 
     public void setName(String name) { nativeSetName(nativePtr, name); }
 
-    public void remove() { nativeRemove(nativePtr); }
+    public void remove() {
+        nativeRemove(nativePtr);
+        nativePtr = 0;
+    }
 
     public WzObject getParent() {
         long p = nativeParent(nativePtr);

@@ -92,10 +92,12 @@ public class WzDirectory extends WzObject {
 
     public void removeDirectory(WzDirectory directory) {
         nativeRemoveDirectory(nativePtr, directory.nativePtr());
+        directory.updateNativePtr(0);
     }
 
     public void removeImage(WzImage image) {
         nativeRemoveImage(nativePtr, image.nativePtr());
+        image.updateNativePtr(0);
     }
 
     @Override
