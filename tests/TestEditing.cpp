@@ -144,6 +144,69 @@ TEST(EditingTest, PropertyRenameMarksParentImageChanged) {
   EXPECT_TRUE(image.Changed());
 }
 
+TEST(EditingTest, PropertyRenameRejectsDuplicateSiblingName) {
+  wz::WzImage image("test.img");
+  auto first = std::make_unique<wz::WzIntProperty>("count", 42);
+  auto second = std::make_unique<wz::WzIntProperty>("total", 7);
+  auto* rawSecond = second.get();
+  ASSERT_TRUE(image.TryAddProperty(std::move(first)).has_value());
+  ASSERT_TRUE(image.TryAddProperty(std::move(second)).has_value());
+  image.SetChanged(false);
+
+  auto result = rawSecond->Rename("COUNT");
+
+  ASSERT_FALSE(result.has_value());
+  EXPECT_EQ(result.error().code(), wz::ErrorCode::InvalidArgument);
+  EXPECT_EQ(rawSecond->Name(), "total");
+  EXPECT_FALSE(image.Changed());
+}
+
+TEST(EditingTest, ImageRenameRejectsDuplicateSiblingName) {
+  wz::WzDirectory root("root");
+  auto first = root.CreateImage("item.img");
+  auto second = root.CreateImage("mob.img");
+  ASSERT_TRUE(first.has_value()) << first.error().message();
+  ASSERT_TRUE(second.has_value()) << second.error().message();
+
+  auto result = second.value()->Rename("ITEM.IMG");
+
+  ASSERT_FALSE(result.has_value());
+  EXPECT_EQ(result.error().code(), wz::ErrorCode::InvalidArgument);
+  EXPECT_EQ(second.value()->Name(), "mob.img");
+  EXPECT_EQ(root.GetImageByName("ITEM.IMG"), first.value());
+  EXPECT_EQ(root.GetImageByName("mob.img"), second.value());
+}
+
+TEST(EditingTest, DirectoryRenameRejectsDuplicateSiblingName) {
+  wz::WzDirectory root("root");
+  auto first = root.CreateDirectory("Character");
+  auto second = root.CreateDirectory("Mob");
+  ASSERT_TRUE(first.has_value()) << first.error().message();
+  ASSERT_TRUE(second.has_value()) << second.error().message();
+
+  auto result = second.value()->Rename("CHARACTER");
+
+  ASSERT_FALSE(result.has_value());
+  EXPECT_EQ(result.error().code(), wz::ErrorCode::InvalidArgument);
+  EXPECT_EQ(second.value()->Name(), "Mob");
+  EXPECT_EQ(root.GetDirectoryByName("CHARACTER"), first.value());
+  EXPECT_EQ(root.GetDirectoryByName("Mob"), second.value());
+}
+
+TEST(EditingTest, RenameToSameNameIsNoOp) {
+  wz::WzImage image("test.img");
+  auto prop = std::make_unique<wz::WzIntProperty>("count", 42);
+  auto* rawProp = prop.get();
+  ASSERT_TRUE(image.TryAddProperty(std::move(prop)).has_value());
+  image.SetChanged(false);
+
+  auto result = rawProp->Rename("count");
+
+  ASSERT_TRUE(result.has_value()) << result.error().message();
+  EXPECT_EQ(rawProp->Name(), "count");
+  EXPECT_FALSE(image.Changed());
+}
+
 TEST(EditingTest, ImageRenameIsValidatedButDoesNotMarkImageChanged) {
   wz::WzImage image("test.img");
   image.SetChanged(false);

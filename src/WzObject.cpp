@@ -17,6 +17,47 @@ Result<void> WzObject::Rename(const std::string& name) {
         Error::InvalidArgument("WZ object name cannot be empty"));
   }
   if (name_ == name) return {};
+  if (parent_) {
+    switch (ObjectType()) {
+      case WzObjectType::Directory: {
+        if (parent_->ObjectType() != WzObjectType::Directory) break;
+        auto* parentDir = static_cast<WzDirectory*>(parent_);
+        auto* existing = parentDir->GetDirectoryByName(name);
+        if (existing && existing != this) {
+          return std::unexpected(
+              Error::InvalidArgument("Duplicate WZ directory name: " + name));
+        }
+        break;
+      }
+      case WzObjectType::Image: {
+        if (parent_->ObjectType() != WzObjectType::Directory) break;
+        auto* parentDir = static_cast<WzDirectory*>(parent_);
+        auto* existing = parentDir->GetImageByName(name);
+        if (existing && existing != this) {
+          return std::unexpected(
+              Error::InvalidArgument("Duplicate WZ image name: " + name));
+        }
+        break;
+      }
+      case WzObjectType::Property: {
+        WzImageProperty* existing = nullptr;
+        if (parent_->ObjectType() == WzObjectType::Image) {
+          auto result = static_cast<WzImage*>(parent_)->GetPropertyByName(name);
+          if (!result.has_value()) return std::unexpected(result.error());
+          existing = result.value();
+        } else if (parent_->ObjectType() == WzObjectType::Property) {
+          existing = static_cast<WzImageProperty*>(parent_)->operator[](name);
+        }
+        if (existing && existing != this) {
+          return std::unexpected(Error::InvalidArgument(
+              "Duplicate WZ image property name: " + name));
+        }
+        break;
+      }
+      default:
+        break;
+    }
+  }
   name_ = name;
   if (ObjectType() == WzObjectType::Property) {
     static_cast<WzImageProperty*>(this)->MarkParentImageChanged();
