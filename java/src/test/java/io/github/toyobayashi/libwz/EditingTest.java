@@ -277,6 +277,12 @@ class EditingTest {
     }
 
     @Test
+    void rawPropertiesAreTraversedAsChildContainers() {
+        assertEquals(true, WzImageProperty.isPropertyContainerType(
+            WzEnums.PropertyType.RAW.value));
+    }
+
+    @Test
     void savesInMemoryFileToDisk() throws Exception {
         Path temp = Files.createTempFile("libwz-editing-", ".wz");
         Files.deleteIfExists(temp);

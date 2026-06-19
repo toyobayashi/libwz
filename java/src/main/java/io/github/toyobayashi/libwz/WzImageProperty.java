@@ -117,9 +117,13 @@ public abstract class WzImageProperty extends WzObject {
     }
 
     private static boolean isPropertyContainer(long ptr) {
-        int type = nativePropertyType(ptr);
+        return isPropertyContainerType(nativePropertyType(ptr));
+    }
+
+    static boolean isPropertyContainerType(int type) {
         return type == WzEnums.PropertyType.SUB.value
             || type == WzEnums.PropertyType.CANVAS.value
-            || type == WzEnums.PropertyType.CONVEX.value;
+            || type == WzEnums.PropertyType.CONVEX.value
+            || type == WzEnums.PropertyType.RAW.value;
     }
 }
