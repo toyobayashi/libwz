@@ -283,6 +283,61 @@ function invalidateHandles(ptrs: Iterable<NativeHandle>): void {
   for (const ptr of ptrs) invalidateHandle(ptr);
 }
 
+function registeredObjectsSnapshot(): WzObject[] {
+  const objects = new Set<WzObject>();
+  for (const entries of handleRegistry.values()) {
+    for (const entry of entries) objects.add(entry);
+  }
+  return Array.from(objects);
+}
+
+function livePtr(obj: WzObject): NativeHandle | null {
+  try {
+    return obj.nativePtr();
+  } catch {
+    return null;
+  }
+}
+
+function collectKnownFilePtrs(file: WzFile): Set<NativeHandle> {
+  const filePtr = file.nativePtr();
+  const ptrs = new Set<NativeHandle>([filePtr]);
+  for (const obj of registeredObjectsSnapshot()) {
+    const ptr = livePtr(obj);
+    if (ptr === null || ptr === filePtr) continue;
+    try {
+      if (native.objectWzFileParent(ptr) === filePtr) ptrs.add(ptr);
+    } catch {
+      // Detached properties and already-invalid objects are not file-owned.
+    }
+  }
+  return ptrs;
+}
+
+function isDescendantPath(path: string, rootPath: string): boolean {
+  return path === rootPath ||
+    path.startsWith(`${rootPath}/`) ||
+    path.startsWith(`${rootPath}\\`);
+}
+
+function collectKnownSubtreePtrs(root: WzObject): Set<NativeHandle> {
+  const rootPtr = root.nativePtr();
+  const rootPath = native.objectFullPath(rootPtr);
+  const ptrs = new Set<NativeHandle>([rootPtr]);
+  for (const obj of registeredObjectsSnapshot()) {
+    const ptr = livePtr(obj);
+    if (ptr === null || ptr === rootPtr) continue;
+    try {
+      if (isDescendantPath(native.objectFullPath(ptr), rootPath)) {
+        ptrs.add(ptr);
+      }
+    } catch {
+      // Some detached properties do not have a tree path.
+    }
+  }
+  return ptrs;
+}
+
 function collectPropertySubtreePtrs(prop: WzImageProperty, out = new Set<NativeHandle>()): Set<NativeHandle> {
   const ptr = prop.nativePtr();
   if (out.has(ptr)) return out;
@@ -387,8 +442,9 @@ export class WzObject {
   }
 
   remove(): void {
+    const ptrs = collectKnownSubtreePtrs(this);
     native.objectRemove(this.nativePtr());
-    this._markDisposed();
+    invalidateHandles(ptrs);
   }
 
   close(): void {}
@@ -484,8 +540,9 @@ export class WzFile extends WzObject {
   close(): void {
     if (this._ownsNative && this._ptr !== 0n) {
       const ptr = this._ptr;
+      const ptrs = collectKnownFilePtrs(this);
       native.closeFile(ptr);
-      invalidateHandle(ptr);
+      invalidateHandles(ptrs);
     }
   }
 }
@@ -542,13 +599,15 @@ export class WzDirectory extends WzObject {
   }
 
   removeDirectory(child: WzDirectory): void {
+    const ptrs = collectKnownSubtreePtrs(child);
     native.dirRemoveDirectory(this.nativePtr(), child.nativePtr());
-    child._markDisposed();
+    invalidateHandles(ptrs);
   }
 
   removeImage(child: WzImage): void {
+    const ptrs = collectKnownSubtreePtrs(child);
     native.dirRemoveImage(this.nativePtr(), child.nativePtr());
-    child._markDisposed();
+    invalidateHandles(ptrs);
   }
 
   getBlockSize(): number {

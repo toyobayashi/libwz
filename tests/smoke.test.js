@@ -211,3 +211,64 @@ test("long property bigints must fit in int64", () => {
     prop.close();
   }
 });
+
+test("closing a WZ file invalidates known wrappers in its tree", () => {
+  const file = wz.WzFile.create(87, wz.MapleVersion.GMS);
+  const root = file.getWzDirectory();
+  const image = root.createImage("Close.img");
+  const prop = wz.WzProperty.createInt("value", 1);
+  image.addProperty(prop);
+  const propAlias = image.getFromPath("value");
+  assert.ok(propAlias instanceof wz.WzIntProperty);
+
+  file.close();
+
+  assert.throws(() => root.getName(), /disposed/i);
+  assert.throws(() => image.getName(), /disposed/i);
+  assert.throws(() => prop.getValue(), /disposed/i);
+  assert.throws(() => propAlias.getValue(), /disposed/i);
+});
+
+test("removeDirectory invalidates known descendant wrappers", () => {
+  const file = wz.WzFile.create(87, wz.MapleVersion.GMS);
+  try {
+    const root = file.getWzDirectory();
+    const dir = root.createDirectory("RemoveDir");
+    const image = dir.createImage("Nested.img");
+    const prop = wz.WzProperty.createInt("value", 2);
+    image.addProperty(prop);
+    const imageAlias = dir.getImageByName("Nested.img");
+    const propAlias = imageAlias.getFromPath("value");
+    assert.ok(propAlias instanceof wz.WzIntProperty);
+
+    root.removeDirectory(dir);
+
+    assert.throws(() => dir.getName(), /disposed/i);
+    assert.throws(() => image.getName(), /disposed/i);
+    assert.throws(() => imageAlias.getName(), /disposed/i);
+    assert.throws(() => prop.getValue(), /disposed/i);
+    assert.throws(() => propAlias.getValue(), /disposed/i);
+  } finally {
+    file.close();
+  }
+});
+
+test("removeImage invalidates known property wrappers", () => {
+  const file = wz.WzFile.create(87, wz.MapleVersion.GMS);
+  try {
+    const root = file.getWzDirectory();
+    const image = root.createImage("RemoveImage.img");
+    const prop = wz.WzProperty.createInt("value", 3);
+    image.addProperty(prop);
+    const propAlias = image.getFromPath("value");
+    assert.ok(propAlias instanceof wz.WzIntProperty);
+
+    root.removeImage(image);
+
+    assert.throws(() => image.getName(), /disposed/i);
+    assert.throws(() => prop.getValue(), /disposed/i);
+    assert.throws(() => propAlias.getValue(), /disposed/i);
+  } finally {
+    file.close();
+  }
+});
