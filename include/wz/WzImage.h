@@ -30,6 +30,7 @@ class WzImage final : public WzObject, public IPropertyContainer {
 
   WzObjectType ObjectType() const override;
   WzFile* WzFileParent() const override;
+  Result<void> TryRemove() override;
   void Remove() override;
 
   bool Parsed() const { return parsed_; }
@@ -59,6 +60,7 @@ class WzImage final : public WzObject, public IPropertyContainer {
   void AddProperty(std::unique_ptr<WzImageProperty> prop) override;
   void RemoveProperty(const std::string& propertyName) override;
   void RemoveProperty(WzImageProperty* prop) override;
+  Result<void> TryRemoveProperty(WzImageProperty* prop);
   Result<std::unique_ptr<WzImageProperty>> TakeProperty(WzImageProperty* prop);
   void ClearProperties() override;
 

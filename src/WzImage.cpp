@@ -47,10 +47,15 @@ WzObjectType WzImage::ObjectType() const {
   return WzObjectType::Image;
 }
 
-void WzImage::Remove() {
-  if (Parent()) {
-    static_cast<WzDirectory*>(Parent())->RemoveImage(this);
+Result<void> WzImage::TryRemove() {
+  if (!Parent() || Parent()->ObjectType() != WzObjectType::Directory) {
+    return std::unexpected(Error::NotFound("WZ image has no parent directory"));
   }
+  return static_cast<WzDirectory*>(Parent())->TryRemoveImage(this);
+}
+
+void WzImage::Remove() {
+  (void)TryRemove();
 }
 
 bool WzImage::IsLuaWzImage() const {
@@ -120,7 +125,21 @@ void WzImage::RemoveProperty(const std::string& propertyName) {
 }
 
 void WzImage::RemoveProperty(WzImageProperty* prop) {
-  (void)TakeProperty(prop);
+  (void)TryRemoveProperty(prop);
+}
+
+Result<void> WzImage::TryRemoveProperty(WzImageProperty* prop) {
+  if (!prop) {
+    return std::unexpected(
+        Error::InvalidArgument("Cannot remove a null WZ image property"));
+  }
+  auto result = TakeProperty(prop);
+  if (!result.has_value()) return std::unexpected(result.error());
+  if (!result.value()) {
+    return std::unexpected(
+        Error::NotFound("WZ image property is not owned by this image"));
+  }
+  return {};
 }
 
 Result<std::unique_ptr<WzImageProperty>> WzImage::TakeProperty(

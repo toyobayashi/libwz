@@ -33,6 +33,7 @@ class WzDirectory final : public WzObject {
 
   WzObjectType ObjectType() const override { return WzObjectType::Directory; }
   WzFile* WzFileParent() const override { return wzFile_; }
+  Result<void> TryRemove() override;
   void Remove() override;
 
   int BlockSize() const { return size_; }
@@ -57,6 +58,8 @@ class WzDirectory final : public WzObject {
   Result<WzImage*> CreateImage(const std::string& name);
   Result<void> TryAddDirectory(std::unique_ptr<WzDirectory> dir);
   Result<void> TryAddImage(std::unique_ptr<WzImage> img);
+  Result<void> TryRemoveImage(WzImage* image);
+  Result<void> TryRemoveDirectory(WzDirectory* dir);
   void ClearImages();
   void ClearDirectories();
   WzImage* GetImageByName(const std::string& name);

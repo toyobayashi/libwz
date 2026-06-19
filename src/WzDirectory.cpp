@@ -91,10 +91,16 @@ std::vector<WzDirectory*> WzDirectory::WzDirectories() const {
   return result;
 }
 
-void WzDirectory::Remove() {
-  if (Parent()) {
-    static_cast<WzDirectory*>(Parent())->RemoveDirectory(this);
+Result<void> WzDirectory::TryRemove() {
+  if (!Parent() || Parent()->ObjectType() != WzObjectType::Directory) {
+    return std::unexpected(
+        Error::NotFound("WZ directory has no parent directory"));
   }
+  return static_cast<WzDirectory*>(Parent())->TryRemoveDirectory(this);
+}
+
+void WzDirectory::Remove() {
+  (void)TryRemove();
 }
 
 Result<void> WzDirectory::ParseDirectory() {
@@ -284,22 +290,44 @@ WzDirectory* WzDirectory::GetDirectoryByName(const std::string& name) {
   return nullptr;
 }
 
-void WzDirectory::RemoveImage(WzImage* image) {
+Result<void> WzDirectory::TryRemoveImage(WzImage* image) {
+  if (!image) {
+    return std::unexpected(
+        Error::InvalidArgument("Cannot remove a null WZ image"));
+  }
   auto it = std::find_if(images_.begin(), images_.end(), [image](auto& img) {
     return img.get() == image;
   });
-  if (it != images_.end()) {
-    images_.erase(it);
+  if (it == images_.end()) {
+    return std::unexpected(
+        Error::NotFound("WZ image is not owned by this directory"));
   }
+  images_.erase(it);
+  return {};
 }
 
-void WzDirectory::RemoveDirectory(WzDirectory* dir) {
+void WzDirectory::RemoveImage(WzImage* image) {
+  (void)TryRemoveImage(image);
+}
+
+Result<void> WzDirectory::TryRemoveDirectory(WzDirectory* dir) {
+  if (!dir) {
+    return std::unexpected(
+        Error::InvalidArgument("Cannot remove a null WZ directory"));
+  }
   auto it = std::find_if(subDirs_.begin(), subDirs_.end(), [dir](auto& subDir) {
     return subDir.get() == dir;
   });
-  if (it != subDirs_.end()) {
-    subDirs_.erase(it);
+  if (it == subDirs_.end()) {
+    return std::unexpected(
+        Error::NotFound("WZ directory is not owned by this directory"));
   }
+  subDirs_.erase(it);
+  return {};
+}
+
+void WzDirectory::RemoveDirectory(WzDirectory* dir) {
+  (void)TryRemoveDirectory(dir);
 }
 
 int WzDirectory::CountImages() const {

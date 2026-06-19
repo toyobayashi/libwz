@@ -211,6 +211,67 @@ TEST(CapiEditing, DirectoryCreateAndRemoveObjects) {
   wz_close_file(file);
 }
 
+TEST(CapiEditing, RemoveFromWrongParentReportsNotFound) {
+  wz_file file = nullptr;
+  ASSERT_EQ(wz_create_file(95, WZ_GMS, &file), WZ_ERROR_NONE);
+  wz_dir root = nullptr;
+  ASSERT_EQ(wz_file_get_wz_directory(file, &root), WZ_ERROR_NONE);
+
+  wz_dir first_dir = nullptr;
+  wz_dir second_dir = nullptr;
+  ASSERT_EQ(wz_dir_create_directory(root, "first", &first_dir), WZ_ERROR_NONE);
+  ASSERT_EQ(wz_dir_create_directory(root, "second", &second_dir),
+            WZ_ERROR_NONE);
+
+  wz_dir nested_dir = nullptr;
+  ASSERT_EQ(wz_dir_create_directory(first_dir, "nested", &nested_dir),
+            WZ_ERROR_NONE);
+  EXPECT_EQ(wz_dir_remove_directory(second_dir, nested_dir),
+            WZ_ERROR_NOT_FOUND);
+  EXPECT_EQ(LastErrorCode(), WZ_ERROR_NOT_FOUND);
+
+  wz_image nested_image = nullptr;
+  ASSERT_EQ(wz_dir_create_image(first_dir, "test.img", &nested_image),
+            WZ_ERROR_NONE);
+  EXPECT_EQ(wz_dir_remove_image(second_dir, nested_image), WZ_ERROR_NOT_FOUND);
+  EXPECT_EQ(LastErrorCode(), WZ_ERROR_NOT_FOUND);
+
+  wz_image other_image = nullptr;
+  ASSERT_EQ(wz_dir_create_image(second_dir, "other.img", &other_image),
+            WZ_ERROR_NONE);
+  wz_property prop = nullptr;
+  ASSERT_EQ(wz_property_create_int("count", 1, &prop), WZ_ERROR_NONE);
+  ASSERT_EQ(wz_image_add_property(nested_image, prop), WZ_ERROR_NONE);
+  EXPECT_EQ(wz_image_remove_property(other_image, prop), WZ_ERROR_NOT_FOUND);
+  EXPECT_EQ(LastErrorCode(), WZ_ERROR_NOT_FOUND);
+
+  wz_property first_parent = nullptr;
+  wz_property second_parent = nullptr;
+  wz_property child = nullptr;
+  ASSERT_EQ(wz_property_create_sub("firstParent", &first_parent),
+            WZ_ERROR_NONE);
+  ASSERT_EQ(wz_property_create_sub("secondParent", &second_parent),
+            WZ_ERROR_NONE);
+  ASSERT_EQ(wz_property_create_int("child", 2, &child), WZ_ERROR_NONE);
+  ASSERT_EQ(wz_image_add_property(nested_image, first_parent), WZ_ERROR_NONE);
+  ASSERT_EQ(wz_image_add_property(nested_image, second_parent), WZ_ERROR_NONE);
+  ASSERT_EQ(wz_property_add_child(first_parent, child), WZ_ERROR_NONE);
+  EXPECT_EQ(wz_property_remove_child(second_parent, child), WZ_ERROR_NOT_FOUND);
+  EXPECT_EQ(LastErrorCode(), WZ_ERROR_NOT_FOUND);
+
+  ASSERT_EQ(wz_object_remove(reinterpret_cast<wz_object>(child)),
+            WZ_ERROR_NONE);
+  int count = -1;
+  ASSERT_EQ(wz_property_count_children(first_parent, &count), WZ_ERROR_NONE);
+  EXPECT_EQ(count, 0);
+
+  ASSERT_EQ(wz_object_remove(reinterpret_cast<wz_object>(prop)), WZ_ERROR_NONE);
+  ASSERT_EQ(wz_image_count_properties(nested_image, &count), WZ_ERROR_NONE);
+  EXPECT_EQ(count, 2);
+
+  wz_close_file(file);
+}
+
 TEST(CapiEditing, ImageAndPropertyChildContainersCanBeCleared) {
   wz_file file = nullptr;
   ASSERT_EQ(wz_create_file(95, WZ_GMS, &file), WZ_ERROR_NONE);

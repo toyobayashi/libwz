@@ -42,6 +42,7 @@ class WzImageProperty : public WzObject {
 
   WzObjectType ObjectType() const override { return WzObjectType::Property; }
   WzFile* WzFileParent() const override;
+  Result<void> TryRemove() override;
   void Remove() override;
 
   virtual WzPropertyType PropertyType() const = 0;

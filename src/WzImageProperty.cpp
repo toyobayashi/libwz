@@ -194,6 +194,10 @@ Result<void> WzImageProperty::TryRemoveChildProperty(WzImageProperty* prop) {
         Error::InvalidArgument("WZ object is not a property container"));
   }
   auto removed = properties->Take(prop);
+  if (!removed) {
+    return std::unexpected(
+        Error::NotFound("WZ image property is not owned by this property"));
+  }
   if (removed) MarkParentImageChanged();
   return {};
 }
@@ -210,17 +214,23 @@ Result<void> WzImageProperty::TryClearChildProperties() {
   return {};
 }
 
-void WzImageProperty::Remove() {
+Result<void> WzImageProperty::TryRemove() {
   auto* parent = Parent();
   if (!parent) {
     delete this;
-    return;
+    return {};
   }
   if (parent->ObjectType() == WzObjectType::Image) {
-    static_cast<WzImage*>(parent)->RemoveProperty(this);
+    return static_cast<WzImage*>(parent)->TryRemoveProperty(this);
   } else if (parent->ObjectType() == WzObjectType::Property) {
-    (void)static_cast<WzImageProperty*>(parent)->TryRemoveChildProperty(this);
+    return static_cast<WzImageProperty*>(parent)->TryRemoveChildProperty(this);
   }
+  return std::unexpected(
+      Error::NotFound("WZ image property has no removable parent"));
+}
+
+void WzImageProperty::Remove() {
+  (void)TryRemove();
 }
 
 Result<WzPropertyCollection> WzImageProperty::ParsePropertyList(

@@ -463,15 +463,13 @@ wz_error_code wz_dir_create_image(wz_dir dir,
 wz_error_code wz_dir_remove_directory(wz_dir dir, wz_dir child) {
   if (!dir) return set_error_null("wz_dir_remove_directory");
   if (!child) return set_error_null("wz_dir_remove_directory");
-  unwrap_dir(dir)->RemoveDirectory(unwrap_dir(child));
-  return wz_clear_last_error();
+  return result_void(unwrap_dir(dir)->TryRemoveDirectory(unwrap_dir(child)));
 }
 
 wz_error_code wz_dir_remove_image(wz_dir dir, wz_image child) {
   if (!dir) return set_error_null("wz_dir_remove_image");
   if (!child) return set_error_null("wz_dir_remove_image");
-  unwrap_dir(dir)->RemoveImage(unwrap_image(child));
-  return wz_clear_last_error();
+  return result_void(unwrap_dir(dir)->TryRemoveImage(unwrap_image(child)));
 }
 
 wz_error_code wz_dir_block_size(wz_dir dir, int* out_block_size) {
@@ -737,8 +735,7 @@ wz_error_code wz_object_set_name(wz_object obj, const char* name) {
 
 wz_error_code wz_object_remove(wz_object obj) {
   if (!obj) return set_error_null("wz_object_remove");
-  unwrap_object(obj)->Remove();
-  return wz_clear_last_error();
+  return result_void(unwrap_object(obj)->TryRemove());
 }
 
 wz_error_code wz_property_get_type(wz_property prop,
@@ -991,8 +988,7 @@ wz_error_code wz_image_remove_property(wz_image img, wz_property prop) {
   if (!img) return set_error_null("wz_image_remove_property");
   auto* p = unwrap_prop(prop);
   if (!p) return set_error_null("wz_image_remove_property");
-  unwrap_image(img)->RemoveProperty(p);
-  return wz_clear_last_error();
+  return result_void(unwrap_image(img)->TryRemoveProperty(p));
 }
 
 wz_error_code wz_property_remove_child(wz_property parent, wz_property child) {

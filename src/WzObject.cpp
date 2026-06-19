@@ -65,6 +65,11 @@ Result<void> WzObject::Rename(const std::string& name) {
   return {};
 }
 
+Result<void> WzObject::TryRemove() {
+  Remove();
+  return {};
+}
+
 std::string WzObject::FullPath() const {
   if (ObjectType() == WzObjectType::File) {
     auto* file = static_cast<const WzFile*>(this);

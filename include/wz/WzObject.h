@@ -29,6 +29,7 @@ class WzObject {
   virtual WzObject* Parent() const { return parent_; }
   virtual void SetParent(WzObject* p) { parent_ = p; }
   virtual WzFile* WzFileParent() const;
+  virtual Result<void> TryRemove();
   virtual void Remove() {}
 
   std::string FullPath() const;
