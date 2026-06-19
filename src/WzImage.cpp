@@ -88,6 +88,10 @@ Result<void> WzImage::TryAddProperty(WzImageProperty* prop) {
     return std::unexpected(
         Error::InvalidArgument("WZ image property name cannot be empty"));
   }
+  if (prop->Parent()) {
+    return std::unexpected(
+        Error::InvalidArgument("WZ image property already has a parent"));
+  }
   // Check for duplicate name (case-insensitive) matching C#
   auto existing = GetPropertyByName(prop->Name());
   if (!existing.has_value()) return std::unexpected(existing.error());

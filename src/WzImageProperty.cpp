@@ -156,6 +156,10 @@ Result<void> WzImageProperty::TryAddChildProperty(WzImageProperty* prop) {
     return std::unexpected(
         Error::InvalidArgument("WZ image property name cannot be empty"));
   }
+  if (prop->Parent()) {
+    return std::unexpected(
+        Error::InvalidArgument("WZ image property already has a parent"));
+  }
   auto* properties = WzProperties();
   if (!properties) {
     return std::unexpected(

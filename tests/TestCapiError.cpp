@@ -434,6 +434,57 @@ TEST(CapiEditing, DetachedPropertyFreeReleasesCallerOwnedProperties) {
   wz_close_file(file);
 }
 
+TEST(CapiEditing, AddRejectsAlreadyOwnedProperties) {
+  wz_file file = nullptr;
+  ASSERT_EQ(wz_create_file(95, WZ_GMS, &file), WZ_ERROR_NONE);
+  wz_dir root = nullptr;
+  ASSERT_EQ(wz_file_get_wz_directory(file, &root), WZ_ERROR_NONE);
+
+  wz_image first_image = nullptr;
+  wz_image second_image = nullptr;
+  ASSERT_EQ(wz_dir_create_image(root, "first.img", &first_image),
+            WZ_ERROR_NONE);
+  ASSERT_EQ(wz_dir_create_image(root, "second.img", &second_image),
+            WZ_ERROR_NONE);
+
+  wz_property prop = nullptr;
+  ASSERT_EQ(wz_property_create_int("count", 1, &prop), WZ_ERROR_NONE);
+  ASSERT_EQ(wz_image_add_property(first_image, prop), WZ_ERROR_NONE);
+  EXPECT_EQ(wz_image_add_property(second_image, prop),
+            WZ_ERROR_INVALID_ARGUMENT);
+  EXPECT_EQ(LastErrorCode(), WZ_ERROR_INVALID_ARGUMENT);
+  EXPECT_EQ(wz_property_free(prop), WZ_ERROR_INVALID_ARGUMENT);
+
+  int count = -1;
+  ASSERT_EQ(wz_image_count_properties(first_image, &count), WZ_ERROR_NONE);
+  EXPECT_EQ(count, 1);
+  ASSERT_EQ(wz_image_count_properties(second_image, &count), WZ_ERROR_NONE);
+  EXPECT_EQ(count, 0);
+
+  wz_property first_parent = nullptr;
+  wz_property second_parent = nullptr;
+  wz_property child = nullptr;
+  ASSERT_EQ(wz_property_create_sub("firstParent", &first_parent),
+            WZ_ERROR_NONE);
+  ASSERT_EQ(wz_property_create_sub("secondParent", &second_parent),
+            WZ_ERROR_NONE);
+  ASSERT_EQ(wz_property_create_int("child", 2, &child), WZ_ERROR_NONE);
+  ASSERT_EQ(wz_image_add_property(first_image, first_parent), WZ_ERROR_NONE);
+  ASSERT_EQ(wz_image_add_property(first_image, second_parent), WZ_ERROR_NONE);
+  ASSERT_EQ(wz_property_add_child(first_parent, child), WZ_ERROR_NONE);
+  EXPECT_EQ(wz_property_add_child(second_parent, child),
+            WZ_ERROR_INVALID_ARGUMENT);
+  EXPECT_EQ(LastErrorCode(), WZ_ERROR_INVALID_ARGUMENT);
+  EXPECT_EQ(wz_property_free(child), WZ_ERROR_INVALID_ARGUMENT);
+
+  ASSERT_EQ(wz_property_count_children(first_parent, &count), WZ_ERROR_NONE);
+  EXPECT_EQ(count, 1);
+  ASSERT_EQ(wz_property_count_children(second_parent, &count), WZ_ERROR_NONE);
+  EXPECT_EQ(count, 0);
+
+  wz_close_file(file);
+}
+
 TEST(CapiEditing, PropertyConstructorsAndSettersRoundTripValues) {
   wz_property null_prop = nullptr;
   ASSERT_EQ(wz_property_create_null("nil", &null_prop), WZ_ERROR_NONE);

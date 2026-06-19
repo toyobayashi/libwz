@@ -228,6 +228,10 @@ Result<void> WzDirectory::TryAddDirectory(std::unique_ptr<WzDirectory> dir) {
     return std::unexpected(
         Error::InvalidArgument("WZ directory name cannot be empty"));
   }
+  if (dir->Parent()) {
+    return std::unexpected(
+        Error::InvalidArgument("WZ directory already has a parent"));
+  }
   if (GetDirectoryByName(dir->Name())) {
     return std::unexpected(
         Error::InvalidArgument("Duplicate WZ directory name: " + dir->Name()));
@@ -248,6 +252,10 @@ Result<void> WzDirectory::TryAddImage(std::unique_ptr<WzImage> img) {
   if (img->Name().empty()) {
     return std::unexpected(
         Error::InvalidArgument("WZ image name cannot be empty"));
+  }
+  if (img->Parent()) {
+    return std::unexpected(
+        Error::InvalidArgument("WZ image already has a parent"));
   }
   if (GetImageByName(img->Name())) {
     return std::unexpected(
