@@ -106,6 +106,19 @@ static wz_property wrap_prop(wz::WzImageProperty* p) {
   return reinterpret_cast<wz_property>(p);
 }
 
+static bool is_mutable_property_container(wz::WzImageProperty* p) {
+  if (!p) return false;
+  switch (p->PropertyType()) {
+    case wz::WzPropertyType::SubProperty:
+    case wz::WzPropertyType::Canvas:
+    case wz::WzPropertyType::Convex:
+    case wz::WzPropertyType::Raw:
+      return p->WzProperties() != nullptr;
+    default:
+      return false;
+  }
+}
+
 static wz::WzFile* unwrap_file(wz_file f) {
   return reinterpret_cast<wz::WzFile*>(f);
 }
@@ -967,6 +980,18 @@ wz_error_code wz_property_create_uol(const char* name,
   return wz_clear_last_error();
 }
 
+wz_error_code wz_property_free(wz_property prop) {
+  auto* p = unwrap_prop(prop);
+  if (!p) return set_error_null("wz_property_free");
+  if (p->Parent()) {
+    return wz_set_last_error(
+        WZ_ERROR_INVALID_ARGUMENT,
+        "wz_property_free: property is owned by a WZ tree");
+  }
+  delete p;
+  return wz_clear_last_error();
+}
+
 wz_error_code wz_image_add_property(wz_image img, wz_property prop) {
   if (!img) return set_error_null("wz_image_add_property");
   auto* p = unwrap_prop(prop);
@@ -979,7 +1004,7 @@ wz_error_code wz_property_add_child(wz_property parent, wz_property child) {
   if (!parentProp) return set_error_null("wz_property_add_child");
   auto* childProp = unwrap_prop(child);
   if (!childProp) return set_error_null("wz_property_add_child");
-  if (!parentProp->WzProperties())
+  if (!is_mutable_property_container(parentProp))
     return set_error_wrong_type("wz_property_add_child");
   return result_void(parentProp->TryAddChildProperty(childProp));
 }
@@ -996,7 +1021,7 @@ wz_error_code wz_property_remove_child(wz_property parent, wz_property child) {
   if (!parentProp) return set_error_null("wz_property_remove_child");
   auto* childProp = unwrap_prop(child);
   if (!childProp) return set_error_null("wz_property_remove_child");
-  if (!parentProp->WzProperties()) {
+  if (!is_mutable_property_container(parentProp)) {
     return set_error_wrong_type("wz_property_remove_child");
   }
   return result_void(parentProp->TryRemoveChildProperty(childProp));
@@ -1011,7 +1036,7 @@ wz_error_code wz_image_clear_properties(wz_image img) {
 wz_error_code wz_property_clear_children(wz_property prop) {
   auto* p = unwrap_prop(prop);
   if (!p) return set_error_null("wz_property_clear_children");
-  if (!p->WzProperties())
+  if (!is_mutable_property_container(p))
     return set_error_wrong_type("wz_property_clear_children");
   return result_void(p->TryClearChildProperties());
 }

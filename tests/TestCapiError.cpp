@@ -364,6 +364,76 @@ TEST(CapiEditing, ImageAndPropertyChildContainersCanBeCleared) {
   wz_close_file(file);
 }
 
+TEST(CapiEditing, UolPropertyRejectsChildMutationApis) {
+  wz_file file = nullptr;
+  ASSERT_EQ(wz_create_file(95, WZ_GMS, &file), WZ_ERROR_NONE);
+  wz_dir root = nullptr;
+  ASSERT_EQ(wz_file_get_wz_directory(file, &root), WZ_ERROR_NONE);
+  wz_image image = nullptr;
+  ASSERT_EQ(wz_dir_create_image(root, "test.img", &image), WZ_ERROR_NONE);
+
+  wz_property target = nullptr;
+  ASSERT_EQ(wz_property_create_sub("target", &target), WZ_ERROR_NONE);
+  ASSERT_EQ(wz_image_add_property(image, target), WZ_ERROR_NONE);
+  wz_property existing_child = nullptr;
+  ASSERT_EQ(wz_property_create_int("existing", 1, &existing_child),
+            WZ_ERROR_NONE);
+  ASSERT_EQ(wz_property_add_child(target, existing_child), WZ_ERROR_NONE);
+
+  wz_property link = nullptr;
+  ASSERT_EQ(wz_property_create_uol("link", "target", &link), WZ_ERROR_NONE);
+  ASSERT_EQ(wz_image_add_property(image, link), WZ_ERROR_NONE);
+
+  int count = -1;
+  ASSERT_EQ(wz_property_count_children(target, &count), WZ_ERROR_NONE);
+  EXPECT_EQ(count, 1);
+
+  wz_property new_child = nullptr;
+  ASSERT_EQ(wz_property_create_int("added", 2, &new_child), WZ_ERROR_NONE);
+  EXPECT_EQ(wz_property_add_child(link, new_child), WZ_ERROR_WRONG_TYPE);
+  EXPECT_EQ(LastErrorCode(), WZ_ERROR_WRONG_TYPE);
+  ASSERT_EQ(wz_property_free(new_child), WZ_ERROR_NONE);
+
+  EXPECT_EQ(wz_property_remove_child(link, existing_child),
+            WZ_ERROR_WRONG_TYPE);
+  EXPECT_EQ(LastErrorCode(), WZ_ERROR_WRONG_TYPE);
+  ASSERT_EQ(wz_property_count_children(target, &count), WZ_ERROR_NONE);
+  EXPECT_EQ(count, 1);
+
+  EXPECT_EQ(wz_property_clear_children(link), WZ_ERROR_WRONG_TYPE);
+  EXPECT_EQ(LastErrorCode(), WZ_ERROR_WRONG_TYPE);
+  ASSERT_EQ(wz_property_count_children(target, &count), WZ_ERROR_NONE);
+  EXPECT_EQ(count, 1);
+
+  wz_close_file(file);
+}
+
+TEST(CapiEditing, DetachedPropertyFreeReleasesCallerOwnedProperties) {
+  wz_property detached = nullptr;
+  ASSERT_EQ(wz_property_create_int("detached", 1, &detached), WZ_ERROR_NONE);
+  ASSERT_EQ(wz_property_free(detached), WZ_ERROR_NONE);
+
+  wz_file file = nullptr;
+  ASSERT_EQ(wz_create_file(95, WZ_GMS, &file), WZ_ERROR_NONE);
+  wz_dir root = nullptr;
+  ASSERT_EQ(wz_file_get_wz_directory(file, &root), WZ_ERROR_NONE);
+  wz_image image = nullptr;
+  ASSERT_EQ(wz_dir_create_image(root, "test.img", &image), WZ_ERROR_NONE);
+
+  wz_property first = nullptr;
+  wz_property duplicate = nullptr;
+  ASSERT_EQ(wz_property_create_int("count", 1, &first), WZ_ERROR_NONE);
+  ASSERT_EQ(wz_property_create_int("COUNT", 2, &duplicate), WZ_ERROR_NONE);
+  ASSERT_EQ(wz_image_add_property(image, first), WZ_ERROR_NONE);
+  ASSERT_EQ(wz_image_add_property(image, duplicate), WZ_ERROR_INVALID_ARGUMENT);
+  ASSERT_EQ(wz_property_free(duplicate), WZ_ERROR_NONE);
+
+  EXPECT_EQ(wz_property_free(first), WZ_ERROR_INVALID_ARGUMENT);
+  EXPECT_EQ(LastErrorCode(), WZ_ERROR_INVALID_ARGUMENT);
+
+  wz_close_file(file);
+}
+
 TEST(CapiEditing, PropertyConstructorsAndSettersRoundTripValues) {
   wz_property null_prop = nullptr;
   ASSERT_EQ(wz_property_create_null("nil", &null_prop), WZ_ERROR_NONE);

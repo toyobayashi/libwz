@@ -202,7 +202,10 @@ wz_error_code wz_property_get_from_path(wz_property prop,
 // Property handles created by wz_property_create_* are owned by the caller
 // until passed to wz_image_add_property or wz_property_add_child. After a
 // successful add call, ownership transfers to the WZ tree and the caller must
-// not separately dispose or free the property handle.
+// not separately dispose or free the property handle. If a created property is
+// not added to a WZ tree, or an add call fails, release it with
+// wz_property_free. Do not call wz_property_free for properties owned by a WZ
+// tree; use the remove APIs instead.
 wz_error_code wz_property_create_null(const char* name,
                                       wz_property* out_property);
 wz_error_code wz_property_create_short(const char* name,
@@ -232,6 +235,7 @@ wz_error_code wz_property_create_vector(const char* name,
 wz_error_code wz_property_create_uol(const char* name,
                                      const char* value,
                                      wz_property* out_property);
+wz_error_code wz_property_free(wz_property prop);
 wz_error_code wz_image_add_property(wz_image img, wz_property prop);
 wz_error_code wz_property_add_child(wz_property parent, wz_property child);
 wz_error_code wz_image_remove_property(wz_image img, wz_property prop);
