@@ -3,10 +3,13 @@
 #include <cstdint>
 #include <filesystem>
 #include <memory>
+#include <sstream>
 #include <string>
 
 #include "wz/Properties/WzIntProperty.h"
+#include "wz/Util/WzBinaryWriter.h"
 #include "wz/Util/WzTool.h"
+#include "wz/WzAESConstant.h"
 #include "wz/WzEnums.h"
 #include "wz/WzFile.h"
 #include "wz/WzImage.h"
@@ -47,6 +50,27 @@ TEST(RepackTest, SharedRotateHandlesZeroAndWrappedCounts) {
             wz::WzTool::RotateLeft(value, 4));
   EXPECT_EQ(wz::WzTool::RotateRight(value, 36),
             wz::WzTool::RotateRight(value, 4));
+}
+
+TEST(RepackTest, EncodedStringLengthMatchesWriterForUtf8Unicode) {
+  const std::string unicodeName = "Name_\xE6\xB5\x8B\xE8\xAF\x95";
+
+  std::ostringstream stringOut(std::ios::out | std::ios::binary);
+  wz::WzBinaryWriter stringWriter(stringOut, wz::WzAESConstant::WZ_GMSIV);
+  stringWriter.WriteString(unicodeName);
+
+  EXPECT_EQ(wz::WzTool::GetEncodedStringLength(unicodeName),
+            static_cast<int>(stringOut.str().size()));
+
+  wz::WzTool::ClearWzObjectValueLengthCache();
+  std::ostringstream objectOut(std::ios::out | std::ios::binary);
+  wz::WzBinaryWriter objectWriter(objectOut, wz::WzAESConstant::WZ_GMSIV);
+  objectWriter.WriteWzObjectValue(unicodeName, wz::WzDirectoryType::WzImage_4);
+
+  EXPECT_EQ(
+      wz::WzTool::GetWzObjectValueLength(
+          unicodeName, static_cast<uint8_t>(wz::WzDirectoryType::WzImage_4)),
+      static_cast<int>(objectOut.str().size()));
 }
 
 TEST(RepackTest, SaveWithoutEditsReopensSampleFile) {
