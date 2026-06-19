@@ -1,8 +1,6 @@
 #include "wz/Util/WzBinaryWriter.h"
 #include <cstring>
 #include <utility>
-#include <vector>
-#include "wz/Util/WzTool.h"
 #include "wz/WzAESConstant.h"
 
 namespace wz {
@@ -75,6 +73,12 @@ bool NeedsUnicode(const std::u16string& value) {
     if (ch > INT8_MAX) return true;
   }
   return false;
+}
+
+uint32_t RotateLeft32(uint32_t value, uint8_t count) {
+  count &= 0x1F;
+  if (count == 0) return value;
+  return static_cast<uint32_t>((value << count) | (value >> (32 - count)));
 }
 
 }  // namespace
@@ -285,8 +289,7 @@ void WzBinaryWriter::WriteOffset(int64_t value) {
   encOffset = (encOffset - header_.FStart()) ^ 0xFFFFFFFFu;
   encOffset *= hash_;
   encOffset -= WzAESConstant::WZ_OffsetConstant;
-  encOffset =
-      WzTool::RotateLeft(encOffset, static_cast<uint8_t>(encOffset & 0x1F));
+  encOffset = RotateLeft32(encOffset, static_cast<uint8_t>(encOffset));
   uint32_t writeOffset =
       encOffset ^ (static_cast<uint32_t>(value) - (header_.FStart() * 2));
   WriteUInt32(writeOffset);

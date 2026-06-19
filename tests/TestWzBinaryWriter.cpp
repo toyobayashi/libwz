@@ -20,6 +20,12 @@ std::filesystem::path TempPath(const std::string& name) {
   return std::filesystem::temp_directory_path() / name;
 }
 
+std::vector<uint8_t> ReadAll(const std::filesystem::path& path) {
+  std::ifstream in(path, std::ios::binary);
+  return std::vector<uint8_t>(std::istreambuf_iterator<char>(in),
+                              std::istreambuf_iterator<char>());
+}
+
 }  // namespace
 
 TEST(WzBinaryWriterTest, WritesCompressedIntegersLikeReaderExpects) {
@@ -164,6 +170,43 @@ TEST(WzBinaryWriterTest, WriteOffsetRoundTripsThroughReader) {
 
   reader.ReadUInt32();
   EXPECT_EQ(reader.ReadOffset(), kTargetOffset);
+
+  std::error_code ec;
+  std::filesystem::remove(path, ec);
+}
+
+TEST(WzBinaryWriterTest, WriteOffsetUsesIdentityRotationForCountZero) {
+  const auto path = TempPath("libwz_binary_writer_offset_rotate_zero.bin");
+  wz::WzHeader header = wz::WzHeader::GetDefault();
+  header.SetFStart(4);
+  constexpr uint32_t kHash = 13;
+  constexpr uint32_t kTargetOffset = 4096;
+
+  {
+    std::ofstream out(path, std::ios::binary);
+    wz::WzBinaryWriter writer(out, wz::WzAESConstant::WZ_GMSIV);
+    writer.SetHeader(header);
+    writer.SetHash(kHash);
+
+    for (int i = 0; i < 34; ++i) {
+      writer.WriteByte(0);
+    }
+    writer.WriteOffset(kTargetOffset);
+  }
+
+  const uint32_t pre_rotate =
+      ((((34u - header.FStart()) ^ 0xFFFFFFFFu) * kHash) -
+       wz::WzAESConstant::WZ_OffsetConstant);
+  ASSERT_EQ(pre_rotate & 0x1Fu, 0u);
+  const uint32_t expected =
+      pre_rotate ^ (kTargetOffset - (header.FStart() * 2));
+
+  const std::vector<uint8_t> bytes = ReadAll(path);
+  ASSERT_EQ(bytes.size(), 38u);
+  EXPECT_EQ(bytes[34], static_cast<uint8_t>(expected & 0xFFu));
+  EXPECT_EQ(bytes[35], static_cast<uint8_t>((expected >> 8) & 0xFFu));
+  EXPECT_EQ(bytes[36], static_cast<uint8_t>((expected >> 16) & 0xFFu));
+  EXPECT_EQ(bytes[37], static_cast<uint8_t>((expected >> 24) & 0xFFu));
 
   std::error_code ec;
   std::filesystem::remove(path, ec);
