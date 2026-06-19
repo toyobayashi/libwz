@@ -1,5 +1,8 @@
 package io.github.toyobayashi.libwz;
 
+import java.util.ArrayList;
+import java.util.List;
+
 public class WzImage extends WzObject {
     WzImage(long ptr) { super(ptr); }
 
@@ -43,27 +46,50 @@ public class WzImage extends WzObject {
     }
 
     public void removeProperty(WzImageProperty property) {
-        long ptr = property.nativePtr();
-        nativeRemoveProperty(nativePtr, ptr);
-        invalidateNativePtr(ptr);
+        List<Long> ptrs = property.collectNativeSubtreePointers();
+        nativeRemoveProperty(nativePtr, property.nativePtr());
+        invalidateNativePtrs(ptrs);
     }
 
     public void clearProperties() {
         int count = nativeCountProperties(nativePtr);
-        long[] childPtrs = new long[count];
+        List<Long> ptrs = new ArrayList<>();
         for (int i = 0; i < count; i++) {
-            childPtrs[i] = nativeGetProperty(nativePtr, i);
+            WzImageProperty.collectPropertyPointers(
+                nativeGetProperty(nativePtr, i), ptrs);
         }
         nativeClearProperties(nativePtr);
-        for (long ptr : childPtrs) invalidateNativePtr(ptr);
+        invalidateNativePtrs(ptrs);
     }
 
     @Override
     protected void dispose() {
         if (ownsNative() && nativePtr != 0) {
-            long ptr = nativePtr;
-            nativeDispose(ptr);
-            invalidateNativePtr(ptr);
+            List<Long> ptrs = collectNativeSubtreePointers();
+            nativeDispose(nativePtr);
+            invalidateNativePtrs(ptrs);
+        }
+    }
+
+    @Override
+    protected List<Long> collectNativeSubtreePointers() {
+        List<Long> ptrs = super.collectNativeSubtreePointers();
+        collectImageChildrenPointers(nativePtr, ptrs);
+        return ptrs;
+    }
+
+    static void collectImagePointers(long ptr, List<Long> ptrs) {
+        addNativePtr(ptrs, ptr);
+        collectImageChildrenPointers(ptr, ptrs);
+    }
+
+    private static void collectImageChildrenPointers(long ptr,
+                                                     List<Long> ptrs) {
+        if (ptr == 0) return;
+        int count = nativeCountProperties(ptr);
+        for (int i = 0; i < count; i++) {
+            WzImageProperty.collectPropertyPointers(nativeGetProperty(ptr, i),
+                                                    ptrs);
         }
     }
 }

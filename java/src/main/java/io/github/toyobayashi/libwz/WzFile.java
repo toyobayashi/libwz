@@ -1,6 +1,7 @@
 package io.github.toyobayashi.libwz;
 
 import io.github.toyobayashi.libwz.WzEnums.*;
+import java.util.List;
 
 public class WzFile extends WzObject {
     public WzFile(String path, short gameVersion, MapleVersion version) {
@@ -101,9 +102,19 @@ public class WzFile extends WzObject {
     @Override
     protected void dispose() {
         if (ownsNative() && nativePtr != 0) {
-            long ptr = nativePtr;
-            nativeDispose(ptr);
-            invalidateNativePtr(ptr);
+            List<Long> ptrs = collectNativeSubtreePointers();
+            nativeDispose(nativePtr);
+            invalidateNativePtrs(ptrs);
         }
+    }
+
+    @Override
+    protected List<Long> collectNativeSubtreePointers() {
+        List<Long> ptrs = super.collectNativeSubtreePointers();
+        if (nativePtr != 0) {
+            WzDirectory.collectDirectoryPointers(nativeGetWzDirectory(nativePtr),
+                                                 ptrs);
+        }
+        return ptrs;
     }
 }

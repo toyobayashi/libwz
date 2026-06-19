@@ -49,9 +49,9 @@ public abstract class WzObject implements AutoCloseable {
     public void setName(String name) { nativeSetName(nativePtr, name); }
 
     public void remove() {
-        long ptr = nativePtr;
-        nativeRemove(ptr);
-        invalidateNativePtr(ptr);
+        List<Long> ptrs = collectNativeSubtreePointers();
+        nativeRemove(nativePtr);
+        invalidateNativePtrs(ptrs);
     }
 
     public WzObject getParent() {
@@ -118,6 +118,21 @@ public abstract class WzObject implements AutoCloseable {
                 }
             }
         }
+    }
+
+    static void invalidateNativePtrs(List<Long> ptrs) {
+        for (long ptr : ptrs) invalidateNativePtr(ptr);
+    }
+
+    protected List<Long> collectNativeSubtreePointers() {
+        List<Long> ptrs = new ArrayList<>();
+        addNativePtr(ptrs, nativePtr);
+        return ptrs;
+    }
+
+    static void addNativePtr(List<Long> ptrs, long ptr) {
+        if (ptr == 0 || ptrs.contains(ptr)) return;
+        ptrs.add(ptr);
     }
 
     private static void unregisterLocked(long ptr, WzObject object) {

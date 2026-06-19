@@ -159,10 +159,23 @@ class EditingTest {
     @Test
     void removingWzFileUsesCloseLifecycle() {
         WzFile file = WzFile.create((short)95, MapleVersion.GMS);
-        assertNotNull(file.getWzDirectory());
+        WzDirectory root = file.getWzDirectory();
+        WzImage image = root.addImage("Item.img");
+        WzIntProperty property = WzPropertyFactory.createInt("id", 123);
+        image.addProperty(property);
+        WzImage imageAlias = root.getImageByName("Item.img");
+        WzImageProperty propertyAlias = image.getFromPath("id");
+        assertNotNull(root);
+        assertNotNull(imageAlias);
+        assertNotNull(propertyAlias);
 
         file.remove();
         assertEquals(0, file.nativePtr());
+        assertEquals(0, root.nativePtr());
+        assertEquals(0, image.nativePtr());
+        assertEquals(0, imageAlias.nativePtr());
+        assertEquals(0, property.nativePtr());
+        assertEquals(0, propertyAlias.nativePtr());
         file.close();
         assertEquals(0, file.nativePtr());
     }
@@ -184,11 +197,24 @@ class EditingTest {
         try (WzFile file = WzFile.create((short)95, MapleVersion.GMS)) {
             WzImage image = file.getWzDirectory().addImage("Item.img");
             image.addProperty(WzPropertyFactory.createInt("id", 123));
+            WzSubProperty info = WzPropertyFactory.createSub("info");
+            WzStringProperty title =
+                WzPropertyFactory.createString("title", "nested");
+            info.addProperty(title);
+            image.addProperty(info);
             WzImageProperty imageChildAlias = image.getFromPath("id");
+            WzImageProperty infoAlias = image.getFromPath("info");
+            WzImageProperty titleAlias = info.getFromPath("title");
             assertNotNull(imageChildAlias);
+            assertNotNull(infoAlias);
+            assertNotNull(titleAlias);
 
             image.clearProperties();
             assertEquals(0, imageChildAlias.nativePtr());
+            assertEquals(0, info.nativePtr());
+            assertEquals(0, infoAlias.nativePtr());
+            assertEquals(0, title.nativePtr());
+            assertEquals(0, titleAlias.nativePtr());
 
             WzSubProperty sub = WzPropertyFactory.createSub("info");
             WzStringProperty name = WzPropertyFactory.createString("name", "old");
@@ -203,6 +229,51 @@ class EditingTest {
             assertEquals(0, nestedAlias.nativePtr());
             assertEquals(sub.nativePtr(), subAlias.nativePtr());
         }
+    }
+
+    @Test
+    void removingPropertyInvalidatesDescendantAliases() {
+        try (WzFile file = WzFile.create((short)95, MapleVersion.GMS)) {
+            WzImage image = file.getWzDirectory().addImage("Item.img");
+            WzSubProperty sub = WzPropertyFactory.createSub("info");
+            WzIntProperty id = WzPropertyFactory.createInt("id", 123);
+            sub.addProperty(id);
+            image.addProperty(sub);
+            WzImageProperty subAlias = image.getFromPath("info");
+            WzImageProperty idAlias = sub.getFromPath("id");
+            assertNotNull(subAlias);
+            assertNotNull(idAlias);
+
+            image.removeProperty(subAlias);
+            assertEquals(0, sub.nativePtr());
+            assertEquals(0, subAlias.nativePtr());
+            assertEquals(0, id.nativePtr());
+            assertEquals(0, idAlias.nativePtr());
+        }
+    }
+
+    @Test
+    void closeWzFileInvalidatesFetchedTreeWrappers() {
+        WzFile file = WzFile.create((short)95, MapleVersion.GMS);
+        WzDirectory root = file.getWzDirectory();
+        WzImage image = root.addImage("Item.img");
+        WzSubProperty sub = WzPropertyFactory.createSub("info");
+        WzIntProperty id = WzPropertyFactory.createInt("id", 123);
+        sub.addProperty(id);
+        image.addProperty(sub);
+        WzImage imageAlias = root.getImageByName("Item.img");
+        WzImageProperty subAlias = image.getFromPath("info");
+        WzImageProperty idAlias = sub.getFromPath("id");
+
+        file.close();
+        assertEquals(0, file.nativePtr());
+        assertEquals(0, root.nativePtr());
+        assertEquals(0, image.nativePtr());
+        assertEquals(0, imageAlias.nativePtr());
+        assertEquals(0, sub.nativePtr());
+        assertEquals(0, subAlias.nativePtr());
+        assertEquals(0, id.nativePtr());
+        assertEquals(0, idAlias.nativePtr());
     }
 
     @Test

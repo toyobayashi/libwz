@@ -91,23 +91,48 @@ public class WzDirectory extends WzObject {
     }
 
     public void removeDirectory(WzDirectory directory) {
-        long ptr = directory.nativePtr();
-        nativeRemoveDirectory(nativePtr, ptr);
-        invalidateNativePtr(ptr);
+        List<Long> ptrs = directory.collectNativeSubtreePointers();
+        nativeRemoveDirectory(nativePtr, directory.nativePtr());
+        invalidateNativePtrs(ptrs);
     }
 
     public void removeImage(WzImage image) {
-        long ptr = image.nativePtr();
-        nativeRemoveImage(nativePtr, ptr);
-        invalidateNativePtr(ptr);
+        List<Long> ptrs = image.collectNativeSubtreePointers();
+        nativeRemoveImage(nativePtr, image.nativePtr());
+        invalidateNativePtrs(ptrs);
     }
 
     @Override
     protected void dispose() {
         if (ownsNative() && nativePtr != 0) {
-            long ptr = nativePtr;
-            nativeDispose(ptr);
-            invalidateNativePtr(ptr);
+            List<Long> ptrs = collectNativeSubtreePointers();
+            nativeDispose(nativePtr);
+            invalidateNativePtrs(ptrs);
+        }
+    }
+
+    @Override
+    protected List<Long> collectNativeSubtreePointers() {
+        List<Long> ptrs = super.collectNativeSubtreePointers();
+        collectDirectoryChildrenPointers(nativePtr, ptrs);
+        return ptrs;
+    }
+
+    static void collectDirectoryPointers(long ptr, List<Long> ptrs) {
+        addNativePtr(ptrs, ptr);
+        collectDirectoryChildrenPointers(ptr, ptrs);
+    }
+
+    private static void collectDirectoryChildrenPointers(long ptr,
+                                                         List<Long> ptrs) {
+        if (ptr == 0) return;
+        int imageCount = nativeCountImages(ptr);
+        for (int i = 0; i < imageCount; i++) {
+            WzImage.collectImagePointers(nativeGetImage(ptr, i), ptrs);
+        }
+        int directoryCount = nativeCountDirectories(ptr);
+        for (int i = 0; i < directoryCount; i++) {
+            collectDirectoryPointers(nativeGetDirectory(ptr, i), ptrs);
         }
     }
 }
