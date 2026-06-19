@@ -15,8 +15,11 @@ interface NativeObjectInfo {
 interface NativeBinding {
   openFile(path: string, gameVersion: number, mapleVersion: MapleVersionValue): NullableNativeHandle;
   openFileWithIv(path: string, iv: ArrayBufferViewLike): NullableNativeHandle;
+  createFile(gameVersion: number, mapleVersion: MapleVersionValue): NullableNativeHandle;
   closeFile(ptr: NativeHandle): void;
   parseFile(ptr: NativeHandle): ParseStatusValue;
+  fileSaveToDisk(ptr: NativeHandle, path: string): void;
+  fileSaveToDiskEx(ptr: NativeHandle, path: string, saveAs64Bit: boolean, mapleVersion: MapleVersionValue): void;
   fileName(ptr: NativeHandle): string;
   filePath(ptr: NativeHandle): string;
   fileVersion(ptr: NativeHandle): number;
@@ -35,6 +38,8 @@ interface NativeBinding {
   objectTopMostDirectory(ptr: NativeHandle): NativeObjectInfo | null;
   objectTopMostImage(ptr: NativeHandle): NativeObjectInfo | null;
   objectAt(ptr: NativeHandle, name: string): NativeObjectInfo | null;
+  objectSetName(ptr: NativeHandle, name: string): void;
+  objectRemove(ptr: NativeHandle): void;
 
   dirName(ptr: NativeHandle): string;
   dirCountImagesTotal(ptr: NativeHandle): number;
@@ -44,6 +49,10 @@ interface NativeBinding {
   dirGetImageByName(ptr: NativeHandle, name: string): NullableNativeHandle;
   dirGetDirectory(ptr: NativeHandle, index: number): NullableNativeHandle;
   dirGetDirectoryByName(ptr: NativeHandle, name: string): NullableNativeHandle;
+  dirCreateDirectory(ptr: NativeHandle, name: string): NullableNativeHandle;
+  dirCreateImage(ptr: NativeHandle, name: string): NullableNativeHandle;
+  dirRemoveDirectory(ptr: NativeHandle, child: NativeHandle): void;
+  dirRemoveImage(ptr: NativeHandle, child: NativeHandle): void;
   dirBlockSize(ptr: NativeHandle): number;
   dirChecksum(ptr: NativeHandle): number;
   dirOffset(ptr: NativeHandle): number;
@@ -59,6 +68,9 @@ interface NativeBinding {
   imageCountProperties(ptr: NativeHandle): number;
   imageGetProperty(ptr: NativeHandle, index: number): NullableNativeHandle;
   imageGetFromPath(ptr: NativeHandle, path: string): NullableNativeHandle;
+  imageAddProperty(ptr: NativeHandle, prop: NativeHandle): void;
+  imageRemoveProperty(ptr: NativeHandle, prop: NativeHandle): void;
+  imageClearProperties(ptr: NativeHandle): void;
 
   propType(ptr: NativeHandle): PropertyTypeValue;
   propName(ptr: NativeHandle): string;
@@ -75,14 +87,33 @@ interface NativeBinding {
   propGetString(ptr: NativeHandle): string;
   propGetBytes(ptr: NativeHandle): Uint8Array;
   propIsVideo(ptr: NativeHandle): boolean;
+  propertyCreateNull(name: string): NullableNativeHandle;
+  propertyCreateShort(name: string, value: number): NullableNativeHandle;
+  propertyCreateInt(name: string, value: number): NullableNativeHandle;
+  propertyCreateLong(name: string, value: bigint): NullableNativeHandle;
+  propertyCreateFloat(name: string, value: number): NullableNativeHandle;
+  propertyCreateDouble(name: string, value: number): NullableNativeHandle;
+  propertyCreateString(name: string, value: string): NullableNativeHandle;
+  propertyCreateSub(name: string): NullableNativeHandle;
+  propertyCreateVector(name: string, x: number, y: number): NullableNativeHandle;
+  propertyCreateUol(name: string, value: string): NullableNativeHandle;
+  propertyFree(ptr: NativeHandle): void;
+  propertyAddChild(ptr: NativeHandle, child: NativeHandle): void;
+  propertyRemoveChild(ptr: NativeHandle, child: NativeHandle): void;
+  propertyClearChildren(ptr: NativeHandle): void;
 
   shortValue(ptr: NativeHandle): number;
+  shortSetValue(ptr: NativeHandle, value: number): void;
   intValue(ptr: NativeHandle): number;
   intSetValue(ptr: NativeHandle, value: number): void;
   longValue(ptr: NativeHandle): bigint;
+  longSetValue(ptr: NativeHandle, value: bigint): void;
   floatValue(ptr: NativeHandle): number;
+  floatSetValue(ptr: NativeHandle, value: number): void;
   doubleValue(ptr: NativeHandle): number;
+  doubleSetValue(ptr: NativeHandle, value: number): void;
   stringValue(ptr: NativeHandle): string;
+  stringSetValue(ptr: NativeHandle, value: string): void;
 
   canvasPng(ptr: NativeHandle): NullableNativeHandle;
   canvasContainsInlink(ptr: NativeHandle): boolean;
@@ -110,6 +141,7 @@ interface NativeBinding {
   rawType(ptr: NativeHandle): number;
   videoData(ptr: NativeHandle): Uint8Array;
   uolValue(ptr: NativeHandle): string;
+  uolSetValue(ptr: NativeHandle, value: string): void;
   uolLinkValue(ptr: NativeHandle): NativeObjectInfo | null;
   luaData(ptr: NativeHandle): Uint8Array;
   luaString(ptr: NativeHandle): string;
@@ -218,7 +250,7 @@ function createWzFile(ptr: NativeHandle, ownsNative = false): WzFile {
 
 export class WzObject {
   protected _ptr: NativeHandle;
-  protected readonly _ownsNative: boolean;
+  protected _ownsNative: boolean;
 
   constructor(ptr: NativeHandle, ownsNative = false) {
     if (new.target === WzObject) {
@@ -236,6 +268,14 @@ export class WzObject {
 
   protected _assertAlive(): void {
     if (this._ptr === 0n) throw new Error("native object is disposed");
+  }
+
+  _markBorrowed(): void {
+    this._ownsNative = false;
+  }
+
+  _markDisposed(): void {
+    this._ptr = 0n;
   }
 
   ownsNative(): boolean {
@@ -275,6 +315,15 @@ export class WzObject {
     return wrapObjectInfo(native.objectAt(this.nativePtr(), name));
   }
 
+  setName(name: string): void {
+    native.objectSetName(this.nativePtr(), name);
+  }
+
+  remove(): void {
+    native.objectRemove(this.nativePtr());
+    this._markDisposed();
+  }
+
   close(): void {}
 
   [Symbol.dispose](): void {
@@ -283,6 +332,12 @@ export class WzObject {
 }
 
 export class WzFile extends WzObject {
+  static create(gameVersion: number, mapleVersion: MapleVersionValue): WzFile {
+    const ptr = native.createFile(gameVersion, mapleVersion);
+    if (ptr === null) throw new Error("failed to create WZ file");
+    return createWzFile(ptr, true);
+  }
+
   constructor(path: string, mapleVersion?: MapleVersionValue);
   constructor(path: string, gameVersion: number, mapleVersion: MapleVersionValue);
   constructor(path: string, iv: ArrayBufferViewLike);
@@ -308,6 +363,14 @@ export class WzFile extends WzObject {
 
   parseWzFile(): ParseStatusValue {
     return native.parseFile(this.nativePtr());
+  }
+
+  saveToDisk(path: string): void {
+    native.fileSaveToDisk(this.nativePtr(), path);
+  }
+
+  saveToDiskEx(path: string, saveAs64Bit: boolean, mapleVersion: MapleVersionValue): void {
+    native.fileSaveToDiskEx(this.nativePtr(), path, saveAs64Bit, mapleVersion);
   }
 
   getName(): string {
@@ -398,6 +461,28 @@ export class WzDirectory extends WzObject {
     return ptr === null ? null : new WzDirectory(ptr);
   }
 
+  createDirectory(name: string): WzDirectory {
+    const ptr = native.dirCreateDirectory(this.nativePtr(), name);
+    if (ptr === null) throw new Error("failed to create WZ directory");
+    return new WzDirectory(ptr);
+  }
+
+  createImage(name: string): WzImage {
+    const ptr = native.dirCreateImage(this.nativePtr(), name);
+    if (ptr === null) throw new Error("failed to create WZ image");
+    return new WzImage(ptr);
+  }
+
+  removeDirectory(child: WzDirectory): void {
+    native.dirRemoveDirectory(this.nativePtr(), child.nativePtr());
+    child._markDisposed();
+  }
+
+  removeImage(child: WzImage): void {
+    native.dirRemoveImage(this.nativePtr(), child.nativePtr());
+    child._markDisposed();
+  }
+
   getBlockSize(): number {
     return native.dirBlockSize(this.nativePtr());
   }
@@ -455,6 +540,20 @@ export class WzImage extends WzObject {
   getFromPath(path: string): WzImageProperty | null {
     const ptr = native.imageGetFromPath(this.nativePtr(), path);
     return ptr === null ? null : wrapProperty(ptr);
+  }
+
+  addProperty(prop: WzImageProperty): void {
+    native.imageAddProperty(this.nativePtr(), prop.nativePtr());
+    prop._markBorrowed();
+  }
+
+  removeProperty(prop: WzImageProperty): void {
+    native.imageRemoveProperty(this.nativePtr(), prop.nativePtr());
+    prop._markDisposed();
+  }
+
+  clearProperties(): void {
+    native.imageClearProperties(this.nativePtr());
   }
 }
 
@@ -527,6 +626,27 @@ export class WzImageProperty extends WzObject {
   getBytes(): Uint8Array {
     return native.propGetBytes(this.nativePtr());
   }
+
+  addProperty(child: WzImageProperty): void {
+    native.propertyAddChild(this.nativePtr(), child.nativePtr());
+    child._markBorrowed();
+  }
+
+  removeProperty(child: WzImageProperty): void {
+    native.propertyRemoveChild(this.nativePtr(), child.nativePtr());
+    child._markDisposed();
+  }
+
+  clearProperties(): void {
+    native.propertyClearChildren(this.nativePtr());
+  }
+
+  close(): void {
+    if (this._ownsNative && this._ptr !== 0n) {
+      native.propertyFree(this._ptr);
+      this._ptr = 0n;
+    }
+  }
 }
 
 export class WzNullProperty extends WzImageProperty {}
@@ -534,6 +654,10 @@ export class WzNullProperty extends WzImageProperty {}
 export class WzShortProperty extends WzImageProperty {
   getValue(): number {
     return native.shortValue(this.nativePtr());
+  }
+
+  setValue(value: number): void {
+    native.shortSetValue(this.nativePtr(), value);
   }
 }
 
@@ -551,11 +675,19 @@ export class WzLongProperty extends WzImageProperty {
   getValue(): bigint {
     return native.longValue(this.nativePtr());
   }
+
+  setValue(value: bigint): void {
+    native.longSetValue(this.nativePtr(), value);
+  }
 }
 
 export class WzFloatProperty extends WzImageProperty {
   getValue(): number {
     return native.floatValue(this.nativePtr());
+  }
+
+  setValue(value: number): void {
+    native.floatSetValue(this.nativePtr(), value);
   }
 }
 
@@ -563,11 +695,19 @@ export class WzDoubleProperty extends WzImageProperty {
   getValue(): number {
     return native.doubleValue(this.nativePtr());
   }
+
+  setValue(value: number): void {
+    native.doubleSetValue(this.nativePtr(), value);
+  }
 }
 
 export class WzStringProperty extends WzImageProperty {
   getValue(): string {
     return native.stringValue(this.nativePtr());
+  }
+
+  setValue(value: string): void {
+    native.stringSetValue(this.nativePtr(), value);
   }
 }
 
@@ -678,6 +818,10 @@ export class WzUOLProperty extends WzImageProperty {
     return native.uolValue(this.nativePtr());
   }
 
+  setValue(value: string): void {
+    native.uolSetValue(this.nativePtr(), value);
+  }
+
   getLinkValue(): WzObject | null {
     return wrapObjectInfo(native.uolLinkValue(this.nativePtr()));
   }
@@ -706,29 +850,76 @@ function wrapObject(type: ObjectTypeValue, ptr: NativeHandle): WzObject | null {
   return null;
 }
 
-function wrapProperty(ptr: NativeHandle): WzImageProperty {
+function requireProperty(ptr: NullableNativeHandle): WzImageProperty {
+  if (ptr === null) throw new Error("failed to create WZ property");
+  return wrapProperty(ptr, true);
+}
+
+export class WzProperty {
+  static createNull(name: string): WzImageProperty {
+    return requireProperty(native.propertyCreateNull(name));
+  }
+
+  static createShort(name: string, value: number): WzShortProperty {
+    return requireProperty(native.propertyCreateShort(name, value)) as WzShortProperty;
+  }
+
+  static createInt(name: string, value: number): WzIntProperty {
+    return requireProperty(native.propertyCreateInt(name, value)) as WzIntProperty;
+  }
+
+  static createLong(name: string, value: bigint): WzLongProperty {
+    return requireProperty(native.propertyCreateLong(name, value)) as WzLongProperty;
+  }
+
+  static createFloat(name: string, value: number): WzFloatProperty {
+    return requireProperty(native.propertyCreateFloat(name, value)) as WzFloatProperty;
+  }
+
+  static createDouble(name: string, value: number): WzDoubleProperty {
+    return requireProperty(native.propertyCreateDouble(name, value)) as WzDoubleProperty;
+  }
+
+  static createString(name: string, value: string): WzStringProperty {
+    return requireProperty(native.propertyCreateString(name, value)) as WzStringProperty;
+  }
+
+  static createSub(name: string): WzSubProperty {
+    return requireProperty(native.propertyCreateSub(name)) as WzSubProperty;
+  }
+
+  static createVector(name: string, x: number, y: number): WzVectorProperty {
+    return requireProperty(native.propertyCreateVector(name, x, y)) as WzVectorProperty;
+  }
+
+  static createUol(name: string, value: string): WzUOLProperty {
+    return requireProperty(native.propertyCreateUol(name, value)) as WzUOLProperty;
+  }
+}
+
+function wrapProperty(ptr: NativeHandle, ownsNative = false): WzImageProperty {
   const type = native.propType(ptr);
-  if (type === PropertyType.NULL) return new WzNullProperty(ptr);
-  if (type === PropertyType.SHORT) return new WzShortProperty(ptr);
-  if (type === PropertyType.INT) return new WzIntProperty(ptr);
-  if (type === PropertyType.LONG) return new WzLongProperty(ptr);
-  if (type === PropertyType.FLOAT) return new WzFloatProperty(ptr);
-  if (type === PropertyType.DOUBLE) return new WzDoubleProperty(ptr);
-  if (type === PropertyType.STRING) return new WzStringProperty(ptr);
-  if (type === PropertyType.SUB) return new WzSubProperty(ptr);
-  if (type === PropertyType.CANVAS) return new WzCanvasProperty(ptr);
-  if (type === PropertyType.VECTOR) return new WzVectorProperty(ptr);
-  if (type === PropertyType.CONVEX) return new WzConvexProperty(ptr);
-  if (type === PropertyType.SOUND) return new WzBinaryProperty(ptr);
+  if (type === PropertyType.NULL) return new WzNullProperty(ptr, ownsNative);
+  if (type === PropertyType.SHORT) return new WzShortProperty(ptr, ownsNative);
+  if (type === PropertyType.INT) return new WzIntProperty(ptr, ownsNative);
+  if (type === PropertyType.LONG) return new WzLongProperty(ptr, ownsNative);
+  if (type === PropertyType.FLOAT) return new WzFloatProperty(ptr, ownsNative);
+  if (type === PropertyType.DOUBLE) return new WzDoubleProperty(ptr, ownsNative);
+  if (type === PropertyType.STRING) return new WzStringProperty(ptr, ownsNative);
+  if (type === PropertyType.SUB) return new WzSubProperty(ptr, ownsNative);
+  if (type === PropertyType.CANVAS) return new WzCanvasProperty(ptr, ownsNative);
+  if (type === PropertyType.VECTOR) return new WzVectorProperty(ptr, ownsNative);
+  if (type === PropertyType.CONVEX) return new WzConvexProperty(ptr, ownsNative);
+  if (type === PropertyType.SOUND) return new WzBinaryProperty(ptr, ownsNative);
   if (type === PropertyType.RAW) {
     return native.propIsVideo(ptr)
-      ? new WzVideoProperty(ptr)
-      : new WzRawDataProperty(ptr);
+      ? new WzVideoProperty(ptr, ownsNative)
+      : new WzRawDataProperty(ptr, ownsNative);
   }
-  if (type === PropertyType.UOL) return new WzUOLProperty(ptr);
-  if (type === PropertyType.LUA) return new WzLuaProperty(ptr);
-  if (type === PropertyType.PNG) return new WzPngProperty(ptr);
-  return new WzImageProperty(ptr);
+  if (type === PropertyType.UOL) return new WzUOLProperty(ptr, ownsNative);
+  if (type === PropertyType.LUA) return new WzLuaProperty(ptr, ownsNative);
+  if (type === PropertyType.PNG) return new WzPngProperty(ptr, ownsNative);
+  return new WzImageProperty(ptr, ownsNative);
 }
 
 export const WzTool = Object.freeze({

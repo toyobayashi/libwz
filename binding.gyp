@@ -73,6 +73,7 @@
         "src/Util/WzMutableKey.cpp",
         "src/Util/WzKeyGenerator.cpp",
         "src/Util/WzBinaryReader.cpp",
+        "src/Util/WzBinaryWriter.cpp",
         "src/Util/WzTool.cpp",
         "src/Util/ListFileParser.cpp",
         "src/PngUtility.cpp",

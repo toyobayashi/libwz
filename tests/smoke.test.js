@@ -1,5 +1,7 @@
 const assert = require("node:assert/strict");
 const path = require("node:path");
+const fs = require("node:fs");
+const os = require("node:os");
 const test = require("node:test");
 const wz = require("..");
 
@@ -111,5 +113,48 @@ test("parses the same legacy WZ files covered by UnitTest_WzFile", () => {
     } finally {
       file.close();
     }
+  }
+});
+
+test("creates, edits, saves, and reopens a WZ file", () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "libwz-node-"));
+  const outPath = path.join(tmpDir, "Task8.wz");
+  const file = wz.WzFile.create(87, wz.MapleVersion.GMS);
+  try {
+    const root = file.getWzDirectory();
+    assert.ok(root instanceof wz.WzDirectory);
+
+    const image = root.createImage("Edit.img");
+    assert.ok(image instanceof wz.WzImage);
+    const value = wz.WzProperty.createInt("answer", 42);
+    image.addProperty(value);
+    value.setValue(84);
+
+    assert.equal(image.wzProperties().length, 1);
+    assert.equal(image.getFromPath("answer").getValue(), 84);
+    const duplicate = wz.WzProperty.createInt("answer", 1);
+    assert.throws(() => image.addProperty(duplicate));
+    duplicate.close();
+
+    const detached = wz.WzProperty.createString("detached", "free me");
+    detached.close();
+
+    file.saveToDiskEx(outPath, false, wz.MapleVersion.GMS);
+  } finally {
+    file.close();
+  }
+
+  const reopened = new wz.WzFile(outPath, wz.MapleVersion.GMS);
+  try {
+    assert.equal(reopened.parseWzFile(), wz.ParseStatus.SUCCESS);
+    const image = reopened.getWzDirectory().getImageByName("Edit.img");
+    assert.ok(image instanceof wz.WzImage);
+    image.parseImage();
+    const value = image.getFromPath("answer");
+    assert.ok(value instanceof wz.WzIntProperty);
+    assert.equal(value.getValue(), 84);
+  } finally {
+    reopened.close();
+    fs.rmSync(tmpDir, { recursive: true, force: true });
   }
 });
