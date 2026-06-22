@@ -3,10 +3,11 @@
 ## Goal
 
 Make the browser API feel like the existing Node API while respecting browser
-asynchrony. Users should be able to learn one object model and use it in three
+asynchrony. Users should be able to learn one object model and use it in four
 places:
 
 - Node.js through the existing `libwz` entry.
+- Node.js through the Wasm target, without a Worker proxy.
 - Browser main thread through an async Worker proxy.
 - User-owned Web Workers through a direct Wasm API.
 
@@ -40,6 +41,36 @@ const root = file.getWzDirectory();
 
 This entry continues to load the native Node addon and is not browser-safe.
 
+### Node.js Wasm Direct Entry: `libwz/wasm/node`
+
+Node.js users may intentionally choose the Wasm build instead of the native
+addon, for example to avoid native installation or to run in an environment
+that supports Wasm but not native addons. In Node.js there is no need for a
+Worker proxy because synchronous filesystem access is available:
+
+```ts
+import { createWzNodeApi, MapleVersion } from "libwz/wasm/node";
+
+const wz = await createWzNodeApi({ wasmUrl });
+
+using file = new wz.WzFile("Base.wz", MapleVersion.GMS);
+file.parseWzFile();
+const root = file.getWzDirectory();
+```
+
+Rules:
+
+- Initialization is async because loading the Wasm module is async.
+- After initialization, object methods are synchronous.
+- The API mirrors the existing Node API, including path-based `new WzFile(...)`
+  and `saveToDisk(path)` when the configured Emscripten filesystem can access
+  the requested path.
+- Node.js Wasm direct APIs support `Symbol.dispose`, not
+  `Symbol.asyncDispose`, because there is no Worker round trip after
+  initialization.
+- The implementation may use Emscripten `NODEFS` or direct Node-backed bridge
+  helpers, but the public API should look like the native Node API.
+
 ### Browser Main Thread Entry: `libwz/wasm`
 
 The main-thread entry returns an async proxy client:
@@ -69,11 +100,11 @@ Rules:
   direct API, plus Worker lifecycle controls.
 - The client and remote owning objects support `Symbol.asyncDispose`.
 
-### User Worker Entry: `libwz/wasm/direct`
+### Browser Worker Direct Entry: `libwz/wasm/direct`
 
-Users who are already inside their own Worker should not be forced through a
-second Worker. They can initialize Wasm directly and use a synchronous API that
-matches Node:
+Users who are already inside their own browser Worker should not be forced
+through a second Worker. They can initialize Wasm directly and use a
+synchronous API that matches Node where the browser environment allows it:
 
 ```ts
 import { createWzApi, MapleVersion } from "libwz/wasm/direct";
@@ -91,8 +122,11 @@ Rules:
 - After initialization, object methods are synchronous.
 - Direct objects support `Symbol.dispose`.
 - `fromBlob()` is allowed because `FileReaderSync` is available in Workers.
-- If direct APIs are used on a browser main thread and require synchronous Blob
-  reads, they must throw a clear unsupported-environment error.
+- Path-based `new WzFile(path, ...)` and `saveToDisk(path)` are unsupported in
+  browser direct mode unless a caller explicitly configures an Emscripten
+  filesystem mount later.
+- If browser direct APIs are used on a browser main thread and require
+  synchronous Blob reads, they must throw a clear unsupported-environment error.
 
 ## Shared Object Model
 
@@ -109,14 +143,21 @@ Browser APIs should expose the same conceptual classes as Node:
 - `MapleVersion`, `ParseStatus`, `PropertyType`, `ObjectType`,
   `BinaryType`
 
-The direct Wasm API can reuse the same wrapper logic as Node where practical by
-injecting a `NativeBinding`-compatible implementation. The async proxy API uses
-similar wrappers, but every native call is sent through RPC and returns a
+The direct Wasm APIs can reuse the same wrapper logic as Node where practical
+by injecting a `NativeBinding`-compatible implementation. The async proxy API
+uses similar wrappers, but every native call is sent through RPC and returns a
 `Promise`.
+
+The `libwz/wasm/node` and `libwz/wasm/direct` entries share the direct wrapper
+implementation. Their difference is the host adapter:
+
+- Node.js adapter: synchronous path I/O is available.
+- Browser Worker adapter: synchronous Blob range reads are available, but
+  arbitrary host filesystem paths are not.
 
 ## Construction APIs
 
-The browser API should provide these file constructors:
+The Wasm APIs should provide these file constructors:
 
 ```ts
 wz.WzFile.fromBlob(name, blob, mapleVersion);
@@ -129,13 +170,23 @@ wz.WzFile.fromBytes(name, bytes, gameVersion, mapleVersion);
 wz.WzFile.fromBytesWithIv(name, bytes, iv);
 ```
 
+Node.js Wasm direct also supports the path constructors from the native Node
+entry:
+
+```ts
+new wz.WzFile(path, mapleVersion);
+new wz.WzFile(path, gameVersion, mapleVersion);
+new wz.WzFile(path, iv);
+```
+
 `fromBlob` and `fromFile` use the Blob range reader and must not call full
 `blob.arrayBuffer()`. `fromBytes` may copy bytes into Wasm memory because the
-caller already owns the bytes.
+caller already owns the bytes. Node.js callers can use paths, bytes, or
+Blob-compatible objects depending on their deployment constraints.
 
 ## Disposal Semantics
 
-### Node and Direct Worker APIs
+### Node and Direct Wasm APIs
 
 Owning objects keep `Symbol.dispose`:
 
@@ -144,7 +195,8 @@ using file = wz.WzFile.fromBlob("Base.wz", blob, MapleVersion.GMS);
 ```
 
 Disposal closes the underlying `wz_file` handle and invalidates known borrowed
-wrappers, matching current Node behavior.
+wrappers, matching current Node behavior. This applies to the native Node
+entry, the Node.js Wasm direct entry, and the browser Worker direct entry.
 
 ### Main Thread Async Proxy API
 
@@ -229,11 +281,31 @@ type WzApiOptions = {
 };
 ```
 
+`createWzNodeApi()` accepts:
+
+```ts
+type WzNodeApiOptions = {
+  wasmUrl?: string | URL;
+  mount?: {
+    hostPath: string;
+    wasmPath: string;
+  };
+};
+```
+
+If no mount is provided, Node.js Wasm direct should use a sensible default that
+allows ordinary absolute paths and relative paths from `process.cwd()` when
+possible. If the runtime cannot provide path access, path constructors must
+throw a clear setup error instead of silently behaving like an empty file.
+
 ## Save APIs
 
 Browser APIs must not make `saveToDisk(path)` trigger a download implicitly.
 Direct and proxy browser APIs should report `saveToDisk` as unsupported unless
 an Emscripten filesystem path is intentionally introduced later.
+
+Node.js Wasm direct should support `saveToDisk(path)` when the configured
+filesystem adapter can write to that path, matching the native Node API.
 
 Future explicit browser save APIs should be:
 
@@ -251,7 +323,8 @@ browser helper over `saveToBlob()`.
 Node errors currently become thrown JavaScript exceptions from the addon. The
 browser APIs should preserve that shape:
 
-- Direct Worker API throws synchronously after initialization.
+- Node.js Wasm direct and browser Worker direct APIs throw synchronously after
+  initialization.
 - Main-thread proxy API rejects promises with `Error` objects.
 - Worker-side native errors include the C API last-error message.
 - Unsupported environment errors should name the missing feature, such as
@@ -261,15 +334,19 @@ browser APIs should preserve that shape:
 
 Tests should prove API parity, not just module loading:
 
-- A shared fixture test should open the same WZ file through Node `fromBytes`,
-  direct Wasm `fromBlob`, and async proxy `fromBlob`.
+- A shared fixture test should open the same WZ file through native Node
+  `fromBytes`, Node.js Wasm direct path input, browser Worker direct
+  `fromBlob`, and async proxy `fromBlob`.
 - Assertions should compare parse status, root directory name, image counts,
   and at least one lazy image parse.
 - A Blob test should override `blob.arrayBuffer()` to throw, proving the Blob
   path uses range reads instead of full reads.
 - Async proxy tests should use `await using` and verify disposed wrappers reject
   follow-up calls.
-- Direct Worker tests should use `using` and verify disposed wrappers throw.
+- Node.js Wasm direct tests should use `using`, path input, and
+  `saveToDisk(path)` when the filesystem adapter supports it.
+- Browser Worker direct tests should use `using` and verify disposed wrappers
+  throw.
 - Bundler tests should import `libwz/wasm` from Vite and Webpack fixtures
   without `require`, UMD, or manual Wasm copying.
 
@@ -277,16 +354,20 @@ Tests should prove API parity, not just module loading:
 
 1. Extract the current Node wrapper so it can accept an injected binding instead
    of closing over the Node native addon directly.
-2. Build `wasm/direct.ts` on top of the injected binding returned by
-   `initializeWasm()`.
-3. Expand the Worker to expose the same binding operations over RPC.
-4. Build async proxy wrappers with the same class and method names as the direct
+2. Build a shared direct Wasm wrapper on top of the injected binding returned
+   by `initializeWasm()`.
+3. Add host adapters for Node.js path I/O and browser Worker Blob range reads.
+4. Expose `libwz/wasm/node` for Node.js Wasm direct usage and
+   `libwz/wasm/direct` for browser Worker direct usage.
+5. Expand the Worker to expose the same binding operations over RPC.
+6. Build async proxy wrappers with the same class and method names as the direct
    wrappers, returning promises and supporting `Symbol.asyncDispose`.
-5. Keep raw N-API handles private to the direct binding and Worker internals.
+7. Keep raw N-API handles private to the direct binding and Worker internals.
 
 ## Non-Goals
 
 - Do not make the Node API asynchronous.
+- Do not force Node.js Wasm users through a Worker proxy.
 - Do not expose raw handles as public browser API.
 - Do not support CommonJS, UMD, or non-module browser loaders.
 - Do not implement implicit browser downloads through `saveToDisk(path)`.
