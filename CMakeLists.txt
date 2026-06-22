@@ -68,6 +68,7 @@ set(WZ_SOURCES
     src/Util/WzMutableKey.cpp
     src/Util/WzKeyGenerator.cpp
     src/Util/WzBinaryReader.cpp
+    src/Util/WzDataSource.cpp
     src/Util/WzBinaryWriter.cpp
     src/Util/WzTool.cpp
     src/Util/ListFileParser.cpp
@@ -113,6 +114,7 @@ set(WZ_HEADERS
     include/wz/CRC32.h
     include/wz/WzFileManager.h
     include/wz/Util/WzBinaryReader.h
+    include/wz/Util/WzDataSource.h
     include/wz/Util/WzBinaryWriter.h
     include/wz/Util/WzMutableKey.h
     include/wz/Util/WzKeyGenerator.h
@@ -180,6 +182,7 @@ if(BUILD_TESTS)
         tests/TestPropertyWriteValue.cpp
         tests/TestEditing.cpp
         tests/TestRepack.cpp
+        tests/TestWzDataSource.cpp
     )
     if(BUILD_CAPI)
         list(APPEND WZ_TEST_SOURCES tests/TestCapiError.cpp)
