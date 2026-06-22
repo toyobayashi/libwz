@@ -59,6 +59,8 @@ type MaybePromise = {
   then?: unknown;
 };
 
+type RemotePropertyTypeValue = number;
+
 export function createWzWorker(options: WzWorkerOptions = {}): WzWorkerClient {
   const workerUrl = options.workerUrl ?? new URL("./worker.js", import.meta.url);
   const worker = options.workerFactory === undefined
@@ -93,6 +95,7 @@ export class RemoteWzObject {
   constructor(
     protected readonly rpc: RpcClient,
     protected readonly ref: RemoteRef,
+    protected readonly disposeTracker?: Set<RemoteWzObject>,
   ) {}
 
   async getName(): Promise<string> {
@@ -106,9 +109,156 @@ export class RemoteWzObject {
     }
   }
 
+  protected trackChild<T extends RemoteWzObject>(child: T): T {
+    this.disposeTracker?.add(child);
+    return child;
+  }
 }
 
-export class RemoteWzDirectory extends RemoteWzObject {}
+export class RemoteWzDirectory extends RemoteWzObject {
+  async getImages(): Promise<RemoteWzImage[]> {
+    this.assertAlive();
+    const value = await this.rpc.call("WzDirectory.getImages", [this.ref]);
+    return this.wrapImageArray(value, "WzDirectory.getImages");
+  }
+
+  wzImages(): Promise<RemoteWzImage[]> {
+    return this.getImages();
+  }
+
+  async getDirectories(): Promise<RemoteWzDirectory[]> {
+    this.assertAlive();
+    const value = await this.rpc.call("WzDirectory.getDirectories", [this.ref]);
+    return this.wrapDirectoryArray(value, "WzDirectory.getDirectories");
+  }
+
+  wzDirectories(): Promise<RemoteWzDirectory[]> {
+    return this.getDirectories();
+  }
+
+  async getImage(index: number): Promise<RemoteWzImage | null> {
+    this.assertAlive();
+    const value = await this.rpc.call("WzDirectory.getImage", [this.ref, index]);
+    if (value === null) return null;
+    if (!isRemoteRef(value, "image")) {
+      throw new TypeError("WzDirectory.getImage returned an invalid remote ref");
+    }
+    return this.trackChild(new RemoteWzImage(this.rpc, value, this.disposeTracker));
+  }
+
+  async getImageByName(name: string): Promise<RemoteWzImage | null> {
+    this.assertAlive();
+    const value = await this.rpc.call("WzDirectory.getImageByName", [this.ref, name]);
+    if (value === null) return null;
+    if (!isRemoteRef(value, "image")) {
+      throw new TypeError("WzDirectory.getImageByName returned an invalid remote ref");
+    }
+    return this.trackChild(new RemoteWzImage(this.rpc, value, this.disposeTracker));
+  }
+
+  async getDirectory(index: number): Promise<RemoteWzDirectory | null> {
+    this.assertAlive();
+    const value = await this.rpc.call("WzDirectory.getDirectory", [this.ref, index]);
+    if (value === null) return null;
+    if (!isRemoteRef(value, "directory")) {
+      throw new TypeError("WzDirectory.getDirectory returned an invalid remote ref");
+    }
+    return this.trackChild(new RemoteWzDirectory(this.rpc, value, this.disposeTracker));
+  }
+
+  async getDirectoryByName(name: string): Promise<RemoteWzDirectory | null> {
+    this.assertAlive();
+    const value = await this.rpc.call("WzDirectory.getDirectoryByName", [this.ref, name]);
+    if (value === null) return null;
+    if (!isRemoteRef(value, "directory")) {
+      throw new TypeError("WzDirectory.getDirectoryByName returned an invalid remote ref");
+    }
+    return this.trackChild(new RemoteWzDirectory(this.rpc, value, this.disposeTracker));
+  }
+
+  private wrapImageArray(value: unknown, method: string): RemoteWzImage[] {
+    if (!Array.isArray(value)) {
+      throw new TypeError(`${method} returned an invalid remote ref array`);
+    }
+    return value.map((item) => {
+      if (!isRemoteRef(item, "image")) {
+        throw new TypeError(`${method} returned an invalid remote ref`);
+      }
+      return this.trackChild(new RemoteWzImage(this.rpc, item, this.disposeTracker));
+    });
+  }
+
+  private wrapDirectoryArray(value: unknown, method: string): RemoteWzDirectory[] {
+    if (!Array.isArray(value)) {
+      throw new TypeError(`${method} returned an invalid remote ref array`);
+    }
+    return value.map((item) => {
+      if (!isRemoteRef(item, "directory")) {
+        throw new TypeError(`${method} returned an invalid remote ref`);
+      }
+      return this.trackChild(new RemoteWzDirectory(this.rpc, item, this.disposeTracker));
+    });
+  }
+}
+
+export class RemoteWzImage extends RemoteWzObject {
+  async parseImage(): Promise<void> {
+    this.assertAlive();
+    await this.rpc.call("WzImage.parseImage", [this.ref]);
+  }
+
+  async getProperties(): Promise<RemoteWzImageProperty[]> {
+    this.assertAlive();
+    const value = await this.rpc.call("WzImage.getProperties", [this.ref]);
+    return this.wrapPropertyArray(value, "WzImage.getProperties");
+  }
+
+  wzProperties(): Promise<RemoteWzImageProperty[]> {
+    return this.getProperties();
+  }
+
+  async getFromPath(path: string): Promise<RemoteWzImageProperty | null> {
+    this.assertAlive();
+    const value = await this.rpc.call("WzImage.getFromPath", [this.ref, path]);
+    if (value === null) return null;
+    if (!isRemoteRef(value, "property")) {
+      throw new TypeError("WzImage.getFromPath returned an invalid remote ref");
+    }
+    return this.trackChild(
+      new RemoteWzImageProperty(this.rpc, value, this.disposeTracker),
+    );
+  }
+
+  private wrapPropertyArray(value: unknown, method: string): RemoteWzImageProperty[] {
+    if (!Array.isArray(value)) {
+      throw new TypeError(`${method} returned an invalid remote ref array`);
+    }
+    return value.map((item) => {
+      if (!isRemoteRef(item, "property")) {
+        throw new TypeError(`${method} returned an invalid remote ref`);
+      }
+      return this.trackChild(
+        new RemoteWzImageProperty(this.rpc, item, this.disposeTracker),
+      );
+    });
+  }
+}
+
+export class RemoteWzImageProperty extends RemoteWzObject {
+  async getType(): Promise<RemotePropertyTypeValue> {
+    this.assertAlive();
+    return this.rpc.call("WzImageProperty.getType", [this.ref]);
+  }
+
+  getPropertyType(): Promise<RemotePropertyTypeValue> {
+    return this.getType();
+  }
+
+  async getValue(): Promise<unknown> {
+    this.assertAlive();
+    return this.rpc.call("WzImageProperty.getValue", [this.ref]);
+  }
+}
 
 export class RemoteWzFile extends RemoteWzObject {
   private readonly children = new Set<RemoteWzObject>();
@@ -125,7 +275,7 @@ export class RemoteWzFile extends RemoteWzObject {
     if (!isRemoteRef(value, "directory")) {
       throw new TypeError("WzFile.getWzDirectory returned an invalid remote ref");
     }
-    const directory = new RemoteWzDirectory(this.rpc, value);
+    const directory = new RemoteWzDirectory(this.rpc, value, this.children);
     this.children.add(directory);
     return directory;
   }

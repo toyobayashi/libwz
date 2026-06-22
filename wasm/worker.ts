@@ -1,6 +1,11 @@
 import { createWzApi } from "./index.js";
 import type { RemoteRef, RemoteRefKind, RpcRequest, RpcResponse } from "./rpc.js";
-import type { BlobLike, MapleVersionValue, WzApi, WzFile } from "./node-wrapper.js";
+import type {
+  BlobLike,
+  MapleVersionValue,
+  WzApi,
+  WzFile,
+} from "./node-wrapper.js";
 
 type WorkerScope = {
   addEventListener(
@@ -21,6 +26,31 @@ type RemoteObject = {
   getName?: () => string;
   close?: () => void;
   [Symbol.dispose]?: () => void;
+};
+
+type WorkerWzDirectory = RemoteObject & {
+  wzImages(): Array<WorkerWzImage | null>;
+  wzDirectories(): Array<WorkerWzDirectory | null>;
+  getImage(index: number): WorkerWzImage | null;
+  getImageByName(name: string): WorkerWzImage | null;
+  getDirectory(index: number): WorkerWzDirectory | null;
+  getDirectoryByName(name: string): WorkerWzDirectory | null;
+};
+
+type WorkerWzImage = RemoteObject & {
+  parseImage(): void;
+  wzProperties(): WorkerWzImageProperty[];
+  getFromPath(path: string): WorkerWzImageProperty | null;
+};
+
+type WorkerWzImageProperty = RemoteObject & {
+  getPropertyType(): number;
+  getShort(): number;
+  getInt(): number;
+  getLong(): bigint;
+  getFloat(): number;
+  getDouble(): number;
+  getString(): string;
 };
 
 const workerScope = self as unknown as WorkerScope;
@@ -82,6 +112,21 @@ function isSupportedMethod(method: string): boolean {
     case "WzFile.parseWzFile":
     case "WzFile.getWzDirectory":
     case "WzObject.getName":
+    case "WzDirectory.getImages":
+    case "WzDirectory.wzImages":
+    case "WzDirectory.getDirectories":
+    case "WzDirectory.wzDirectories":
+    case "WzDirectory.getImage":
+    case "WzDirectory.getImageByName":
+    case "WzDirectory.getDirectory":
+    case "WzDirectory.getDirectoryByName":
+    case "WzImage.parseImage":
+    case "WzImage.getProperties":
+    case "WzImage.wzProperties":
+    case "WzImage.getFromPath":
+    case "WzImageProperty.getType":
+    case "WzImageProperty.getPropertyType":
+    case "WzImageProperty.getValue":
     case "dispose":
       return true;
     default:
@@ -109,6 +154,33 @@ function dispatch(api: WzApi, method: string, args: unknown[]): unknown {
       return getWzDirectory(args[0]);
     case "WzObject.getName":
       return objectFrom(args[0]).getName();
+    case "WzDirectory.getImages":
+    case "WzDirectory.wzImages":
+      return getImages(args[0]);
+    case "WzDirectory.getDirectories":
+    case "WzDirectory.wzDirectories":
+      return getDirectories(args[0]);
+    case "WzDirectory.getImage":
+      return getImage(args[0], args[1]);
+    case "WzDirectory.getImageByName":
+      return getImageByName(args[0], args[1]);
+    case "WzDirectory.getDirectory":
+      return getDirectory(args[0], args[1]);
+    case "WzDirectory.getDirectoryByName":
+      return getDirectoryByName(args[0], args[1]);
+    case "WzImage.parseImage":
+      imageFrom(args[0]).parseImage();
+      return undefined;
+    case "WzImage.getProperties":
+    case "WzImage.wzProperties":
+      return getProperties(args[0]);
+    case "WzImage.getFromPath":
+      return getPropertyFromImagePath(args[0], args[1]);
+    case "WzImageProperty.getType":
+    case "WzImageProperty.getPropertyType":
+      return propertyFrom(args[0]).getPropertyType();
+    case "WzImageProperty.getValue":
+      return getPropertyValue(api, args[0]);
     case "dispose":
       disposeRef(args[0]);
       return undefined;
@@ -154,6 +226,118 @@ function getWzDirectory(value: unknown): RemoteRef | null {
   });
 }
 
+function getImages(value: unknown): RemoteRef[] {
+  const { directory, ownerFile } = directoryFrom(value);
+  return directory.wzImages()
+    .filter(isPresent)
+    .map((image: WorkerWzImage) => registerRef("image", image, {
+      type: "WzImage",
+      ownerFile,
+    }));
+}
+
+function getDirectories(value: unknown): RemoteRef[] {
+  const { directory, ownerFile } = directoryFrom(value);
+  return directory.wzDirectories()
+    .filter(isPresent)
+    .map((child: WorkerWzDirectory) => registerRef("directory", child, {
+      type: "WzDirectory",
+      ownerFile,
+    }));
+}
+
+function getImage(value: unknown, index: unknown): RemoteRef | null {
+  if (typeof index !== "number") {
+    throw new TypeError("WzDirectory.getImage requires a numeric index");
+  }
+  const { directory, ownerFile } = directoryFrom(value);
+  const image = directory.getImage(index);
+  return image === null ? null : registerRef("image", image, {
+    type: "WzImage",
+    ownerFile,
+  });
+}
+
+function getImageByName(value: unknown, name: unknown): RemoteRef | null {
+  if (typeof name !== "string") {
+    throw new TypeError("WzDirectory.getImageByName requires a string name");
+  }
+  const { directory, ownerFile } = directoryFrom(value);
+  const image = directory.getImageByName(name);
+  return image === null ? null : registerRef("image", image, {
+    type: "WzImage",
+    ownerFile,
+  });
+}
+
+function getDirectory(value: unknown, index: unknown): RemoteRef | null {
+  if (typeof index !== "number") {
+    throw new TypeError("WzDirectory.getDirectory requires a numeric index");
+  }
+  const { directory, ownerFile } = directoryFrom(value);
+  const child = directory.getDirectory(index);
+  return child === null ? null : registerRef("directory", child, {
+    type: "WzDirectory",
+    ownerFile,
+  });
+}
+
+function getDirectoryByName(value: unknown, name: unknown): RemoteRef | null {
+  if (typeof name !== "string") {
+    throw new TypeError("WzDirectory.getDirectoryByName requires a string name");
+  }
+  const { directory, ownerFile } = directoryFrom(value);
+  const child = directory.getDirectoryByName(name);
+  return child === null ? null : registerRef("directory", child, {
+    type: "WzDirectory",
+    ownerFile,
+  });
+}
+
+function getProperties(value: unknown): RemoteRef[] {
+  const { image, ownerFile } = imageEntryFrom(value);
+  return image.wzProperties().map((property: WorkerWzImageProperty) => registerRef("property", property, {
+    type: "WzImageProperty",
+    ownerFile,
+  }));
+}
+
+function getPropertyFromImagePath(value: unknown, path: unknown): RemoteRef | null {
+  if (typeof path !== "string") {
+    throw new TypeError("WzImage.getFromPath requires a string path");
+  }
+  const { image, ownerFile } = imageEntryFrom(value);
+  const property = image.getFromPath(path);
+  return property === null ? null : registerRef("property", property, {
+    type: "WzImageProperty",
+    ownerFile,
+  });
+}
+
+function getPropertyValue(api: WzApi, value: unknown): unknown {
+  const property = propertyFrom(value);
+  switch (property.getPropertyType()) {
+    case api.PropertyType.NULL:
+      return null;
+    case api.PropertyType.SHORT:
+      return property.getShort();
+    case api.PropertyType.INT:
+      return property.getInt();
+    case api.PropertyType.LONG:
+      return property.getLong();
+    case api.PropertyType.FLOAT:
+      return property.getFloat();
+    case api.PropertyType.DOUBLE:
+      return property.getDouble();
+    case api.PropertyType.STRING:
+      return property.getString();
+    case api.PropertyType.UOL:
+      return (property as WorkerWzImageProperty & { getValue(): string }).getValue();
+    default:
+      throw new TypeError("WZ property does not expose a scalar value");
+  }
+}
+
 function fileFrom(value: unknown): WzFile {
   return fileFromRef(requireRemoteRef(value, "file"));
 }
@@ -168,6 +352,33 @@ function objectFrom(value: unknown): RemoteObject & { getName(): string } {
     throw new TypeError("Remote object does not support getName");
   }
   return object as RemoteObject & { getName(): string };
+}
+
+function directoryFrom(value: unknown): { directory: WorkerWzDirectory; ownerFile?: string } {
+  const ref = requireRemoteRef(value, "directory");
+  const entry = entryFrom(ref, "directory");
+  return {
+    directory: entry.object as WorkerWzDirectory,
+    ownerFile: entry.ownerFile,
+  };
+}
+
+function imageFrom(value: unknown): WorkerWzImage {
+  return imageEntryFrom(value).image;
+}
+
+function imageEntryFrom(value: unknown): { image: WorkerWzImage; ownerFile?: string } {
+  const ref = requireRemoteRef(value, "image");
+  const entry = entryFrom(ref, "image");
+  return {
+    image: entry.object as WorkerWzImage,
+    ownerFile: entry.ownerFile,
+  };
+}
+
+function propertyFrom(value: unknown): WorkerWzImageProperty {
+  return entryFrom(requireRemoteRef(value, "property"), "property")
+    .object as WorkerWzImageProperty;
 }
 
 function entryFrom(ref: RemoteRef, expectedKind?: RemoteRefKind): RegistryEntry {
@@ -247,6 +458,10 @@ function isRemoteRef(value: unknown): value is RemoteRef {
   if (value === null || typeof value !== "object") return false;
   const ref = value as Partial<RemoteRef>;
   return typeof ref.kind === "string" && typeof ref.handle === "string";
+}
+
+function isPresent<T>(value: T | null): value is T {
+  return value !== null;
 }
 
 function isWorkerConfig(value: unknown): value is { wasmUrl: string } {
