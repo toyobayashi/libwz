@@ -9,6 +9,19 @@
 
 namespace {
 
+class NonSeekableStreamBuffer : public std::stringbuf {
+ protected:
+  pos_type seekoff(off_type,
+                   std::ios_base::seekdir,
+                   std::ios_base::openmode) override {
+    return pos_type(off_type(-1));
+  }
+
+  pos_type seekpos(pos_type, std::ios_base::openmode) override {
+    return pos_type(off_type(-1));
+  }
+};
+
 TEST(WzMemoryDataSourceTest, ReadsExactRange) {
   wz::WzMemoryDataSource source({1, 2, 3, 4});
   std::vector<uint8_t> destination(2);
@@ -67,6 +80,29 @@ TEST(WzDataSourceTest, ReturnsZeroForNonemptyReadAtEnd) {
   ASSERT_TRUE(stream_result.has_value());
   EXPECT_EQ(memory_result.value(), 0U);
   EXPECT_EQ(stream_result.value(), 0U);
+}
+
+TEST(WzStreamDataSourceTest, RejectsNonSeekableStream) {
+  NonSeekableStreamBuffer buffer;
+  std::istream input(&buffer);
+  wz::WzStreamDataSource source(input);
+  std::vector<uint8_t> destination(1);
+
+  auto result = source.ReadAt(0, destination);
+
+  ASSERT_FALSE(result.has_value());
+  EXPECT_EQ(result.error().code(), wz::ErrorCode::IoError);
+}
+
+TEST(WzStreamDataSourceTest, ReadsEmptySeekableStreamAtEnd) {
+  std::istringstream input("");
+  wz::WzStreamDataSource source(input);
+  std::vector<uint8_t> destination(1);
+
+  auto result = source.ReadAt(0, destination);
+
+  ASSERT_TRUE(result.has_value());
+  EXPECT_EQ(result.value(), 0U);
 }
 
 TEST(WzStreamDataSourceTest, ReadsIndependentRandomRanges) {

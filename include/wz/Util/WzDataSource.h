@@ -30,6 +30,7 @@ class WzStreamDataSource final : public WzDataSource {
  private:
   std::istream* input_;
   uint64_t size_;
+  bool is_valid_;
 };
 
 class WzMemoryDataSource final : public WzDataSource {

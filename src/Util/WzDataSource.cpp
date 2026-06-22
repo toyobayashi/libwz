@@ -7,17 +7,26 @@
 
 namespace wz {
 
-WzStreamDataSource::WzStreamDataSource(std::istream& input) : input_(&input) {
+WzStreamDataSource::WzStreamDataSource(std::istream& input)
+    : input_(&input), size_(0), is_valid_(false) {
   input_->clear();
   input_->seekg(0, std::ios::end);
   const std::istream::pos_type end = input_->tellg();
-  size_ = end < 0 ? 0 : static_cast<uint64_t>(end);
+  if (end == std::istream::pos_type(-1)) {
+    input_->clear();
+    return;
+  }
+  size_ = static_cast<uint64_t>(end);
   input_->clear();
   input_->seekg(0, std::ios::beg);
+  is_valid_ = input_->good();
 }
 
 Result<size_t> WzStreamDataSource::ReadAt(uint64_t offset,
                                           std::span<uint8_t> destination) {
+  if (!is_valid_) {
+    return std::unexpected(Error::IoError("Source stream is not seekable"));
+  }
   if (offset > size_) {
     return std::unexpected(Error::IoError("Read offset is beyond source size"));
   }
