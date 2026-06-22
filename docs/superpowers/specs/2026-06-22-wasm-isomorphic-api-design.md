@@ -65,7 +65,7 @@ Node.js callers that want no async initialization can use sync loading:
 ```ts
 import { createWzApiSync, MapleVersion } from "libwz/wasm";
 
-const wz = createWzApiSync({ wasmPath: "node_modules/libwz/dist/wasm/libwz-sync.wasm" });
+const wz = createWzApiSync({ wasmPath: "node_modules/libwz/dist/wasm/libwz.wasm" });
 
 using file = new wz.WzFile("Base.wz", MapleVersion.GMS);
 file.parseWzFile();
@@ -306,15 +306,17 @@ type WzApiSyncOptions = {
 
 Exactly one of `wasmPath`, `wasmBytes`, or `wasmModule` should be provided for
 sync initialization unless the runtime can synchronously find the packaged
-`libwz-sync.wasm`. In Node.js, `wasmPath` is read with synchronous filesystem APIs.
+`libwz.wasm`. In Node.js, `wasmPath` is read with synchronous filesystem APIs.
 In browser Workers, callers should pass `wasmBytes` or `wasmModule` because
 fetching package assets is asynchronous. If sync initialization cannot obtain
 Wasm synchronously, it must throw a setup error that names the missing input.
 
-The sync path may use a separate Emscripten glue artifact built with synchronous
-Wasm compilation settings, such as `WASM_ASYNC_COMPILATION=0`. The async and
-sync APIs should return the same object model even if their generated glue files
-are different internally.
+The sync path should reuse the same `libwz.wasm` binary as the async path. It
+may use a separate Emscripten JavaScript glue artifact built with synchronous
+Wasm compilation settings, such as `WASM_ASYNC_COMPILATION=0`, but it should
+not publish a second `.wasm` binary unless an implementation constraint is
+verified during development. The async and sync APIs should return the same
+object model even if their generated glue files are different internally.
 
 `mount` is used only by the Node.js host adapter. If no mount is provided,
 Node.js direct should use a sensible default that allows ordinary absolute paths

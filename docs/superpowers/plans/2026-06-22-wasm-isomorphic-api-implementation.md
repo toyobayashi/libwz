@@ -335,7 +335,7 @@ test("direct wasm API opens path input in Node.js without worker proxy", async (
 });
 
 test("direct wasm API can initialize synchronously in Node.js", () => {
-  const wasmPath = path.join(root, "dist", "wasm", "libwz-sync.wasm");
+  const wasmPath = path.join(root, "dist", "wasm", "libwz.wasm");
   const wz = createWzApiSync({ wasmPath });
   using file = new wz.WzFile(sample, MapleVersion.GMS);
   assert.equal(file.parseWzFile(), ParseStatus.SUCCESS);
@@ -379,15 +379,15 @@ Update `package.json` so `./wasm` points to the direct runtime:
 The old `./wasm` browser proxy export will move to `./wasm/browser-main` in
 Task 5.
 
-- [ ] **Step 3: Add sync Wasm build artifact and loader**
+- [ ] **Step 3: Add sync Wasm glue and loader**
 
-Add a second Emscripten output for sync initialization. In `CMakeLists.txt`,
-create a sibling target or target variant named `wz_wasm_sync` that uses the
-same sources and libraries as `wz_wasm`, but emits:
+Add a second Emscripten JavaScript glue output for sync initialization. In
+`CMakeLists.txt`, create a sibling target or target variant named
+`wz_wasm_sync` that uses the same sources and libraries as `wz_wasm`, reuses
+the same Wasm binary, and emits:
 
 ```text
 dist/wasm/libwz-sync.js
-dist/wasm/libwz-sync.wasm
 ```
 
 Use synchronous compilation settings:
@@ -397,8 +397,10 @@ Use synchronous compilation settings:
 "-sEXPORTED_RUNTIME_METHODS=['emnapiInit','HEAPU8','FS','NODEFS']"
 ```
 
-Keep the existing async `libwz.js` / `libwz.wasm` output for
-`createWzApi()`, `initializeWasm()`, and browser-main Worker proxy usage.
+Keep the existing async `libwz.js` / `libwz.wasm` output for `createWzApi()`,
+`initializeWasm()`, and browser-main Worker proxy usage. `createWzApiSync()`
+should default to loading the same `dist/wasm/libwz.wasm` file. Do not publish a
+second `.wasm` binary unless implementation proves Emscripten requires it.
 
 Update `wasm/libwz.d.ts` with a sync factory type:
 
@@ -444,7 +446,7 @@ export function initializeWasmSync(input: SyncWasmInput = {}): LoadedWzModule {
   return {
     binding: module.emnapiInit({
       context: getDefaultContext(),
-      filename: "libwz-sync.wasm",
+      filename: "libwz.wasm",
     }) as WzBinding,
     module,
   };
