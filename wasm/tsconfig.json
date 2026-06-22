@@ -1,0 +1,13 @@
+{
+  "compilerOptions": {
+    "declaration": true,
+    "lib": ["dom", "es2022"],
+    "module": "es2022",
+    "moduleResolution": "bundler",
+    "outDir": "../dist/wasm",
+    "rootDir": ".",
+    "strict": true,
+    "target": "es2022"
+  },
+  "include": ["*.ts", "*.d.ts"]
+}

@@ -33,10 +33,16 @@ if(BUILD_WASM)
     if(NOT EMSCRIPTEN)
         message(FATAL_ERROR "BUILD_WASM requires Emscripten")
     endif()
+    set(BUILD_CAPI ON)
     set(BUILD_JNI OFF)
+    set(EMNAPI_FIND_NODE_ADDON_API ON CACHE BOOL "" FORCE)
 endif()
 
 include(FetchContent)
+
+if(BUILD_WASM)
+    add_subdirectory(node_modules/emnapi EXCLUDE_FROM_ALL)
+endif()
 
 # ---- tiny-AES-c (AES-256-ECB) ----
 add_subdirectory(deps/tiny-aes)
@@ -174,6 +180,29 @@ if(BUILD_CAPI)
     add_library(wz_capi STATIC src/capi/wz_api.cpp)
     target_include_directories(wz_capi PUBLIC include/wz/capi)
     target_link_libraries(wz_capi PUBLIC wz)
+endif()
+
+if(BUILD_WASM)
+    add_executable(wz_wasm src/node/binding.cpp)
+    target_include_directories(wz_wasm PRIVATE include)
+    target_compile_definitions(wz_wasm PRIVATE
+        BUILDING_NODE_EXTENSION
+        NAPI_DISABLE_CPP_EXCEPTIONS
+    )
+    target_link_libraries(wz_wasm PRIVATE wz_capi emnapi)
+    set_target_properties(wz_wasm PROPERTIES
+        OUTPUT_NAME libwz
+        RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/dist/wasm"
+    )
+    target_link_options(wz_wasm PRIVATE
+        "--js-library=${CMAKE_CURRENT_SOURCE_DIR}/node_modules/emnapi/dist/library_napi.js"
+        "-sALLOW_MEMORY_GROWTH=1"
+        "-sENVIRONMENT=web,worker,node"
+        "-sEXPORT_ES6=1"
+        "-sEXPORTED_FUNCTIONS=['_malloc','_free','_napi_register_wasm_v1','_node_api_module_get_api_version_v1']"
+        "-sEXPORTED_RUNTIME_METHODS=['emnapiInit','HEAPU8']"
+        "-sMODULARIZE=1"
+    )
 endif()
 
 if(BUILD_TESTS)

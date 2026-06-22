@@ -8,14 +8,29 @@
     "install": "node-gyp rebuild",
     "build": "npm run build:ts && node-gyp configure build",
     "build:native": "node-gyp configure build",
+    "build:wasm": "node -e \"require('fs').rmSync('dist/wasm',{recursive:true,force:true})\" && npm run build:wasm:ts && emcmake cmake -S . -B build/wasm -DBUILD_WASM=ON -DBUILD_TESTS=OFF && cmake --build build/wasm",
+    "build:wasm:ts": "tsc -p wasm/tsconfig.json && node -e \"require('fs').mkdirSync('dist/wasm',{recursive:true});require('fs').writeFileSync('dist/wasm/package.json',JSON.stringify({type:'module'},null,2)+'\\n')\"",
     "build:ts": "tsc -p tsconfig.json",
+    "test:wasm": "npm run build:wasm && node tests/wasm/esm-import.test.mjs",
     "types": "tsc -p tsconfig.json --emitDeclarationOnly",
-    "prepack": "npm run build:ts",
-    "test": "npm run build:ts && node --test"
+    "prepack": "npm run build:ts && npm run build:wasm",
+    "test": "npm run build:ts && node --test tests/*.test.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "require": "./index.js",
+      "default": "./index.js"
+    },
+    "./wasm": {
+      "types": "./dist/wasm/browser.d.ts",
+      "import": "./dist/wasm/browser.js"
+    }
   },
   "files": [
     "binding.gyp",
     "deps",
+    "dist/wasm",
     "include",
     "index.js",
     "index.d.ts",
@@ -34,7 +49,8 @@
     "src/WzImageProperty.cpp",
     "src/WzObject.cpp",
     "src/WzPropertyCollection.cpp",
-    "tsconfig.json"
+    "tsconfig.json",
+    "wasm"
   ],
   "keywords": [
     "maplestory",
@@ -54,8 +70,12 @@
     "access": "public"
   },
   "devDependencies": {
-    "typescript": "~5.9.3",
+    "emnapi": "1.11.1",
+    "node-addon-api": "8.8.0",
     "node-gyp": "^11.2.0",
-    "node-addon-api": "8.8.0"
+    "typescript": "~5.9.3"
+  },
+  "dependencies": {
+    "@emnapi/runtime": "1.11.1"
   }
 }
