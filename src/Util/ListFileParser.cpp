@@ -21,7 +21,7 @@ std::vector<std::string> ListFileParser::ParseListFile(
 
   WzBinaryReader reader(fs, WzIv);
 
-  while (reader.BaseStream().peek() != std::char_traits<char>::eof()) {
+  while (reader.Available() > 0) {
     int32_t len = reader.ReadInt32();
     if (len < 0 || len > 100000) break;
 

@@ -1,13 +1,14 @@
 #ifndef WZ_UTIL_WZBINARYREADER_H_
 #define WZ_UTIL_WZBINARYREADER_H_
 #include <cstdint>
-#include <fstream>
+#include <istream>
 #include <memory>
 #include <mutex>
 #include <string>
 #include <vector>
 #include "wz/Result.h"
 #include "wz/Util/Defines.h"
+#include "wz/Util/WzDataSource.h"
 #include "wz/Util/WzKeyGenerator.h"
 #include "wz/Util/WzMutableKey.h"
 #include "wz/WzEnums.h"
@@ -17,8 +18,11 @@ namespace wz {
 
 class WzBinaryReader {
  public:
-  WzBinaryReader(std::ifstream& input,
-                 const std::array<uint8_t, 4>& WzIv,
+  WzBinaryReader(std::istream& input,
+                 const std::array<uint8_t, 4>& wzIv,
+                 int64_t startOffset = 0);
+  WzBinaryReader(std::shared_ptr<WzDataSource> source,
+                 const std::array<uint8_t, 4>& wzIv,
                  int64_t startOffset = 0);
   ~WzBinaryReader();
   WZ_DISALLOW_COPY(WzBinaryReader)
@@ -33,8 +37,6 @@ class WzBinaryReader {
   void SetHeader(WzHeader* h) { header_ = h; }
   int64_t StartOffset() const { return startOffset_; }
 
-  std::ifstream& BaseStream() { return *input_; }
-
   void SetOffsetFromFStartToPosition(int offset);
   Result<void> RollbackStreamPosition(int byOffset);
 
@@ -44,6 +46,7 @@ class WzBinaryReader {
   int32_t ReadCompressedInt();
   int64_t ReadLong();
   int64_t Available();
+  uint64_t SourceSize() const;
   int64_t ReadOffset();
 
   std::string ReadStringAtOffset(int64_t offset, bool readByte = false);
@@ -74,7 +77,13 @@ class WzBinaryReader {
   // reference
 
  private:
-  std::ifstream* input_;
+  static constexpr size_t kCacheSize = 256 * 1024;
+
+  std::shared_ptr<WzDataSource> source_;
+  int64_t position_ = 0;
+  std::vector<uint8_t> cache_;
+  uint64_t cacheOffset_ = 0;
+  size_t cacheSize_ = 0;
   WzMutableKey wzKey_;
   uint32_t hash_ = 0;
   WzHeader* header_ = nullptr;
@@ -83,6 +92,8 @@ class WzBinaryReader {
 
   std::string DecodeUnicode(int length);
   std::string DecodeAscii(int length);
+  bool ReadExact(void* destination, size_t count);
+  bool FillCache();
 };
 
 }  // namespace wz

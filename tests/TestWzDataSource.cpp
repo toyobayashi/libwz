@@ -1,11 +1,15 @@
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <cstdint>
+#include <cstring>
 #include <sstream>
 #include <vector>
 
 #include "wz/Result.h"
+#include "wz/Util/WzBinaryReader.h"
 #include "wz/Util/WzDataSource.h"
+#include "wz/WzAESConstant.h"
 
 namespace {
 
@@ -49,6 +53,29 @@ class TruncatedStreamBuffer : public std::stringbuf {
 
  private:
   bool reports_end_position_ = false;
+};
+
+class CountingSource final : public wz::WzDataSource {
+ public:
+  wz::Result<size_t> ReadAt(uint64_t offset,
+                            std::span<uint8_t> destination) override {
+    ++read_count_;
+    if (offset > bytes_.size()) {
+      return std::unexpected(
+          wz::Error::IoError("Read offset is beyond source size"));
+    }
+    const size_t index = static_cast<size_t>(offset);
+    const size_t count = std::min(destination.size(), bytes_.size() - index);
+    if (count > 0) {
+      std::memcpy(destination.data(), bytes_.data() + index, count);
+    }
+    return count;
+  }
+
+  uint64_t Size() const override { return bytes_.size(); }
+
+  std::vector<uint8_t> bytes_ = {1, 0, 0, 0, 2, 0, 0, 0};
+  int read_count_ = 0;
 };
 
 TEST(WzMemoryDataSourceTest, ReadsExactRange) {
@@ -161,6 +188,34 @@ TEST(WzStreamDataSourceTest, ReadsIndependentRandomRanges) {
   EXPECT_EQ(second_result.value(), 3U);
   EXPECT_EQ(first, (std::vector<uint8_t>{'d', 'e'}));
   EXPECT_EQ(second, (std::vector<uint8_t>{'a', 'b', 'c'}));
+}
+
+TEST(WzBinaryReaderTest, CachesSequentialScalarReads) {
+  auto source = std::make_shared<CountingSource>();
+  wz::WzBinaryReader reader(source, wz::WzAESConstant::WZ_GMSIV);
+
+  EXPECT_EQ(reader.ReadInt32(), 1);
+  EXPECT_EQ(reader.ReadInt32(), 2);
+  EXPECT_EQ(source->read_count_, 1);
+}
+
+TEST(WzBinaryReaderTest, ReturnsEmptyBytesForIncompleteRead) {
+  auto source = std::make_shared<CountingSource>();
+  wz::WzBinaryReader reader(source, wz::WzAESConstant::WZ_GMSIV);
+  reader.SetPosition(6);
+
+  EXPECT_TRUE(reader.ReadBytes(4).empty());
+}
+
+TEST(WzBinaryReaderTest, ReportsPositionAvailabilityAndSourceSize) {
+  auto source = std::make_shared<CountingSource>();
+  wz::WzBinaryReader reader(source, wz::WzAESConstant::WZ_GMSIV);
+
+  EXPECT_EQ(reader.SourceSize(), 8U);
+  EXPECT_EQ(reader.Available(), 8);
+  reader.ReadInt32();
+  EXPECT_EQ(reader.Position(), 4);
+  EXPECT_EQ(reader.Available(), 4);
 }
 
 }  // namespace

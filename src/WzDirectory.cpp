@@ -602,17 +602,16 @@ Result<void> WzDirectory::SaveImages(WzBinaryWriter* writer,
       }
       std::lock_guard<std::recursive_mutex> lock(img->Reader()->Mutex());
       const int64_t originalPos = img->Reader()->Position();
-      auto& source = img->Reader()->BaseStream();
-      source.clear();
-      source.seekg(0, std::ios::end);
-      const int64_t sourceEnd = static_cast<int64_t>(source.tellg());
-      if (start < 0 || length < 0 || sourceEnd < 0 || start > sourceEnd ||
-          length > sourceEnd - start) {
+      const uint64_t sourceSize = img->Reader()->SourceSize();
+      if (start < 0 || length < 0 ||
+          static_cast<uint64_t>(start) > sourceSize ||
+          static_cast<uint64_t>(length) >
+              sourceSize - static_cast<uint64_t>(start)) {
         img->Reader()->SetPosition(originalPos);
         return std::unexpected(Error::IoError(
             "Unchanged WZ image source range is unavailable: start=" +
             std::to_string(start) + ", length=" + std::to_string(length) +
-            ", sourceEnd=" + std::to_string(sourceEnd)));
+            ", sourceEnd=" + std::to_string(sourceSize)));
       }
       img->Reader()->SetPosition(start);
       auto bytes = img->Reader()->ReadBytes(static_cast<size_t>(length));
