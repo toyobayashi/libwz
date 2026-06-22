@@ -9,6 +9,7 @@
 #include <vector>
 #include "wz/Util/Defines.h"
 #include "wz/Util/WzBinaryReader.h"
+#include "wz/Util/WzDataSource.h"
 #include "wz/WzDirectory.h"
 #include "wz/WzEnums.h"
 #include "wz/WzHeader.h"
@@ -25,7 +26,14 @@ class WzFile final : public WzObject {
   WzFile(const std::string& filePath,
          short gameVersion,
          WzMapleVersion version);
+  WzFile(const std::string& fileName,
+         std::shared_ptr<WzDataSource> source,
+         short gameVersion,
+         WzMapleVersion version);
   WzFile(const std::string& filePath, const std::array<uint8_t, 4>& wzIv);
+  WzFile(const std::string& fileName,
+         std::shared_ptr<WzDataSource> source,
+         const std::array<uint8_t, 4>& wzIv);
   ~WzFile() override;
 
   WZ_DISALLOW_COPY_AND_MOVE(WzFile)
@@ -65,6 +73,7 @@ class WzFile final : public WzObject {
   void CreateWZVersionHash();
 
   std::string path_;
+  std::shared_ptr<WzDataSource> source_;
   std::unique_ptr<WzDirectory> wzDir_;
   std::ifstream fileStream_;
   std::optional<WzBinaryReader> fileReader_;

@@ -5,6 +5,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <vector>
 
 #include "wz/wz.h"
 
@@ -159,6 +160,33 @@ wz_error_code wz_open_file(const char* file_path,
   return wz_clear_last_error();
 }
 
+wz_error_code wz_open_memory(const char* file_name,
+                             const uint8_t* data,
+                             size_t data_size,
+                             int16_t game_version,
+                             wz_maple_version version,
+                             wz_file* out_file) {
+  if (auto ec = init_out("wz_open_memory", out_file); ec != WZ_ERROR_NONE) {
+    return ec;
+  }
+  if (!file_name) return set_error_invalid_arg("wz_open_memory", "file_name");
+  if (!data && data_size != 0) {
+    return set_error_invalid_arg("wz_open_memory", "data");
+  }
+
+  std::vector<uint8_t> bytes;
+  if (data_size > 0) {
+    bytes.assign(data, data + data_size);
+  }
+  auto source = std::make_shared<wz::WzMemoryDataSource>(std::move(bytes));
+  auto* f = new wz::WzFile(file_name,
+                           source,
+                           game_version,
+                           static_cast<wz::WzMapleVersion>(version));
+  *out_file = reinterpret_cast<wz_file>(f);
+  return wz_clear_last_error();
+}
+
 wz_error_code wz_create_file(int16_t game_version,
                              wz_maple_version version,
                              wz_file* out_file) {
@@ -184,6 +212,34 @@ wz_error_code wz_open_file_with_iv(const char* file_path,
   if (!iv) return set_error_invalid_arg("wz_open_file_with_iv", "iv");
   std::array<uint8_t, 4> iv_arr = {iv[0], iv[1], iv[2], iv[3]};
   auto* f = new wz::WzFile(file_path, iv_arr);
+  *out_file = reinterpret_cast<wz_file>(f);
+  return wz_clear_last_error();
+}
+
+wz_error_code wz_open_memory_with_iv(const char* file_name,
+                                     const uint8_t* data,
+                                     size_t data_size,
+                                     const uint8_t iv[4],
+                                     wz_file* out_file) {
+  if (auto ec = init_out("wz_open_memory_with_iv", out_file);
+      ec != WZ_ERROR_NONE) {
+    return ec;
+  }
+  if (!file_name) {
+    return set_error_invalid_arg("wz_open_memory_with_iv", "file_name");
+  }
+  if (!data && data_size != 0) {
+    return set_error_invalid_arg("wz_open_memory_with_iv", "data");
+  }
+  if (!iv) return set_error_invalid_arg("wz_open_memory_with_iv", "iv");
+
+  std::vector<uint8_t> bytes;
+  if (data_size > 0) {
+    bytes.assign(data, data + data_size);
+  }
+  std::array<uint8_t, 4> iv_arr = {iv[0], iv[1], iv[2], iv[3]};
+  auto source = std::make_shared<wz::WzMemoryDataSource>(std::move(bytes));
+  auto* f = new wz::WzFile(file_name, source, iv_arr);
   *out_file = reinterpret_cast<wz_file>(f);
   return wz_clear_last_error();
 }

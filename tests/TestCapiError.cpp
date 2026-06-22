@@ -1,6 +1,9 @@
 #include <gtest/gtest.h>
 #include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <string>
+#include <vector>
 #include "wz/wz_api.h"
 
 namespace {
@@ -17,6 +20,12 @@ wz_error_code LastErrorCode() {
   return info->code;
 }
 
+std::vector<uint8_t> ReadAllBytes(const std::filesystem::path& path) {
+  std::ifstream input(path, std::ios::binary);
+  return std::vector<uint8_t>(std::istreambuf_iterator<char>(input),
+                              std::istreambuf_iterator<char>());
+}
+
 }  // namespace
 
 TEST(CapiError, OpenFileRejectsNullPath) {
@@ -24,6 +33,126 @@ TEST(CapiError, OpenFileRejectsNullPath) {
   EXPECT_EQ(wz_open_file(nullptr, 0, WZ_GMS, &file), WZ_ERROR_INVALID_ARGUMENT);
   EXPECT_EQ(file, nullptr);
   EXPECT_EQ(LastErrorCode(), WZ_ERROR_INVALID_ARGUMENT);
+}
+
+TEST(WzCapi, OpenMemoryRejectsNullFileName) {
+  const uint8_t data[] = {0};
+  wz_file file = nullptr;
+  EXPECT_EQ(wz_open_memory(nullptr, data, sizeof(data), -1, WZ_GMS, &file),
+            WZ_ERROR_INVALID_ARGUMENT);
+  EXPECT_EQ(file, nullptr);
+}
+
+TEST(WzCapi, OpenMemoryRejectsNullOutput) {
+  const uint8_t data[] = {0};
+  EXPECT_EQ(wz_open_memory("input.wz", data, sizeof(data), -1, WZ_GMS, nullptr),
+            WZ_ERROR_INVALID_ARGUMENT);
+}
+
+TEST(WzCapi, OpenMemoryRejectsNullDataWithNonzeroSize) {
+  wz_file file = nullptr;
+  EXPECT_EQ(wz_open_memory("input.wz", nullptr, 1, -1, WZ_GMS, &file),
+            WZ_ERROR_INVALID_ARGUMENT);
+  EXPECT_EQ(file, nullptr);
+}
+
+TEST(WzCapi, OpenMemoryOwnsInputBytes) {
+  const auto path = TempPath("libwz_capi_memory_open_source.wz");
+  std::error_code ec;
+  std::filesystem::remove(path, ec);
+
+  wz_file file = nullptr;
+  ASSERT_EQ(wz_create_file(95, WZ_GMS, &file), WZ_ERROR_NONE);
+  wz_dir root = nullptr;
+  ASSERT_EQ(wz_file_get_wz_directory(file, &root), WZ_ERROR_NONE);
+  wz_image image = nullptr;
+  ASSERT_EQ(wz_dir_create_image(root, "test.img", &image), WZ_ERROR_NONE);
+  wz_property prop = nullptr;
+  ASSERT_EQ(wz_property_create_int("count", 7, &prop), WZ_ERROR_NONE);
+  ASSERT_EQ(wz_image_add_property(image, prop), WZ_ERROR_NONE);
+  ASSERT_EQ(wz_file_save_to_disk(file, path.string().c_str()), WZ_ERROR_NONE);
+  ASSERT_EQ(wz_close_file(file), WZ_ERROR_NONE);
+
+  std::vector<uint8_t> bytes = ReadAllBytes(path);
+  ASSERT_FALSE(bytes.empty());
+  file = nullptr;
+  ASSERT_EQ(
+      wz_open_memory("input.wz", bytes.data(), bytes.size(), 95, WZ_GMS, &file),
+      WZ_ERROR_NONE);
+  bytes[0] = 0;
+  EXPECT_NE(file, nullptr);
+  const char* name = nullptr;
+  ASSERT_EQ(wz_file_name(file, &name), WZ_ERROR_NONE);
+  EXPECT_STREQ(name, "input.wz");
+  const char* file_path = nullptr;
+  ASSERT_EQ(wz_file_path(file, &file_path), WZ_ERROR_NONE);
+  EXPECT_STREQ(file_path, "");
+  wz_parse_status status = WZ_PARSE_FAILED_UNKNOWN;
+  ASSERT_EQ(wz_parse(file, &status), WZ_ERROR_NONE);
+  EXPECT_EQ(status, WZ_PARSE_SUCCESS);
+  EXPECT_EQ(wz_close_file(file), WZ_ERROR_NONE);
+
+  std::filesystem::remove(path, ec);
+}
+
+TEST(WzCapi, OpenMemoryAllowsEmptyInputButParseFails) {
+  wz_file file = nullptr;
+  ASSERT_EQ(wz_open_memory("empty.wz", nullptr, 0, -1, WZ_GMS, &file),
+            WZ_ERROR_NONE);
+  ASSERT_NE(file, nullptr);
+
+  wz_parse_status status = WZ_PARSE_SUCCESS;
+  EXPECT_EQ(wz_parse(file, &status), WZ_ERROR_PARSE_ERROR);
+  EXPECT_EQ(status, WZ_PARSE_FAILED_UNKNOWN);
+  EXPECT_EQ(wz_close_file(file), WZ_ERROR_NONE);
+}
+
+TEST(WzCapi, OpenMemoryRejectsMalformedHeaderStart) {
+  std::vector<uint8_t> bytes(17);
+  bytes[0] = 'P';
+  bytes[1] = 'K';
+  bytes[2] = 'G';
+  bytes[3] = '1';
+
+  wz_file file = nullptr;
+  ASSERT_EQ(
+      wz_open_memory("bad.wz", bytes.data(), bytes.size(), -1, WZ_GMS, &file),
+      WZ_ERROR_NONE);
+  ASSERT_NE(file, nullptr);
+
+  wz_parse_status status = WZ_PARSE_SUCCESS;
+  EXPECT_EQ(wz_parse(file, &status), WZ_ERROR_PARSE_ERROR);
+  EXPECT_EQ(status, WZ_PARSE_FAILED_UNKNOWN);
+  EXPECT_EQ(wz_close_file(file), WZ_ERROR_NONE);
+}
+
+TEST(WzCapi, OpenMemoryRejectsHeaderStartBeyondInput) {
+  std::vector<uint8_t> bytes(17);
+  bytes[0] = 'P';
+  bytes[1] = 'K';
+  bytes[2] = 'G';
+  bytes[3] = '1';
+  bytes[12] = 0xFF;
+
+  wz_file file = nullptr;
+  ASSERT_EQ(
+      wz_open_memory("bad.wz", bytes.data(), bytes.size(), -1, WZ_GMS, &file),
+      WZ_ERROR_NONE);
+  ASSERT_NE(file, nullptr);
+
+  wz_parse_status status = WZ_PARSE_SUCCESS;
+  EXPECT_EQ(wz_parse(file, &status), WZ_ERROR_PARSE_ERROR);
+  EXPECT_EQ(status, WZ_PARSE_FAILED_UNKNOWN);
+  EXPECT_EQ(wz_close_file(file), WZ_ERROR_NONE);
+}
+
+TEST(WzCapi, OpenMemoryWithIvRejectsNullIv) {
+  const uint8_t data[] = {0};
+  wz_file file = nullptr;
+  EXPECT_EQ(
+      wz_open_memory_with_iv("input.wz", data, sizeof(data), nullptr, &file),
+      WZ_ERROR_INVALID_ARGUMENT);
+  EXPECT_EQ(file, nullptr);
 }
 
 TEST(CapiError, SuccessfulCallClearsPreviousError) {

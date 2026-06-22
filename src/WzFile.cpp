@@ -42,9 +42,29 @@ WzFile::WzFile(const std::string& filePath,
   wz_iv_ = WzTool::GetIvByMapleVersion(version);
 }
 
+WzFile::WzFile(const std::string& fileName,
+               std::shared_ptr<WzDataSource> source,
+               int16_t gameVersion,
+               WzMapleVersion version)
+    : source_(std::move(source)),
+      mapleStoryPatchVersion_(gameVersion),
+      maplepLocalVersion_(version) {
+  name_ = fileName;
+  wz_iv_ = WzTool::GetIvByMapleVersion(version);
+}
+
 WzFile::WzFile(const std::string& filePath, const std::array<uint8_t, 4>& wzIv)
     : path_(filePath), wz_iv_(wzIv) {
   name_ = wz::to_path(filePath).filename().string();
+  mapleStoryPatchVersion_ = -1;
+  maplepLocalVersion_ = WzMapleVersion::CUSTOM;
+}
+
+WzFile::WzFile(const std::string& fileName,
+               std::shared_ptr<WzDataSource> source,
+               const std::array<uint8_t, 4>& wzIv)
+    : source_(std::move(source)), wz_iv_(wzIv) {
+  name_ = fileName;
   mapleStoryPatchVersion_ = -1;
   maplepLocalVersion_ = WzMapleVersion::CUSTOM;
 }
@@ -57,6 +77,7 @@ WzFile::~WzFile() {
     fileReader_.reset();
   }
   if (fileStream_.is_open()) fileStream_.close();
+  source_.reset();
   path_.clear();
   name_.clear();
 }
@@ -159,24 +180,35 @@ bool WzFile::TryDecodeWithWZVersionNumber(WzBinaryReader* reader,
 }
 
 WzFileParseStatus WzFile::ParseMainWzDirectory() {
-  if (path_.empty()) {
+  if (path_.empty() && !source_) {
     return WzFileParseStatus::Path_Is_Null;
   }
 
   wzDir_.reset();
   fileReader_.reset();
-  if (fileStream_.is_open()) fileStream_.close();
-  fileStream_ = std::ifstream(wz::to_path(path_), std::ios::binary);
-  if (!fileStream_.is_open()) {
+  if (!source_) {
+    if (fileStream_.is_open()) fileStream_.close();
+    fileStream_ = std::ifstream(wz::to_path(path_), std::ios::binary);
+    if (!fileStream_.is_open()) {
+      return WzFileParseStatus::Failed_Unknown;
+    }
+
+    fileReader_.emplace(fileStream_, wz_iv_);
+  } else {
+    fileReader_.emplace(source_, wz_iv_);
+  }
+  WzBinaryReader& fileReader = *fileReader_;
+
+  if (fileReader.SourceSize() < 17U) {
     return WzFileParseStatus::Failed_Unknown;
   }
-
-  fileReader_.emplace(fileStream_, wz_iv_);
-  WzBinaryReader& fileReader = *fileReader_;
 
   header_.SetIdent(fileReader.ReadString(4));
   header_.SetFSize(fileReader.ReadUInt64());
   header_.SetFStart(fileReader.ReadUInt32());
+  if (header_.FStart() < 17U || header_.FStart() > fileReader.SourceSize()) {
+    return WzFileParseStatus::Failed_Unknown;
+  }
   header_.SetCopyright(
       fileReader.ReadString(static_cast<size_t>(header_.FStart() - 17U)));
 

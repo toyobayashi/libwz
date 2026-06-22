@@ -93,12 +93,23 @@ wz_error_code wz_open_file(const char* file_path,
                            short game_version,
                            wz_maple_version version,
                            wz_file* out_file);
+wz_error_code wz_open_memory(const char* file_name,
+                             const uint8_t* data,
+                             size_t data_size,
+                             short game_version,
+                             wz_maple_version version,
+                             wz_file* out_file);
 wz_error_code wz_create_file(short game_version,
                              wz_maple_version version,
                              wz_file* out_file);
 wz_error_code wz_open_file_with_iv(const char* file_path,
                                    const uint8_t iv[4],
                                    wz_file* out_file);
+wz_error_code wz_open_memory_with_iv(const char* file_name,
+                                     const uint8_t* data,
+                                     size_t data_size,
+                                     const uint8_t iv[4],
+                                     wz_file* out_file);
 wz_error_code wz_parse(wz_file file, wz_parse_status* out_status);
 wz_error_code wz_close_file(wz_file file);
 wz_error_code wz_file_save_to_disk(wz_file file, const char* file_path);
