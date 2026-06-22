@@ -24,6 +24,7 @@ Provides C API for FFI consumers and JNI bindings for Java/Kotlin.
 - C API (`wz_api.h`) for FFI consumers (Python, Node.js, etc.)
 - JNI bindings for Java/Kotlin consumers
 - Java wrapper classes with `AutoCloseable` resource management
+- Node.js native addon and WebAssembly package entries for JavaScript users
 
 ## Requirements
 
@@ -81,6 +82,41 @@ Authenticate with a [GitHub personal access token](https://docs.github.com/en/pa
 The JAR bundles native libraries for **Windows x86_64**, **Linux x86_64**,
 and **macOS ARM64 (Apple Silicon)**. `NativeLibraryLoader` automatically
 extracts the correct one at runtime.
+
+## Quick Start — JavaScript / Wasm
+
+The root `libwz` package entry uses the native Node addon and keeps the
+existing synchronous API. The `libwz/wasm` entry exposes the same object-shaped
+API through WebAssembly, and is useful in Node.js or inside your own browser
+Worker.
+
+```js
+import { createWzApi, createWzApiSync, MapleVersion } from "libwz/wasm";
+
+const wz = await createWzApi();
+using file = new wz.WzFile("Character.wz", MapleVersion.GMS);
+file.parseWzFile();
+
+const syncWz = createWzApiSync();
+using syncFile = new syncWz.WzFile("Character.wz", syncWz.MapleVersion.GMS);
+syncFile.parseWzFile();
+```
+
+Browser main-thread code should use the Worker proxy entry. The proxy mirrors
+the Node class names, but operations are async because they cross a Worker
+boundary. It supports `await using` / `Symbol.asyncDispose` for owned objects.
+
+```js
+import { createWzWorker, MapleVersion } from "libwz/wasm/browser-main";
+
+await using wz = await createWzWorker();
+await using file = await wz.WzFile.fromBlob("Character.wz", blob, MapleVersion.GMS);
+await file.parseWzFile();
+```
+
+Browser bundlers should import `libwz/wasm` or `libwz/wasm/browser-main`
+directly. The package publishes one Wasm binary, `dist/wasm/libwz.wasm`; the
+async, sync, and browser Worker glue all reuse that file.
 
 ## Build Options
 

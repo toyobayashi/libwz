@@ -2,13 +2,18 @@
 
 ## Status
 
-Implementation has completed and committed plan Tasks 1 through 6. The next
-task is Task 7: Worker Blob integration tests and Vite/Webpack fixtures.
+Implementation has completed and committed the original Blob data-source work
+and the follow-up isomorphic Wasm API work. The current public Wasm shape is:
 
-Task 6 passed subagent specification and code-quality review after fixing
-reviewer-found packaging and Wasm runtime export issues. Continue with the same
-subagent review workflow: failing test first, implementation, verification,
-spec review, code-quality review, then commit.
+- `libwz/wasm` for direct Wasm usage in Node.js and browser Workers.
+- `libwz/wasm/browser-main` for browser main-thread code through an async
+  Worker proxy.
+- One published Wasm binary, `dist/wasm/libwz.wasm`, reused by async, sync, and
+  browser glue.
+
+Task 7 passed subagent specification and code-quality reviews after fixing the
+browser bundler entry so Vite/Webpack no longer pull the Node sync glue or
+`node:module` into browser bundles.
 
 ## Completed Design and Planning Work
 
@@ -179,15 +184,48 @@ Commit: `2d389a3 feat: build libwz as an ESM wasm module`
 - Passed independent review after fixes for missing `initializeWasm`, shallow
   RPC return shape, stale pack artifacts, and missing `HEAPU8` runtime export.
 
+### Isomorphic Wasm API follow-up
+
+Commits:
+
+- `813099e docs: reuse wasm binary for sync api design`
+- `6174f2d refactor: share Node binding TypeScript types`
+- `e1eb795 refactor: create injectable WZ TypeScript wrappers`
+- `6896c7c feat: add direct wasm API`
+- `df59761 feat: add wasm worker RPC dispatch`
+- `8e08177 feat: add async wasm worker proxy API`
+- `1637399 feat: expand wasm API parity surface`
+- `00f6546 test: verify wasm ESM bundler integration`
+
+Completed behavior:
+
+- Extracted native binding types and the Node-shaped TypeScript wrappers so the
+  same class surface can be constructed from the native addon or Wasm binding.
+- Added `libwz/wasm` direct runtime with async `createWzApi()` and Node-capable
+  sync `createWzApiSync()`.
+- Added synchronous Node Wasm initialization without publishing a second Wasm
+  binary; `libwz-sync.js` reuses `dist/wasm/libwz.wasm`.
+- Added browser-safe conditional export for `libwz/wasm`. Browser bundlers use
+  `browser-index.js`; `createWzApiSync()` remains exported there but throws a
+  clear unsupported-browser error.
+- Added `libwz/wasm/browser-main`, an async Worker proxy with Node-like class
+  names and `Symbol.asyncDispose` / `await using` support.
+- Added generic Worker RPC dispatch for file, directory, image, and property
+  methods while keeping raw native handles private.
+- Verified parity between native Node, Node Wasm direct, browser Worker direct,
+  and browser main-thread proxy summaries.
+- Added Vite and Webpack bundler fixtures importing both `libwz/wasm` and
+  `libwz/wasm/browser-main` without consumer-side shims.
+
 ## Review State
 
 Task 1 received the required fresh code-quality re-review before Task 2 began.
 No blocking or important issues were found. The only note was a non-blocking
 stream-source test gap for `offset > Size()`.
 
-Task 2, Task 3, Task 4, Task 5, and Task 6 each completed specification and
-code-quality reviews. Reviewer-found issues were fixed and re-reviewed before
-commit.
+Task 2, Task 3, Task 4, Task 5, Task 6, and the isomorphic Wasm follow-up tasks
+each completed specification and code-quality reviews. Reviewer-found issues
+were fixed and re-reviewed before commit.
 
 Task 1 earlier code-quality review found two real issues, both fixed in
 follow-up commits:
@@ -196,12 +234,23 @@ follow-up commits:
 2. Unexpected short reads after captured stream size looked successful — fixed
    in `cd97b9ad`.
 
-## Not Started
-
-- Task 7: Worker Blob integration and Vite/Webpack fixtures.
-- Task 8: explicit browser save bytes/Blob/download APIs.
-
 ## Latest Verification
+
+Final isomorphic Wasm verification included:
+
+```bash
+npm test
+npm run test:wasm
+npm run test:wasm:bundlers
+node tests/wasm/direct.test.mjs
+node tests/wasm/browser-main.test.mjs
+node tests/wasm/parity.test.mjs
+npm pack --dry-run
+```
+
+Task 7 review also verified that package contents include `dist/wasm/libwz.wasm`
+and do not include `dist/wasm/libwz-sync.wasm` or
+`dist/wasm/libwz-browser.wasm`.
 
 Task 6 verification included:
 
