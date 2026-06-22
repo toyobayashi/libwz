@@ -9,6 +9,10 @@
 
 #include "wz/wz.h"
 
+#ifdef __EMSCRIPTEN__
+#include "wz/Util/WzBlobDataSource.h"
+#endif
+
 static thread_local std::string g_last_error_msg;
 static thread_local wz_last_error_info g_last_error_info = {WZ_ERROR_NONE, ""};
 
@@ -187,6 +191,37 @@ wz_error_code wz_open_memory(const char* file_name,
   return wz_clear_last_error();
 }
 
+wz_error_code wz_open_blob_source(uint32_t blob_id,
+                                  uint64_t size,
+                                  const char* file_name,
+                                  int16_t game_version,
+                                  wz_maple_version version,
+                                  wz_file* out_file) {
+  if (auto ec = init_out("wz_open_blob_source", out_file);
+      ec != WZ_ERROR_NONE) {
+    return ec;
+  }
+  if (!file_name) {
+    return set_error_invalid_arg("wz_open_blob_source", "file_name");
+  }
+#ifdef __EMSCRIPTEN__
+  auto source = std::make_shared<wz::WzBlobDataSource>(blob_id, size);
+  auto* f = new wz::WzFile(file_name,
+                           source,
+                           game_version,
+                           static_cast<wz::WzMapleVersion>(version));
+  *out_file = reinterpret_cast<wz_file>(f);
+  return wz_clear_last_error();
+#else
+  (void)blob_id;
+  (void)size;
+  (void)game_version;
+  (void)version;
+  return wz_set_last_error(WZ_ERROR_NOT_IMPLEMENTED,
+                           "Blob sources require Emscripten");
+#endif
+}
+
 wz_error_code wz_create_file(int16_t game_version,
                              wz_maple_version version,
                              wz_file* out_file) {
@@ -242,6 +277,33 @@ wz_error_code wz_open_memory_with_iv(const char* file_name,
   auto* f = new wz::WzFile(file_name, source, iv_arr);
   *out_file = reinterpret_cast<wz_file>(f);
   return wz_clear_last_error();
+}
+
+wz_error_code wz_open_blob_source_with_iv(uint32_t blob_id,
+                                          uint64_t size,
+                                          const char* file_name,
+                                          const uint8_t iv[4],
+                                          wz_file* out_file) {
+  if (auto ec = init_out("wz_open_blob_source_with_iv", out_file);
+      ec != WZ_ERROR_NONE) {
+    return ec;
+  }
+  if (!file_name) {
+    return set_error_invalid_arg("wz_open_blob_source_with_iv", "file_name");
+  }
+  if (!iv) return set_error_invalid_arg("wz_open_blob_source_with_iv", "iv");
+#ifdef __EMSCRIPTEN__
+  std::array<uint8_t, 4> iv_arr = {iv[0], iv[1], iv[2], iv[3]};
+  auto source = std::make_shared<wz::WzBlobDataSource>(blob_id, size);
+  auto* f = new wz::WzFile(file_name, source, iv_arr);
+  *out_file = reinterpret_cast<wz_file>(f);
+  return wz_clear_last_error();
+#else
+  (void)blob_id;
+  (void)size;
+  return wz_set_last_error(WZ_ERROR_NOT_IMPLEMENTED,
+                           "Blob sources require Emscripten");
+#endif
 }
 
 wz_error_code wz_parse(wz_file file, wz_parse_status* out_status) {

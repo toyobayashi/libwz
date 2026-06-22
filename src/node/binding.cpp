@@ -150,6 +150,42 @@ Napi::Value OpenMemoryWithIv(const Napi::CallbackInfo& info) {
   return file ? ToHandle(env, file) : env.Null();
 }
 
+Napi::Value OpenBlobSource(const Napi::CallbackInfo& info) {
+  Napi::Env env = info.Env();
+  uint32_t blobId = info[0].As<Napi::Number>().Uint32Value();
+  uint64_t size =
+      static_cast<uint64_t>(info[1].As<Napi::Number>().DoubleValue());
+  std::string name = info[2].As<Napi::String>().Utf8Value();
+  int gameVersion = info[3].As<Napi::Number>().Int32Value();
+  int version = info[4].As<Napi::Number>().Int32Value();
+  wz_file file = nullptr;
+  WZ_NODE_API_CALL(
+      env,
+      wz_open_blob_source(blobId,
+                          size,
+                          name.c_str(),
+                          static_cast<short>(gameVersion),
+                          static_cast<wz_maple_version>(version),
+                          &file));
+  return file ? ToHandle(env, file) : env.Null();
+}
+
+Napi::Value OpenBlobSourceWithIv(const Napi::CallbackInfo& info) {
+  Napi::Env env = info.Env();
+  uint32_t blobId = info[0].As<Napi::Number>().Uint32Value();
+  uint64_t size =
+      static_cast<uint64_t>(info[1].As<Napi::Number>().DoubleValue());
+  std::string name = info[2].As<Napi::String>().Utf8Value();
+  Napi::Uint8Array iv = info[3].As<Napi::Uint8Array>();
+  uint8_t iv_bytes[4] = {0, 0, 0, 0};
+  std::memcpy(iv_bytes, iv.Data(), iv.ByteLength() < 4 ? iv.ByteLength() : 4);
+  wz_file file = nullptr;
+  WZ_NODE_API_CALL(env,
+                   wz_open_blob_source_with_iv(
+                       blobId, size, name.c_str(), iv_bytes, &file));
+  return file ? ToHandle(env, file) : env.Null();
+}
+
 Napi::Value CreateFile(const Napi::CallbackInfo& info) {
   Napi::Env env = info.Env();
   int gameVersion = info[0].As<Napi::Number>().Int32Value();
@@ -1067,6 +1103,9 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
   exports.Set("openFileWithIv", Napi::Function::New(env, OpenFileWithIv));
   exports.Set("openMemory", Napi::Function::New(env, OpenMemory));
   exports.Set("openMemoryWithIv", Napi::Function::New(env, OpenMemoryWithIv));
+  exports.Set("openBlobSource", Napi::Function::New(env, OpenBlobSource));
+  exports.Set("openBlobSourceWithIv",
+              Napi::Function::New(env, OpenBlobSourceWithIv));
   exports.Set("createFile", Napi::Function::New(env, CreateFile));
   exports.Set("parseFile", Napi::Function::New(env, ParseFile));
   exports.Set("closeFile", Napi::Function::New(env, CloseFile));

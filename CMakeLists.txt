@@ -27,6 +27,14 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 option(BUILD_TESTS "Build unit tests" ON)
 option(BUILD_CAPI "Build C API layer" ON)
 option(BUILD_JNI "Build JNI bindings" OFF)
+option(BUILD_WASM "Build WebAssembly-specific targets" OFF)
+
+if(BUILD_WASM)
+    if(NOT EMSCRIPTEN)
+        message(FATAL_ERROR "BUILD_WASM requires Emscripten")
+    endif()
+    set(BUILD_JNI OFF)
+endif()
 
 include(FetchContent)
 
@@ -139,6 +147,11 @@ set(WZ_HEADERS
     include/wz/Properties/WzVideoProperty.h
 )
 
+if(EMSCRIPTEN)
+    list(APPEND WZ_SOURCES src/Util/WzBlobDataSource.cpp)
+    list(APPEND WZ_HEADERS include/wz/Util/WzBlobDataSource.h)
+endif()
+
 add_library(wz STATIC ${WZ_SOURCES} ${WZ_HEADERS})
 target_include_directories(wz PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
@@ -198,6 +211,14 @@ if(BUILD_TESTS)
         target_link_libraries(wz_test PRIVATE wz)
     endif()
     add_test(NAME wz_test COMMAND wz_test)
+
+    if(BUILD_WASM)
+        add_executable(wz_wasm_test
+            tests/TestWzBlobDataSource.cpp
+        )
+        target_include_directories(wz_wasm_test PRIVATE include)
+        target_link_libraries(wz_wasm_test PRIVATE wz GTest::gtest_main)
+    endif()
 endif()
 
 if(BUILD_JNI)
