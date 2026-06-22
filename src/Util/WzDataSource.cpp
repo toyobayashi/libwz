@@ -18,7 +18,7 @@ WzStreamDataSource::WzStreamDataSource(std::istream& input) : input_(&input) {
 
 Result<size_t> WzStreamDataSource::ReadAt(uint64_t offset,
                                           std::span<uint8_t> destination) {
-  if (offset > size_ || (offset == size_ && !destination.empty())) {
+  if (offset > size_) {
     return std::unexpected(Error::IoError("Read offset is beyond source size"));
   }
 
@@ -58,8 +58,7 @@ WzMemoryDataSource::WzMemoryDataSource(std::vector<uint8_t> data)
 
 Result<size_t> WzMemoryDataSource::ReadAt(uint64_t offset,
                                           std::span<uint8_t> destination) {
-  if (offset > data_.size() ||
-      (offset == data_.size() && !destination.empty())) {
+  if (offset > data_.size()) {
     return std::unexpected(Error::IoError("Read offset is beyond source size"));
   }
 

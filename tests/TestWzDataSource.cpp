@@ -51,6 +51,24 @@ TEST(WzMemoryDataSourceTest, AllowsEmptyReadAtEnd) {
   EXPECT_EQ(result.value(), 0U);
 }
 
+TEST(WzDataSourceTest, ReturnsZeroForNonemptyReadAtEnd) {
+  wz::WzMemoryDataSource memory_source({1, 2, 3, 4});
+  std::istringstream input("abcd");
+  wz::WzStreamDataSource stream_source(input);
+  std::vector<uint8_t> memory_destination(1);
+  std::vector<uint8_t> stream_destination(1);
+
+  auto memory_result =
+      memory_source.ReadAt(memory_source.Size(), memory_destination);
+  auto stream_result =
+      stream_source.ReadAt(stream_source.Size(), stream_destination);
+
+  ASSERT_TRUE(memory_result.has_value());
+  ASSERT_TRUE(stream_result.has_value());
+  EXPECT_EQ(memory_result.value(), 0U);
+  EXPECT_EQ(stream_result.value(), 0U);
+}
+
 TEST(WzStreamDataSourceTest, ReadsIndependentRandomRanges) {
   std::istringstream input("abcdef");
   wz::WzStreamDataSource source(input);
