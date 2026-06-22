@@ -20,6 +20,8 @@ export interface DetectedMapleVersion {
 interface NativeBinding {
   openFile(path: string, gameVersion: number, mapleVersion: MapleVersionValue): NullableNativeHandle;
   openFileWithIv(path: string, iv: ArrayBufferViewLike): NullableNativeHandle;
+  openMemory(name: string, bytes: Uint8Array, gameVersion: number, mapleVersion: MapleVersionValue): NullableNativeHandle;
+  openMemoryWithIv(name: string, bytes: Uint8Array, iv: ArrayBufferViewLike): NullableNativeHandle;
   createFile(gameVersion: number, mapleVersion: MapleVersionValue): NullableNativeHandle;
   closeFile(ptr: NativeHandle): void;
   parseFile(ptr: NativeHandle): ParseStatusValue;
@@ -462,6 +464,29 @@ export class WzFile extends WzObject {
   static create(gameVersion: number, mapleVersion: MapleVersionValue): WzFile {
     const ptr = native.createFile(gameVersion, mapleVersion);
     if (ptr === null) throw new Error("failed to create WZ file");
+    return createWzFile(ptr, true);
+  }
+
+  static fromBytes(name: string, bytes: Uint8Array, mapleVersion: MapleVersionValue): WzFile;
+  static fromBytes(name: string, bytes: Uint8Array, gameVersion: number, mapleVersion: MapleVersionValue): WzFile;
+  static fromBytes(name: string, bytes: Uint8Array, iv: ArrayBufferViewLike): WzFile;
+  static fromBytes(
+    name: string,
+    bytes: Uint8Array,
+    gameVersionOrMapleVersionOrIv: number | ArrayBufferViewLike,
+    mapleVersion?: MapleVersionValue
+  ): WzFile {
+    let ptr: NullableNativeHandle;
+    if (ArrayBuffer.isView(gameVersionOrMapleVersionOrIv)) {
+      ptr = native.openMemoryWithIv(name, bytes, gameVersionOrMapleVersionOrIv);
+    } else {
+      const gameVersion = mapleVersion === undefined ? -1 : gameVersionOrMapleVersionOrIv;
+      const version = mapleVersion === undefined
+        ? gameVersionOrMapleVersionOrIv as MapleVersionValue
+        : mapleVersion;
+      ptr = native.openMemory(name, bytes, gameVersion, version);
+    }
+    if (ptr === null) throw new Error("failed to open WZ file from bytes");
     return createWzFile(ptr, true);
   }
 

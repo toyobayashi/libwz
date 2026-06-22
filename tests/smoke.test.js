@@ -79,6 +79,21 @@ test("opens, parses, and wraps borrowed objects without owning them", () => {
   assert.throws(() => file.getName(), /disposed/i);
 });
 
+test("opens a WZ file from owned bytes", () => {
+  const bytes = new Uint8Array(fs.readFileSync(sampleWz));
+  const file = wz.WzFile.fromBytes(
+    "TamingMob_GMS_87.wz",
+    bytes,
+    wz.MapleVersion.GMS
+  );
+  try {
+    assert.equal(file.parseWzFile(), wz.ParseStatus.SUCCESS);
+    assert.equal(file.getName(), "TamingMob_GMS_87.wz");
+  } finally {
+    file.close();
+  }
+});
+
 test("property factory returns concrete property classes", () => {
   const file = new wz.WzFile(sampleWz, wz.MapleVersion.GMS);
   try {
