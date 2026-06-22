@@ -45,8 +45,10 @@ This entry continues to load the native Node addon and is not browser-safe.
 
 `libwz/wasm` is the direct Wasm runtime. It is meant for Node.js and for users
 who are already inside their own browser Worker. It does not create another
-Worker. It initializes the Wasm module asynchronously, then exposes synchronous
-Node-like object APIs:
+Worker. It can initialize the Wasm module asynchronously through
+`createWzApi()` or synchronously through `createWzApiSync()` when the caller
+provides synchronously available Wasm input. After initialization, both forms
+expose synchronous Node-like object APIs:
 
 ```ts
 import { createWzApi, MapleVersion } from "libwz/wasm";
@@ -56,6 +58,17 @@ const wz = await createWzApi({ wasmUrl });
 using file = new wz.WzFile("Base.wz", MapleVersion.GMS);
 file.parseWzFile();
 const root = file.getWzDirectory();
+```
+
+Node.js callers that want no async initialization can use sync loading:
+
+```ts
+import { createWzApiSync, MapleVersion } from "libwz/wasm";
+
+const wz = createWzApiSync({ wasmPath: "node_modules/libwz/dist/wasm/libwz-sync.wasm" });
+
+using file = new wz.WzFile("Base.wz", MapleVersion.GMS);
+file.parseWzFile();
 ```
 
 In a browser Worker, the same entry is used with Blob/File input:
@@ -72,8 +85,12 @@ const root = file.getWzDirectory();
 
 Rules:
 
-- Initialization is async because loading the Wasm module is async.
+- `createWzApi()` initializes asynchronously because URL-based Wasm loading is
+  asynchronous.
 - After initialization, object methods are synchronous.
+- `createWzApiSync()` is available for runtimes that can provide Wasm bytes,
+  a compiled `WebAssembly.Module`, or a Node.js filesystem path synchronously.
+  It must not perform asynchronous fetch.
 - The runtime detects whether it is running in Node.js or a browser-like
   Worker environment.
 - In Node.js, path-based `new WzFile(...)` and `saveToDisk(path)` are supported
@@ -273,6 +290,32 @@ type WzApiOptions = {
 };
 ```
 
+`createWzApiSync()` accepts:
+
+```ts
+type WzApiSyncOptions = {
+  wasmPath?: string;
+  wasmBytes?: Uint8Array | ArrayBuffer;
+  wasmModule?: WebAssembly.Module;
+  mount?: {
+    hostPath: string;
+    wasmPath: string;
+  };
+};
+```
+
+Exactly one of `wasmPath`, `wasmBytes`, or `wasmModule` should be provided for
+sync initialization unless the runtime can synchronously find the packaged
+`libwz-sync.wasm`. In Node.js, `wasmPath` is read with synchronous filesystem APIs.
+In browser Workers, callers should pass `wasmBytes` or `wasmModule` because
+fetching package assets is asynchronous. If sync initialization cannot obtain
+Wasm synchronously, it must throw a setup error that names the missing input.
+
+The sync path may use a separate Emscripten glue artifact built with synchronous
+Wasm compilation settings, such as `WASM_ASYNC_COMPILATION=0`. The async and
+sync APIs should return the same object model even if their generated glue files
+are different internally.
+
 `mount` is used only by the Node.js host adapter. If no mount is provided,
 Node.js direct should use a sensible default that allows ordinary absolute paths
 and relative paths from `process.cwd()` when possible. If the runtime cannot
@@ -305,7 +348,8 @@ Node errors currently become thrown JavaScript exceptions from the addon. The
 browser APIs should preserve that shape:
 
 - Node.js Wasm direct and browser Worker direct APIs throw synchronously after
-  initialization.
+  initialization. `createWzApiSync()` also throws synchronously for setup
+  failures.
 - Main-thread proxy API rejects promises with `Error` objects.
 - Worker-side native errors include the C API last-error message.
 - Unsupported environment errors should name the missing feature, such as
@@ -322,8 +366,9 @@ Tests should prove API parity, not just module loading:
   and at least one lazy image parse.
 - A Blob test should override `blob.arrayBuffer()` to throw, proving the Blob
   path uses range reads instead of full reads.
-- Direct Wasm tests should cover both Node.js path input and browser Worker
-  Blob input through the same `libwz/wasm` import.
+- Direct Wasm tests should cover async initialization, sync initialization,
+  Node.js path input, and browser Worker Blob input through the same
+  `libwz/wasm` import.
 - Browser main-thread proxy tests should import `libwz/wasm/browser-main`, use
   `await using`, and verify disposed wrappers reject follow-up calls.
 - Bundler tests should import `libwz/wasm` and `libwz/wasm/browser-main` from
@@ -334,7 +379,7 @@ Tests should prove API parity, not just module loading:
 1. Extract the current Node wrapper so it can accept an injected binding instead
    of closing over the Node native addon directly.
 2. Build a shared direct Wasm wrapper on top of the injected binding returned
-   by `initializeWasm()`.
+   by `initializeWasm()` and `initializeWasmSync()`.
 3. Add host adapters for Node.js path I/O and browser Worker Blob range reads.
 4. Expose the direct runtime as `libwz/wasm` and choose the Node.js or browser
    Worker host adapter at runtime.

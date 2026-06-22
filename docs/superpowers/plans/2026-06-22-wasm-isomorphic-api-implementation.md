@@ -26,6 +26,7 @@
 - Modify: `wasm/loader.ts`
   - Export typed `WzBinding` instead of `Record<string, unknown>`.
   - Accept host hooks for Blob range and Node path access.
+  - Export `initializeWasmSync()` for sync direct runtime initialization.
 - Modify: `wasm/worker.ts`
   - Replace the current Blob-open-only message handler with generic RPC.
   - Keep `__libwzReadBlobRange` in the Worker.
@@ -39,7 +40,7 @@
   - Add `./wasm/browser-main` for the async Worker proxy.
   - Keep native `main` and root `require` entry unchanged.
 - Create: `tests/wasm/direct.test.mjs`
-  - Tests Node.js direct path input and browser Worker direct Blob behavior through the same `libwz/wasm` API.
+  - Tests async Node.js direct path input, sync Node.js direct path input, and browser Worker direct Blob behavior through the same `libwz/wasm` API.
 - Create: `tests/wasm/browser-main.test.mjs`
   - Tests async proxy API and `Symbol.asyncDispose`.
 - Create: `tests/wasm/parity.test.mjs`
@@ -321,7 +322,7 @@ import test from "node:test";
 import path from "node:path";
 import { Worker } from "node:worker_threads";
 import { fileURLToPath } from "node:url";
-import { createWzApi, MapleVersion, ParseStatus } from "../../dist/wasm/index.js";
+import { createWzApi, createWzApiSync, MapleVersion, ParseStatus } from "../../dist/wasm/index.js";
 
 const root = path.dirname(path.dirname(path.dirname(fileURLToPath(import.meta.url))));
 const sample = path.join(root, "Harepacker-resurrected", "UnitTest_WzFile", "WzFiles", "Character.wz");
@@ -331,6 +332,13 @@ test("direct wasm API opens path input in Node.js without worker proxy", async (
   using file = new wz.WzFile(sample, MapleVersion.GMS);
   assert.equal(file.parseWzFile(), ParseStatus.SUCCESS);
   assert.equal(typeof file.getWzDirectory().getName(), "string");
+});
+
+test("direct wasm API can initialize synchronously in Node.js", () => {
+  const wasmPath = path.join(root, "dist", "wasm", "libwz-sync.wasm");
+  const wz = createWzApiSync({ wasmPath });
+  using file = new wz.WzFile(sample, MapleVersion.GMS);
+  assert.equal(file.parseWzFile(), ParseStatus.SUCCESS);
 });
 
 test("browser Worker direct API opens Blob without full arrayBuffer", async () => {
@@ -354,7 +362,8 @@ npm run build:wasm
 node tests/wasm/direct.test.mjs
 ```
 
-Expected: FAIL because `dist/wasm/index.js` does not export `createWzApi`.
+Expected: FAIL because `dist/wasm/index.js` does not export `createWzApi` or
+`createWzApiSync`.
 
 - [ ] **Step 2: Export the direct Wasm package entry**
 
@@ -370,13 +379,97 @@ Update `package.json` so `./wasm` points to the direct runtime:
 The old `./wasm` browser proxy export will move to `./wasm/browser-main` in
 Task 5.
 
-- [ ] **Step 3: Implement `createWzApi()` with runtime host detection**
+- [ ] **Step 3: Add sync Wasm build artifact and loader**
+
+Add a second Emscripten output for sync initialization. In `CMakeLists.txt`,
+create a sibling target or target variant named `wz_wasm_sync` that uses the
+same sources and libraries as `wz_wasm`, but emits:
+
+```text
+dist/wasm/libwz-sync.js
+dist/wasm/libwz-sync.wasm
+```
+
+Use synchronous compilation settings:
+
+```cmake
+"-sWASM_ASYNC_COMPILATION=0"
+"-sEXPORTED_RUNTIME_METHODS=['emnapiInit','HEAPU8','FS','NODEFS']"
+```
+
+Keep the existing async `libwz.js` / `libwz.wasm` output for
+`createWzApi()`, `initializeWasm()`, and browser-main Worker proxy usage.
+
+Update `wasm/libwz.d.ts` with a sync factory type:
+
+```ts
+export type CreateLibwzModuleSync = (
+  options?: EmscriptenModuleOptions,
+) => LibwzEmscriptenModule;
+```
+
+Update `wasm/loader.ts` to import both generated factories:
+
+```ts
+import createLibwzModule from "./libwz.js";
+import createLibwzModuleSync from "./libwz-sync.js";
+```
+
+Add:
+
+```ts
+export interface SyncWasmInput {
+  wasmPath?: string;
+  wasmBytes?: Uint8Array | ArrayBuffer;
+  wasmModule?: WebAssembly.Module;
+}
+
+export function initializeWasmSync(input: SyncWasmInput = {}): LoadedWzModule {
+  const bytes = input.wasmModule
+    ? undefined
+    : input.wasmBytes ?? readNodeWasmBytes(input.wasmPath);
+  const module = createLibwzModuleSync({
+    wasmBinary: bytes
+      ? bytes instanceof Uint8Array
+        ? bytes
+        : new Uint8Array(bytes)
+      : undefined,
+    instantiateWasm(imports, receiveInstance) {
+      if (!input.wasmModule) return undefined;
+      const instance = new WebAssembly.Instance(input.wasmModule, imports);
+      receiveInstance(instance, input.wasmModule);
+      return instance.exports;
+    },
+  });
+  return {
+    binding: module.emnapiInit({
+      context: getDefaultContext(),
+      filename: "libwz-sync.wasm",
+    }) as WzBinding,
+    module,
+  };
+}
+```
+
+When `wasmModule` is provided, `initializeWasmSync()` should use the
+`instantiateWasm` path and should not require `wasmBytes`. `readNodeWasmBytes()`
+must use synchronous Node filesystem APIs only when running in Node.js. In
+browser environments it must throw if no `wasmBytes` or `wasmModule` is
+provided.
+
+- [ ] **Step 4: Implement `createWzApi()` and `createWzApiSync()` with runtime host detection**
 
 Create `wasm/index.ts`:
 
 ```ts
 import { createWzApiFromBinding } from "../src/node-wrapper.js";
-import { initializeWasm, loadWzModule, type WzBinding } from "./loader.js";
+import {
+  initializeWasm,
+  initializeWasmSync,
+  loadWzModule,
+  type SyncWasmInput,
+  type WzBinding,
+} from "./loader.js";
 
 const blobs = new Map<number, Blob>();
 let nextBlobId = 1;
@@ -388,6 +481,13 @@ export interface WzApiOptions {
     wasmPath: string;
   };
 }
+
+export type WzApiSyncOptions = SyncWasmInput & {
+  mount?: {
+    hostPath: string;
+    wasmPath: string;
+  };
+};
 
 export async function createWzApi(options: WzApiOptions = {}) {
   const loaded = options.wasmUrl
@@ -421,6 +521,11 @@ export async function createWzApi(options: WzApiOptions = {}) {
   };
 
   return api;
+}
+
+export function createWzApiSync(options: WzApiSyncOptions = {}) {
+  const loaded = initializeWasmSync(options);
+  return createDirectApi(loaded, options);
 }
 ```
 
@@ -457,7 +562,7 @@ export interface LibwzEmscriptenModule {
 }
 ```
 
-- [ ] **Step 4: Add wrapper helpers and Emscripten FS exports**
+- [ ] **Step 5: Add wrapper helpers**
 
 Add these internal helpers to `src/node-wrapper.ts`:
 
@@ -493,15 +598,7 @@ class WzFile extends WzObject {
 }
 ```
 
-In `CMakeLists.txt`, add the runtime methods required by Node filesystem
-access:
-
-```cmake
-"-sEXPORTED_RUNTIME_METHODS=['emnapiInit','HEAPU8','FS','NODEFS']"
-"-sNODERAWFS=1"
-```
-
-- [ ] **Step 5: Run direct runtime verification**
+- [ ] **Step 6: Run direct runtime verification**
 
 Run:
 
@@ -512,7 +609,7 @@ node tests/wasm/direct.test.mjs
 
 Expected: PASS and no full Blob `arrayBuffer()` call.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
 git add CMakeLists.txt package.json src/node-wrapper.ts wasm/index.ts wasm/libwz.d.ts tests/wasm/direct-worker.mjs tests/wasm/direct.test.mjs
