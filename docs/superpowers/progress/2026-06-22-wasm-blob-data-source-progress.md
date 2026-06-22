@@ -2,11 +2,12 @@
 
 ## Status
 
-Implementation is paused at the end of plan Task 1. Do not start Task 2 until
-Task 1 receives its final code-quality re-review for commit `cd97b9a`.
+Implementation has completed and committed plan Tasks 1 through 5. The next
+task is Task 6: ESM-only Emscripten/emnapi packaging and Worker modules.
 
-The user explicitly requested a pause because the remaining token budget is
-too small for further safe implementation.
+Task 5 passed specification and code-quality review. Continue with the same
+subagent review workflow: failing test first, implementation, verification,
+spec review, code-quality review, then commit.
 
 ## Completed Design and Planning Work
 
@@ -97,28 +98,109 @@ cpplint --recursive --config .cpplint src include
 
 All reported as passing. Changed C++ files were formatted with `clang-format`.
 
+### Task 2 — Cached source-backed `WzBinaryReader`
+
+Commit: `e2524c9 refactor: read WZ data through cached sources`
+
+- Replaced direct `std::ifstream` reads in `WzBinaryReader` with
+  `std::shared_ptr<WzDataSource>`.
+- Added a 256 KiB read cache and source-backed constructor while preserving the
+  stream constructor.
+- Removed `BaseStream()` from the reader API.
+- Changed `ListFileParser` EOF handling to `reader.Available() > 0`.
+- Changed unchanged-image save range validation to use `reader.SourceSize()`.
+- Added reader cache, incomplete read, availability, and source-size tests.
+- Passed independent spec and code-quality reviews.
+
+### Task 3 — Source-backed WZ file and memory C API
+
+Commit: `95216cb feat: open WZ files from owned memory`
+
+- Added source-backed `WzFile` construction.
+- Added `wz_open_memory` and `wz_open_memory_with_iv`.
+- Memory input is copied into `WzMemoryDataSource` before returning.
+- Memory-backed files preserve `Name()` and return an empty `FilePath()`.
+- Empty or malformed memory input creates a handle but parse returns the
+  existing parse error instead of silently succeeding or allocating huge
+  buffers.
+- Passed independent spec and code-quality reviews after a reviewer-requested
+  malformed-header guard.
+
+### Task 4 — Node-API memory input
+
+Commit: `44a83d7 feat: expose WZ memory input through Node API`
+
+- Added `openMemory` and `openMemoryWithIv` to the existing N-API binding.
+- Added `WzFile.fromBytes(...)` TypeScript overloads.
+- Added `src/Util/WzDataSource.cpp` to the node-gyp `wz` target.
+- Added a Node smoke test that opens a sample WZ from `Uint8Array` bytes and
+  parses it.
+- Passed independent spec and code-quality reviews.
+
+### Task 5 — Emscripten Blob source and additive Blob factories
+
+Commit: `6b88e06 feat: add worker blob WZ source`
+
+- Added Emscripten-only `WzBlobDataSource`.
+- Added `wz_open_blob_source` and `wz_open_blob_source_with_iv`.
+- Native builds return `WZ_ERROR_NOT_IMPLEMENTED` for Blob-source factories.
+- Added matching `openBlobSource` binding exports in the existing N-API source.
+- Added `BUILD_WASM` CMake support and `wz_wasm_test`.
+- Added a Wasm-only test proving the Blob source reads the requested range
+  without first requesting offset zero.
+- Passed independent spec and code-quality reviews after a reviewer-requested
+  stronger no-offset-zero assertion.
+
 ## Review State
 
-Task 1 has completed specification review. Code-quality review found two real
-issues, both fixed in follow-up commits:
+Task 1 received the required fresh code-quality re-review before Task 2 began.
+No blocking or important issues were found. The only note was a non-blocking
+stream-source test gap for `offset > Size()`.
+
+Task 2, Task 3, Task 4, and Task 5 each completed specification and
+code-quality reviews. Reviewer-found issues were fixed and re-reviewed before
+commit.
+
+Task 1 earlier code-quality review found two real issues, both fixed in
+follow-up commits:
 
 1. Non-seekable streams looked like valid empty streams — fixed in `30a93376`.
 2. Unexpected short reads after captured stream size looked successful — fixed
    in `cd97b9ad`.
 
-Required next action: dispatch one fresh code-quality reviewer for the complete
-Task 1 commit range through `cd97b9ad`. Only after approval should Task 1 be
-marked complete and Task 2 begin.
-
 ## Not Started
 
-- Task 2: migrate `WzBinaryReader` to `WzDataSource` and add its read cache.
-- Task 3: source-backed `WzFile` and additive memory C API.
-- Task 4: memory input through the existing Node-API binding and `index.ts`.
-- Task 5: Emscripten-only `WzBlobDataSource` and additive Blob factories.
 - Task 6: Emscripten/emnapi ESM-only package and Worker modules.
 - Task 7: Worker Blob integration and Vite/Webpack fixtures.
 - Task 8: explicit browser save bytes/Blob/download APIs.
+
+## Latest Verification
+
+Task 5 verification included:
+
+```bash
+cmake -B build -DBUILD_TESTS=ON -DBUILD_JNI=OFF
+cmake --build build --target wz_test -j2
+ctest --test-dir build -C Debug --output-on-failure
+cpplint --recursive --config .cpplint src include tests
+emcmake cmake -S . -B build/wasm-task5 -DBUILD_WASM=ON -DBUILD_TESTS=ON
+cmake --build build/wasm-task5 --target wz_wasm_test
+node build/wasm-task5/wz_wasm_test.js
+$env:PYTHONUTF8='1'; npx node-gyp clean; npm run build
+node --test tests/smoke.test.js
+```
+
+Notes:
+
+- `node-gyp` and CMake both use `build/`; switching between them can invalidate
+  the other tool's generated cache.
+- On this Windows machine, `PYTHONUTF8=1` avoided node-gyp reading generated
+  `.filters` files with the GBK locale.
+- `node-gyp clean` removes `build/wasm`; if the Wasm test target must be
+  rebuilt afterward, rerun `emcmake cmake`.
+- A later Wasm verification used local cached googletest source from
+  `.worktrees/wz-editing/build/_deps/googletest-src` because GitHub fetches
+  intermittently failed.
 
 ## Workspace Notes
 
