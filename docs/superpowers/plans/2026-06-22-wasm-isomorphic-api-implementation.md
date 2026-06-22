@@ -21,34 +21,31 @@
   - Export `createWzApiFromBinding(binding, capabilities)`.
 - Create: `src/native-binding.ts`
   - Define `NativeBinding`, handle types, and enums shared by Node and Wasm TS code.
-- Create: `wasm/direct.ts`
-  - Browser Worker direct API using `initializeWasm()`, Blob range reads, and synchronous wrappers.
-- Create: `wasm/node.ts`
-  - Node.js Wasm direct API using `initializeWasm()` and Node filesystem access.
+- Create: `wasm/index.ts`
+  - Direct Wasm API using `initializeWasm()`, runtime host detection, Node path I/O, browser Worker Blob range reads, and synchronous wrappers.
 - Modify: `wasm/loader.ts`
   - Export typed `WzBinding` instead of `Record<string, unknown>`.
   - Accept host hooks for Blob range and Node path access.
 - Modify: `wasm/worker.ts`
   - Replace the current Blob-open-only message handler with generic RPC.
   - Keep `__libwzReadBlobRange` in the Worker.
-- Modify: `wasm/browser.ts`
-  - Export async proxy wrappers and `createWzWorker()`.
+- Create: `wasm/browser-main.ts`
+  - Export async proxy wrappers and `createWzWorker()` for browser main-thread usage.
   - Support `Symbol.asyncDispose`.
 - Modify: `wasm/tsconfig.json`
   - Include shared wrapper source or configure paths so wasm entries can import it.
 - Modify: `package.json`
-  - Add `./wasm/direct` and `./wasm/node` import exports.
+  - Point `./wasm` at the direct runtime.
+  - Add `./wasm/browser-main` for the async Worker proxy.
   - Keep native `main` and root `require` entry unchanged.
 - Create: `tests/wasm/direct.test.mjs`
-  - Tests browser Worker direct behavior by running an ESM worker from Node's `worker_threads`.
-- Create: `tests/wasm/node-direct.test.mjs`
-  - Tests Node.js Wasm direct path input and disposal.
-- Create: `tests/wasm/proxy.test.mjs`
+  - Tests Node.js direct path input and browser Worker direct Blob behavior through the same `libwz/wasm` API.
+- Create: `tests/wasm/browser-main.test.mjs`
   - Tests async proxy API and `Symbol.asyncDispose`.
 - Create: `tests/wasm/parity.test.mjs`
   - Compares native Node, Node Wasm direct, browser Worker direct, and async proxy parse results.
 - Create: `tests/wasm/vite/*`, `tests/wasm/webpack/*`
-  - Verify bundler imports for `libwz/wasm`, `libwz/wasm/direct`, and `libwz/wasm/node` where applicable.
+  - Verify bundler imports for `libwz/wasm` and `libwz/wasm/browser-main`.
 
 ## Task 1: Extract Shared Binding Types
 
@@ -278,151 +275,23 @@ git add index.ts src/node-wrapper.ts tests/smoke.test.js
 git commit -m "refactor: create injectable WZ TypeScript wrappers"
 ```
 
-## Task 3: Add Node.js Wasm Direct Runtime
+## Task 3: Add Direct Wasm Runtime for Node.js and Browser Workers
 
 **Files:**
-- Create: `wasm/node.ts`
+- Create: `wasm/index.ts`
 - Modify: `wasm/loader.ts`
 - Modify: `wasm/tsconfig.json`
 - Modify: `package.json`
-- Test: `tests/wasm/node-direct.test.mjs`
-
-- [ ] **Step 1: Write failing Node Wasm direct test**
-
-Create `tests/wasm/node-direct.test.mjs`:
-
-```js
-import assert from "node:assert/strict";
-import test from "node:test";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
-import { MapleVersion, createWzNodeApi } from "../../dist/wasm/node.js";
-
-const root = path.dirname(path.dirname(path.dirname(fileURLToPath(import.meta.url))));
-const sample = path.join(root, "Harepacker-resurrected", "UnitTest_WzFile", "WzFiles", "Character.wz");
-
-test("Node Wasm direct opens path input synchronously after initialization", async () => {
-  const wz = await createWzNodeApi();
-  using file = new wz.WzFile(sample, MapleVersion.GMS);
-  assert.equal(file.parseWzFile(), wz.ParseStatus.SUCCESS);
-  assert.equal(file.getWzDirectory().getImages().length >= 0, true);
-});
-```
-
-Run:
-
-```bash
-npm run test:wasm
-node tests/wasm/node-direct.test.mjs
-```
-
-Expected: FAIL because `dist/wasm/node.js` does not exist.
-
-- [ ] **Step 2: Export the Wasm Node entry**
-
-Add to `package.json`:
-
-```json
-"./wasm/node": {
-  "types": "./dist/wasm/node.d.ts",
-  "import": "./dist/wasm/node.js"
-}
-```
-
-Add `wasm/node.ts` to the existing `wasm/tsconfig.json` include by keeping `*.ts`.
-
-- [ ] **Step 3: Implement `createWzNodeApi()`**
-
-Create `wasm/node.ts`:
-
-```ts
-import { createWzApiFromBinding } from "../src/node-wrapper.js";
-import { loadWzModule, type WzBinding } from "./loader.js";
-
-export interface WzNodeApiOptions {
-  wasmUrl?: string | URL;
-  mount?: {
-    hostPath: string;
-    wasmPath: string;
-  };
-}
-
-export async function createWzNodeApi(options: WzNodeApiOptions = {}) {
-  const { binding, module } = options.wasmUrl
-    ? await initializeWasm(options.wasmUrl)
-    : await loadWzModule();
-
-  if (options.mount) {
-    module.FS.mkdirTree(options.mount.wasmPath);
-    module.FS.mount(module.NODEFS, { root: options.mount.hostPath }, options.mount.wasmPath);
-  }
-
-  return createWzApiFromBinding(binding as WzBinding, {
-    blobInput: true,
-    pathInput: true,
-    saveToDisk: true,
-  });
-}
-```
-
-Update `wasm/libwz.d.ts` so `LibwzEmscriptenModule` includes `FS` and `NODEFS`:
-
-```ts
-export interface LibwzEmscriptenModule {
-  HEAPU8: Uint8Array;
-  FS: {
-    mkdirTree(path: string): void;
-    mount(type: unknown, options: object, mountpoint: string): void;
-  };
-  NODEFS: unknown;
-  emnapiInit(options: { context: unknown; filename?: string }): unknown;
-}
-```
-
-- [ ] **Step 4: Add Emscripten FS exports**
-
-In `CMakeLists.txt`, add the runtime methods required by Node filesystem mounting:
-
-```cmake
-"-sEXPORTED_RUNTIME_METHODS=['emnapiInit','HEAPU8','FS','NODEFS']"
-"-sNODERAWFS=1"
-```
-
-If `NODERAWFS` makes `NODEFS` unnecessary in practice, keep `FS` exported and document the chosen path in `wasm/node.ts`.
-
-- [ ] **Step 5: Run Node Wasm direct verification**
-
-Run:
-
-```bash
-npm run build:wasm
-node tests/wasm/node-direct.test.mjs
-```
-
-Expected: PASS.
-
-- [ ] **Step 6: Commit**
-
-```bash
-git add CMakeLists.txt package.json wasm/libwz.d.ts wasm/loader.ts wasm/node.ts tests/wasm/node-direct.test.mjs
-git commit -m "feat: add direct Node.js wasm API"
-```
-
-## Task 4: Add Browser Worker Direct Runtime
-
-**Files:**
-- Create: `wasm/direct.ts`
-- Modify: `wasm/loader.ts`
 - Test: `tests/wasm/direct-worker.mjs`
 - Test: `tests/wasm/direct.test.mjs`
 
-- [ ] **Step 1: Write failing browser Worker direct test**
+- [ ] **Step 1: Write failing direct runtime tests**
 
 Create `tests/wasm/direct-worker.mjs`:
 
 ```js
 import { parentPort, workerData } from "node:worker_threads";
-import { createWzApi, MapleVersion } from "../../dist/wasm/direct.js";
+import { createWzApi, MapleVersion } from "../../dist/wasm/index.js";
 
 try {
   const bytes = new Uint8Array(workerData.bytes);
@@ -452,10 +321,17 @@ import test from "node:test";
 import path from "node:path";
 import { Worker } from "node:worker_threads";
 import { fileURLToPath } from "node:url";
-import { ParseStatus } from "../../dist/wasm/direct.js";
+import { createWzApi, MapleVersion, ParseStatus } from "../../dist/wasm/index.js";
 
 const root = path.dirname(path.dirname(path.dirname(fileURLToPath(import.meta.url))));
 const sample = path.join(root, "Harepacker-resurrected", "UnitTest_WzFile", "WzFiles", "Character.wz");
+
+test("direct wasm API opens path input in Node.js without worker proxy", async () => {
+  const wz = await createWzApi();
+  using file = new wz.WzFile(sample, MapleVersion.GMS);
+  assert.equal(file.parseWzFile(), ParseStatus.SUCCESS);
+  assert.equal(typeof file.getWzDirectory().getName(), "string");
+});
 
 test("browser Worker direct API opens Blob without full arrayBuffer", async () => {
   const bytes = fs.readFileSync(sample);
@@ -478,21 +354,39 @@ npm run build:wasm
 node tests/wasm/direct.test.mjs
 ```
 
-Expected: FAIL because `dist/wasm/direct.js` does not exist.
+Expected: FAIL because `dist/wasm/index.js` does not export `createWzApi`.
 
-- [ ] **Step 2: Implement direct browser Worker entry**
+- [ ] **Step 2: Export the direct Wasm package entry**
 
-Create `wasm/direct.ts`:
+Update `package.json` so `./wasm` points to the direct runtime:
+
+```json
+"./wasm": {
+  "types": "./dist/wasm/index.d.ts",
+  "import": "./dist/wasm/index.js"
+}
+```
+
+The old `./wasm` browser proxy export will move to `./wasm/browser-main` in
+Task 5.
+
+- [ ] **Step 3: Implement `createWzApi()` with runtime host detection**
+
+Create `wasm/index.ts`:
 
 ```ts
 import { createWzApiFromBinding } from "../src/node-wrapper.js";
-import { loadWzModule, type WzBinding } from "./loader.js";
+import { initializeWasm, loadWzModule, type WzBinding } from "./loader.js";
 
 const blobs = new Map<number, Blob>();
 let nextBlobId = 1;
 
 export interface WzApiOptions {
   wasmUrl?: string | URL;
+  mount?: {
+    hostPath: string;
+    wasmPath: string;
+  };
 }
 
 export async function createWzApi(options: WzApiOptions = {}) {
@@ -530,8 +424,42 @@ export async function createWzApi(options: WzApiOptions = {}) {
 }
 ```
 
-Add these internal helpers to `src/node-wrapper.ts` during this step if Task 2
-did not create them:
+Extend this implementation with Node.js host detection:
+
+```ts
+const isNode =
+  typeof process === "object" &&
+  !!process.versions?.node;
+
+const capabilities = {
+  blobInput: true,
+  pathInput: isNode,
+  saveToDisk: isNode,
+};
+```
+
+When `isNode` is true, configure path access with `NODERAWFS` or `NODEFS`.
+When `isNode` is false and `FileReaderSync` is unavailable, `fromBlob` and
+`fromFile` must throw `FileReaderSync is required for Blob-backed WZ reads`.
+
+Update `wasm/libwz.d.ts` so `LibwzEmscriptenModule` includes filesystem
+runtime properties used by the Node host adapter:
+
+```ts
+export interface LibwzEmscriptenModule {
+  HEAPU8: Uint8Array;
+  FS?: {
+    mkdirTree(path: string): void;
+    mount(type: unknown, options: object, mountpoint: string): void;
+  };
+  NODEFS?: unknown;
+  emnapiInit(options: { context: unknown; filename?: string }): unknown;
+}
+```
+
+- [ ] **Step 4: Add wrapper helpers and Emscripten FS exports**
+
+Add these internal helpers to `src/node-wrapper.ts`:
 
 ```ts
 class WzFile extends WzObject {
@@ -565,18 +493,15 @@ class WzFile extends WzObject {
 }
 ```
 
-- [ ] **Step 3: Export `./wasm/direct`**
+In `CMakeLists.txt`, add the runtime methods required by Node filesystem
+access:
 
-Add to `package.json`:
-
-```json
-"./wasm/direct": {
-  "types": "./dist/wasm/direct.d.ts",
-  "import": "./dist/wasm/direct.js"
-}
+```cmake
+"-sEXPORTED_RUNTIME_METHODS=['emnapiInit','HEAPU8','FS','NODEFS']"
+"-sNODERAWFS=1"
 ```
 
-- [ ] **Step 4: Run direct Worker verification**
+- [ ] **Step 5: Run direct runtime verification**
 
 Run:
 
@@ -587,23 +512,23 @@ node tests/wasm/direct.test.mjs
 
 Expected: PASS and no full Blob `arrayBuffer()` call.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
-git add package.json src/node-wrapper.ts wasm/direct.ts tests/wasm/direct-worker.mjs tests/wasm/direct.test.mjs
-git commit -m "feat: add direct browser worker wasm API"
+git add CMakeLists.txt package.json src/node-wrapper.ts wasm/index.ts wasm/libwz.d.ts tests/wasm/direct-worker.mjs tests/wasm/direct.test.mjs
+git commit -m "feat: add direct wasm API"
 ```
 
-## Task 5: Expand Worker RPC Protocol
+## Task 4: Expand Worker RPC Protocol
 
 **Files:**
 - Modify: `wasm/worker.ts`
 - Create: `wasm/rpc.ts`
-- Test: `tests/wasm/proxy.test.mjs`
+- Test: `tests/wasm/browser-main.test.mjs`
 
 - [ ] **Step 1: Write failing async proxy test**
 
-Create `tests/wasm/proxy.test.mjs`:
+Create `tests/wasm/browser-main.test.mjs`:
 
 ```js
 import assert from "node:assert/strict";
@@ -611,7 +536,7 @@ import fs from "node:fs";
 import test from "node:test";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { createWzWorker, MapleVersion, ParseStatus } from "../../dist/wasm/browser.js";
+import { createWzWorker, MapleVersion, ParseStatus } from "../../dist/wasm/browser-main.js";
 
 const root = path.dirname(path.dirname(path.dirname(fileURLToPath(import.meta.url))));
 const sample = path.join(root, "Harepacker-resurrected", "UnitTest_WzFile", "WzFiles", "Character.wz");
@@ -630,7 +555,7 @@ Run:
 
 ```bash
 npm run build:wasm
-node tests/wasm/proxy.test.mjs
+node tests/wasm/browser-main.test.mjs
 ```
 
 Expected: FAIL because async proxy wrappers do not exist.
@@ -663,7 +588,7 @@ export type RemoteRef = {
 In `wasm/worker.ts`, initialize the direct browser Worker API and dispatch generic requests:
 
 ```ts
-import { createWzApi } from "./direct.js";
+import { createWzApi } from "./index.js";
 import type { RpcRequest, RpcResponse } from "./rpc.js";
 
 let apiPromise = createWzApi();
@@ -721,7 +646,7 @@ Run:
 
 ```bash
 npm run build:wasm
-node tests/wasm/proxy.test.mjs
+node tests/wasm/browser-main.test.mjs
 ```
 
 Expected: FAIL because browser client wrappers are not implemented yet, but the Worker compiles.
@@ -733,15 +658,16 @@ git add wasm/rpc.ts wasm/worker.ts
 git commit -m "feat: add wasm worker RPC dispatch"
 ```
 
-## Task 6: Implement Async Proxy Wrappers
+## Task 5: Implement Browser Main-Thread Async Proxy
 
 **Files:**
-- Modify: `wasm/browser.ts`
-- Test: `tests/wasm/proxy.test.mjs`
+- Modify: `package.json`
+- Create: `wasm/browser-main.ts`
+- Test: `tests/wasm/browser-main.test.mjs`
 
 - [ ] **Step 1: Implement RPC client transport**
 
-In `wasm/browser.ts`, replace Blob-open-only code with a generic request helper:
+In `wasm/browser-main.ts`, replace Blob-open-only code with a generic request helper:
 
 ```ts
 class RpcClient {
@@ -812,6 +738,15 @@ Add the initial class set needed by tests: `RemoteWzFile`, `RemoteWzDirectory`, 
 
 - [ ] **Step 3: Return a Node-shaped async API from `createWzWorker()`**
 
+Add the browser-main export to `package.json`:
+
+```json
+"./wasm/browser-main": {
+  "types": "./dist/wasm/browser-main.d.ts",
+  "import": "./dist/wasm/browser-main.js"
+}
+```
+
 Return:
 
 ```ts
@@ -838,7 +773,7 @@ Run:
 
 ```bash
 npm run build:wasm
-node tests/wasm/proxy.test.mjs
+node tests/wasm/browser-main.test.mjs
 ```
 
 Expected: PASS.
@@ -846,16 +781,16 @@ Expected: PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add wasm/browser.ts tests/wasm/proxy.test.mjs
+git add package.json wasm/browser-main.ts tests/wasm/browser-main.test.mjs
 git commit -m "feat: add async wasm worker proxy API"
 ```
 
-## Task 7: Fill Out API Parity Surface
+## Task 6: Fill Out API Parity Surface
 
 **Files:**
 - Modify: `src/node-wrapper.ts`
 - Modify: `wasm/worker.ts`
-- Modify: `wasm/browser.ts`
+- Modify: `wasm/browser-main.ts`
 - Test: `tests/wasm/parity.test.mjs`
 
 - [ ] **Step 1: Write parity test**
@@ -869,8 +804,8 @@ import test from "node:test";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import * as nativeWz from "../../index.js";
-import { createWzNodeApi } from "../../dist/wasm/node.js";
-import { createWzWorker } from "../../dist/wasm/browser.js";
+import { createWzApi } from "../../dist/wasm/index.js";
+import { createWzWorker } from "../../dist/wasm/browser-main.js";
 
 const repo = path.dirname(path.dirname(path.dirname(fileURLToPath(import.meta.url))));
 const sample = path.join(repo, "Harepacker-resurrected", "UnitTest_WzFile", "WzFiles", "Character.wz");
@@ -885,7 +820,7 @@ function readNativeSummary() {
 test("wasm direct and proxy match native summary", async () => {
   const expected = readNativeSummary();
 
-  const wasmNode = await createWzNodeApi();
+  const wasmNode = await createWzApi();
   using wasmFile = new wasmNode.WzFile(sample, wasmNode.MapleVersion.GMS);
   assert.deepEqual({
     status: wasmFile.parseWzFile(),
@@ -968,11 +903,11 @@ Expected: PASS.
 - [ ] **Step 4: Commit**
 
 ```bash
-git add src/node-wrapper.ts wasm/worker.ts wasm/browser.ts tests/wasm/parity.test.mjs
+git add src/node-wrapper.ts wasm/worker.ts wasm/browser-main.ts tests/wasm/parity.test.mjs
 git commit -m "feat: expand wasm API parity surface"
 ```
 
-## Task 8: Bundler Fixture Verification
+## Task 7: Bundler Fixture Verification
 
 **Files:**
 - Create: `tests/wasm/vite/package.json`
@@ -988,7 +923,7 @@ git commit -m "feat: expand wasm API parity surface"
 Create `tests/wasm/vite/src/main.ts`:
 
 ```ts
-import { createWzWorker, MapleVersion } from "libwz/wasm";
+import { createWzWorker, MapleVersion } from "libwz/wasm/browser-main";
 
 export async function smoke(blob: Blob) {
   await using wz = await createWzWorker();
@@ -1034,7 +969,7 @@ export default defineConfig({
 Create `tests/wasm/webpack/src/index.mjs`:
 
 ```js
-import { createWzWorker, MapleVersion } from "libwz/wasm";
+import { createWzWorker, MapleVersion } from "libwz/wasm/browser-main";
 
 export async function smoke(blob) {
   await using wz = await createWzWorker();
@@ -1101,7 +1036,7 @@ git add package.json tests/wasm/vite tests/wasm/webpack
 git commit -m "test: verify wasm ESM bundler integration"
 ```
 
-## Task 9: Final Verification and Docs
+## Task 8: Final Verification and Docs
 
 **Files:**
 - Modify: `docs/superpowers/progress/2026-06-22-wasm-blob-data-source-progress.md`
@@ -1114,9 +1049,8 @@ Run:
 ```bash
 npm test
 npm run test:wasm
-node tests/wasm/node-direct.test.mjs
 node tests/wasm/direct.test.mjs
-node tests/wasm/proxy.test.mjs
+node tests/wasm/browser-main.test.mjs
 node tests/wasm/parity.test.mjs
 npm pack --dry-run
 ```
@@ -1141,9 +1075,9 @@ Append a section describing:
 ### Isomorphic Wasm API
 
 - Added shared synchronous wrapper factory.
-- Added Node.js Wasm direct API through `libwz/wasm/node`.
-- Added browser Worker direct API through `libwz/wasm/direct`.
-- Expanded `libwz/wasm` to an async Worker proxy with `Symbol.asyncDispose`.
+- Added direct Wasm API through `libwz/wasm` for Node.js and browser Workers.
+- Added browser main-thread async Worker proxy through `libwz/wasm/browser-main`.
+- Added `Symbol.asyncDispose` support to the async proxy.
 - Verified parity against native Node APIs.
 ```
 
@@ -1157,9 +1091,9 @@ git commit -m "docs: record isomorphic wasm API progress"
 ## Final Review Checklist
 
 - [ ] Root `libwz` API remains synchronous and native-addon backed.
-- [ ] Node.js Wasm users can use `libwz/wasm/node` without Worker proxy.
-- [ ] Browser Worker users can use `libwz/wasm/direct` without a nested Worker.
-- [ ] Browser main-thread users can use `libwz/wasm` async proxy.
+- [ ] Node.js Wasm users can use `libwz/wasm` without Worker proxy.
+- [ ] Browser Worker users can use `libwz/wasm` without a nested Worker.
+- [ ] Browser main-thread users can use `libwz/wasm/browser-main` async proxy.
 - [ ] Async proxy owning objects support `Symbol.asyncDispose`.
 - [ ] Direct owning objects support `Symbol.dispose`.
 - [ ] Blob-backed reads do not call full `blob.arrayBuffer()`.
