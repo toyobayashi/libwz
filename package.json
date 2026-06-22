@@ -36,6 +36,7 @@
     "index.d.ts",
     "index.ts",
     "src/capi",
+    "src/native-binding.d.ts",
     "src/node",
     "src/Properties",
     "src/Util",

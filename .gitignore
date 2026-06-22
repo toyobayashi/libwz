@@ -4,6 +4,7 @@ dist
 tmp
 index.js
 index.d.ts
+src/native-binding.js
 java/src/main/resources/native/**/*.so
 java/src/main/resources/native/**/*.dll
 java/src/main/resources/native/**/*.dylib
