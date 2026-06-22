@@ -127,6 +127,9 @@
         "-fno-exceptions",
         "-fno-rtti"
       ],
+      "xcode_settings": {
+        "CLANG_CXX_LANGUAGE_STANDARD": "c++23"
+      },
       "msvs_settings": {
         "VCCLCompilerTool": {
           "ExceptionHandling": 0,
