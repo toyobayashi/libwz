@@ -22,6 +22,35 @@ class NonSeekableStreamBuffer : public std::stringbuf {
   }
 };
 
+class TruncatedStreamBuffer : public std::stringbuf {
+ public:
+  TruncatedStreamBuffer() : std::stringbuf("ab") {}
+
+ protected:
+  pos_type seekoff(off_type offset,
+                   std::ios_base::seekdir direction,
+                   std::ios_base::openmode which) override {
+    if (offset == 0 && direction == std::ios_base::end) {
+      reports_end_position_ = true;
+      return pos_type(4);
+    }
+    if (offset == 0 && direction == std::ios_base::cur &&
+        reports_end_position_) {
+      return pos_type(4);
+    }
+    reports_end_position_ = false;
+    return std::stringbuf::seekoff(offset, direction, which);
+  }
+
+  pos_type seekpos(pos_type position, std::ios_base::openmode which) override {
+    reports_end_position_ = false;
+    return std::stringbuf::seekpos(position, which);
+  }
+
+ private:
+  bool reports_end_position_ = false;
+};
+
 TEST(WzMemoryDataSourceTest, ReadsExactRange) {
   wz::WzMemoryDataSource source({1, 2, 3, 4});
   std::vector<uint8_t> destination(2);
@@ -103,6 +132,18 @@ TEST(WzStreamDataSourceTest, ReadsEmptySeekableStreamAtEnd) {
 
   ASSERT_TRUE(result.has_value());
   EXPECT_EQ(result.value(), 0U);
+}
+
+TEST(WzStreamDataSourceTest, RejectsShortReadBeforeCapturedEnd) {
+  TruncatedStreamBuffer buffer;
+  std::istream input(&buffer);
+  wz::WzStreamDataSource source(input);
+  std::vector<uint8_t> destination(4);
+
+  auto result = source.ReadAt(0, destination);
+
+  ASSERT_FALSE(result.has_value());
+  EXPECT_EQ(result.error().code(), wz::ErrorCode::IoError);
 }
 
 TEST(WzStreamDataSourceTest, ReadsIndependentRandomRanges) {

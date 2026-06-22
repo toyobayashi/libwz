@@ -52,10 +52,10 @@ Result<size_t> WzStreamDataSource::ReadAt(uint64_t offset,
 
   input_->read(reinterpret_cast<char*>(destination.data()),
                static_cast<std::streamsize>(count));
-  if (input_->bad()) {
+  if (input_->gcount() != static_cast<std::streamsize>(count)) {
     return std::unexpected(Error::IoError("Failed to read source stream"));
   }
-  return static_cast<size_t>(input_->gcount());
+  return count;
 }
 
 uint64_t WzStreamDataSource::Size() const {
