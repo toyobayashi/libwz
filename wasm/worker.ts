@@ -27,6 +27,7 @@ const workerScope = self as unknown as WorkerScope;
 const registry = new Map<string, RegistryEntry>();
 let nextHandle = 1;
 let apiPromise: Promise<WzApi> | undefined;
+let configuredWasmUrl: string | undefined;
 
 workerScope.addEventListener("message", (event: MessageEvent<unknown>) => {
   const request = event.data;
@@ -50,6 +51,11 @@ async function handleRequest(request: RpcRequest): Promise<void> {
     if (!isSupportedMethod(request.method)) {
       throw new Error(`Unsupported RPC method: ${request.method}`);
     }
+    if (request.method === "configure") {
+      configure(request.args);
+      workerScope.postMessage({ id: request.id, ok: true, value: undefined });
+      return;
+    }
     const api = await getApi();
     const value = dispatch(api, request.method, request.args);
     workerScope.postMessage({ id: request.id, ok: true, value });
@@ -63,12 +69,15 @@ async function handleRequest(request: RpcRequest): Promise<void> {
 }
 
 function getApi(): Promise<WzApi> {
-  apiPromise ??= createWzApi();
+  apiPromise ??= configuredWasmUrl === undefined
+    ? createWzApi()
+    : createWzApi({ wasmUrl: configuredWasmUrl });
   return apiPromise;
 }
 
 function isSupportedMethod(method: string): boolean {
   switch (method) {
+    case "configure":
     case "WzFile.fromBlob":
     case "WzFile.parseWzFile":
     case "WzFile.getWzDirectory":
@@ -78,6 +87,16 @@ function isSupportedMethod(method: string): boolean {
     default:
       return false;
   }
+}
+
+function configure(args: unknown[]): void {
+  if (apiPromise !== undefined) {
+    throw new Error("Cannot configure libwz worker after wasm initialization");
+  }
+  if (args.length !== 1 || !isWorkerConfig(args[0])) {
+    throw new TypeError("configure requires a wasmUrl string");
+  }
+  configuredWasmUrl = args[0].wasmUrl;
 }
 
 function dispatch(api: WzApi, method: string, args: unknown[]): unknown {
@@ -228,6 +247,11 @@ function isRemoteRef(value: unknown): value is RemoteRef {
   if (value === null || typeof value !== "object") return false;
   const ref = value as Partial<RemoteRef>;
   return typeof ref.kind === "string" && typeof ref.handle === "string";
+}
+
+function isWorkerConfig(value: unknown): value is { wasmUrl: string } {
+  if (value === null || typeof value !== "object") return false;
+  return typeof (value as { wasmUrl?: unknown }).wasmUrl === "string";
 }
 
 function isBlobLike(value: unknown): value is BlobLike {
