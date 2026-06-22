@@ -1,0 +1,13 @@
+{
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "vite build"
+  },
+  "dependencies": {
+    "libwz": "file:../../.."
+  },
+  "devDependencies": {
+    "vite": "8.0.16"
+  }
+}

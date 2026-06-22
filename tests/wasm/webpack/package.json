@@ -1,0 +1,14 @@
+{
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "webpack --config webpack.config.mjs"
+  },
+  "dependencies": {
+    "libwz": "file:../../.."
+  },
+  "devDependencies": {
+    "webpack": "5.107.2",
+    "webpack-cli": "7.0.3"
+  }
+}

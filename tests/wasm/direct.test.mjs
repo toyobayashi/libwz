@@ -33,6 +33,18 @@ test("sync wasm glue uses Node 18-compatible static createRequire import", () =>
   assert.equal(fs.existsSync(path.join(root, "dist", "wasm", "libwz-sync.wasm")), false);
 });
 
+test("browser wasm entry does not import Node-only sync glue", () => {
+  const distWasm = path.join(root, "dist", "wasm");
+  const browserEntry = fs.readFileSync(path.join(distWasm, "browser-index.js"), "utf8");
+  const browserLoader = fs.readFileSync(path.join(distWasm, "browser-loader.js"), "utf8");
+  const browserGlue = fs.readFileSync(path.join(distWasm, "libwz-browser.js"), "utf8");
+
+  assert.doesNotMatch(browserEntry, /libwz-sync|sync-loader|node:module/);
+  assert.doesNotMatch(browserLoader, /libwz-sync|sync-loader|node:module/);
+  assert.doesNotMatch(browserGlue, /node:module|require\('node:/);
+  assert.equal(fs.existsSync(path.join(distWasm, "libwz-browser.wasm")), false);
+});
+
 test("direct wasm API opens path input in Node.js without worker proxy", async () => {
   const before = process._getActiveHandles().filter((handle) =>
     handle.constructor?.name === "Worker",

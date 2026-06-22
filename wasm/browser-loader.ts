@@ -1,8 +1,6 @@
 import { getDefaultContext } from "@emnapi/runtime";
 
-import createLibwzModule, {
-  type LibwzEmscriptenModule,
-} from "./libwz.js";
+import createLibwzModule from "./libwz-browser.js";
 import type { LoadedWzModule, WzBinding } from "./direct-api.js";
 
 const asyncCache = new Map<string, Promise<LoadedWzModule>>();

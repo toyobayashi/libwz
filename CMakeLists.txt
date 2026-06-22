@@ -186,8 +186,9 @@ if(BUILD_WASM)
     set(WZ_WASM_DIST_DIR "${CMAKE_CURRENT_SOURCE_DIR}/dist/wasm")
     set(WZ_WASM_EXPORTED_FUNCTIONS "['_malloc','_free','_napi_register_wasm_v1','_node_api_module_get_api_version_v1']")
     set(WZ_WASM_EXPORTED_RUNTIME_METHODS "['emnapiInit','HEAPU8','FS','NODEFS']")
+    set(WZ_WASM_BROWSER_EXPORTED_RUNTIME_METHODS "['emnapiInit','HEAPU8','FS']")
 
-    function(configure_wz_wasm_target target_name output_name)
+    function(configure_wz_wasm_target target_name output_name environment exported_runtime_methods enable_noderawfs)
         target_include_directories(${target_name} PRIVATE include)
         target_compile_definitions(${target_name} PRIVATE
             BUILDING_NODE_EXTENSION
@@ -201,21 +202,66 @@ if(BUILD_WASM)
         target_link_options(${target_name} PRIVATE
             "--js-library=${CMAKE_CURRENT_SOURCE_DIR}/node_modules/emnapi/dist/library_napi.js"
             "-sALLOW_MEMORY_GROWTH=1"
-            "-sENVIRONMENT=web,worker,node"
+            "-sENVIRONMENT=${environment}"
             "-sEXPORT_ES6=1"
             "-sEXPORTED_FUNCTIONS=${WZ_WASM_EXPORTED_FUNCTIONS}"
-            "-sEXPORTED_RUNTIME_METHODS=${WZ_WASM_EXPORTED_RUNTIME_METHODS}"
+            "-sEXPORTED_RUNTIME_METHODS=${exported_runtime_methods}"
             "-sFORCE_FILESYSTEM=1"
             "-sMODULARIZE=1"
-            "-sNODERAWFS=1"
         )
+        if(enable_noderawfs)
+            target_link_options(${target_name} PRIVATE
+                "-sNODERAWFS=1"
+            )
+        endif()
     endfunction()
 
     add_executable(wz_wasm src/node/binding.cpp)
-    configure_wz_wasm_target(wz_wasm libwz)
+    configure_wz_wasm_target(wz_wasm libwz "web,worker,node" "${WZ_WASM_EXPORTED_RUNTIME_METHODS}" TRUE)
+
+    add_executable(wz_wasm_browser src/node/binding.cpp)
+    configure_wz_wasm_target(wz_wasm_browser libwz-browser "web,worker" "${WZ_WASM_BROWSER_EXPORTED_RUNTIME_METHODS}" FALSE)
+
+    set(WZ_PATCH_BROWSER_SCRIPT "${CMAKE_CURRENT_BINARY_DIR}/patch-libwz-browser.cmake")
+    file(WRITE "${WZ_PATCH_BROWSER_SCRIPT}" [==[
+file(READ "${JS_FILE}" js_contents)
+string(REPLACE "\r\n" "\n" js_contents "${js_contents}")
+
+function(wz_replace_required needle replacement description)
+  string(FIND "${js_contents}" "${needle}" match_index)
+  if(match_index EQUAL -1)
+    message(FATAL_ERROR "Failed to patch libwz-browser.js: missing ${description}")
+  endif()
+  string(REPLACE "${needle}" "${replacement}" js_contents "${js_contents}")
+  set(js_contents "${js_contents}" PARENT_SCOPE)
+endfunction()
+
+function(wz_forbid forbidden description)
+  string(FIND "${js_contents}" "${forbidden}" forbidden_index)
+  if(NOT forbidden_index EQUAL -1)
+    message(FATAL_ERROR "Failed to patch libwz-browser.js: ${description}")
+  endif()
+endfunction()
+
+wz_replace_required("libwz-browser.wasm" "libwz.wasm" "browser wasm filename reference")
+wz_forbid("node:module" "browser glue imports node:module")
+wz_forbid("require('node:" "browser glue requires Node builtins")
+wz_forbid("libwz-browser.wasm" "browser glue still references a second wasm binary")
+
+file(WRITE "${JS_FILE}" "${js_contents}")
+if(EXISTS "${BROWSER_WASM_FILE}")
+  file(REMOVE "${BROWSER_WASM_FILE}")
+endif()
+]==])
+    add_custom_command(TARGET wz_wasm_browser POST_BUILD
+        COMMAND ${CMAKE_COMMAND}
+            -DJS_FILE="${WZ_WASM_DIST_DIR}/libwz-browser.js"
+            -DBROWSER_WASM_FILE="${WZ_WASM_DIST_DIR}/libwz-browser.wasm"
+            -P "${WZ_PATCH_BROWSER_SCRIPT}"
+    )
 
     add_executable(wz_wasm_sync src/node/binding.cpp)
-    configure_wz_wasm_target(wz_wasm_sync libwz-sync)
+    configure_wz_wasm_target(wz_wasm_sync libwz-sync "web,worker,node" "${WZ_WASM_EXPORTED_RUNTIME_METHODS}" TRUE)
     target_link_options(wz_wasm_sync PRIVATE
         "-sWASM_ASYNC_COMPILATION=0"
     )

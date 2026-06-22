@@ -10,8 +10,7 @@ import {
   type WzApiSyncOptions,
   type WzWasmSyncOptions,
 } from "./direct-api.js";
-import { initializeWasm, loadWzModule } from "./loader.js";
-import { initializeWasmSync } from "./sync-loader.js";
+import { initializeWasm, loadWzModule } from "./browser-loader.js";
 
 export {
   BinaryType,
@@ -29,6 +28,9 @@ export async function createWzApi(options: WzApiOptions = {}): Promise<WzApi> {
   return createDirectApi(loaded, options);
 }
 
-export function createWzApiSync(options: WzApiSyncOptions = {}): WzApi {
-  return createDirectApi(initializeWasmSync(options), options);
+export function createWzApiSync(_options: WzApiSyncOptions = {}): WzApi {
+  throw new Error(
+    "createWzApiSync is only supported by the Node.js libwz/wasm entry; " +
+      "use createWzApi or libwz/wasm/browser-main in browser bundles.",
+  );
 }
