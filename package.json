@@ -37,6 +37,8 @@
     "index.ts",
     "src/capi",
     "src/native-binding.d.ts",
+    "src/node-wrapper.d.ts",
+    "src/node-wrapper.js",
     "src/node",
     "src/Properties",
     "src/Util",

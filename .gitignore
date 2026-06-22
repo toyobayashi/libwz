@@ -5,6 +5,7 @@ tmp
 index.js
 index.d.ts
 src/native-binding.js
+src/node-wrapper.js
 java/src/main/resources/native/**/*.so
 java/src/main/resources/native/**/*.dll
 java/src/main/resources/native/**/*.dylib
