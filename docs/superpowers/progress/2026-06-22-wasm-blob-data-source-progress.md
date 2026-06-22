@@ -2,10 +2,11 @@
 
 ## Status
 
-Implementation has completed and committed plan Tasks 1 through 5. The next
-task is Task 6: ESM-only Emscripten/emnapi packaging and Worker modules.
+Implementation has completed and committed plan Tasks 1 through 6. The next
+task is Task 7: Worker Blob integration tests and Vite/Webpack fixtures.
 
-Task 5 passed specification and code-quality review. Continue with the same
+Task 6 passed subagent specification and code-quality review after fixing
+reviewer-found packaging and Wasm runtime export issues. Continue with the same
 subagent review workflow: failing test first, implementation, verification,
 spec review, code-quality review, then commit.
 
@@ -151,13 +152,40 @@ Commit: `6b88e06 feat: add worker blob WZ source`
 - Passed independent spec and code-quality reviews after a reviewer-requested
   stronger no-offset-zero assertion.
 
+### Task 6 — ESM-only Emscripten/emnapi packaging
+
+Commit: `2d389a3 feat: build libwz as an ESM wasm module`
+
+- Added an emnapi-backed `wz_wasm` CMake target that reuses
+  `src/node/binding.cpp`, links `wz_capi`, and emits ESM glue plus an external
+  `libwz.wasm`.
+- Added `build:wasm`, `build:wasm:ts`, and `test:wasm` npm scripts.
+- Added a `./wasm` import-only package export and pinned `@emnapi/runtime`.
+- Added `emnapi` as a dev dependency for Emscripten Node-API headers and CMake
+  support.
+- Added `wasm/loader.ts`, `wasm/worker.ts`, `wasm/browser.ts`, and
+  `wasm/tsconfig.json`.
+- `loader.ts` exports `initializeWasm(wasmUrl)` and a default
+  `loadWzModule()` helper.
+- `worker.ts` keeps a `Map<number, Blob>` and serves synchronous range reads
+  through `FileReaderSync` and the `__libwzReadBlobRange` bridge.
+- `browser.ts` exports an ESM Worker factory returning a small async RPC
+  client.
+- Added `tests/wasm/esm-import.test.mjs`; it now imports the browser entry,
+  initializes the Wasm module, and verifies `HEAPU8` is exported for Blob range
+  copies.
+- `prepack` now builds the native TypeScript output and the Wasm artifact so
+  the public `./wasm` export is present in packed releases.
+- Passed independent review after fixes for missing `initializeWasm`, shallow
+  RPC return shape, stale pack artifacts, and missing `HEAPU8` runtime export.
+
 ## Review State
 
 Task 1 received the required fresh code-quality re-review before Task 2 began.
 No blocking or important issues were found. The only note was a non-blocking
 stream-source test gap for `offset > Size()`.
 
-Task 2, Task 3, Task 4, and Task 5 each completed specification and
+Task 2, Task 3, Task 4, Task 5, and Task 6 each completed specification and
 code-quality reviews. Reviewer-found issues were fixed and re-reviewed before
 commit.
 
@@ -170,11 +198,20 @@ follow-up commits:
 
 ## Not Started
 
-- Task 6: Emscripten/emnapi ESM-only package and Worker modules.
 - Task 7: Worker Blob integration and Vite/Webpack fixtures.
 - Task 8: explicit browser save bytes/Blob/download APIs.
 
 ## Latest Verification
+
+Task 6 verification included:
+
+```bash
+npm test
+npm run test:wasm
+npm pack --dry-run
+emcmake cmake -S . -B build/wasm-no-capi -DBUILD_WASM=ON -DBUILD_CAPI=OFF -DBUILD_TESTS=OFF
+cmake --build build/wasm-no-capi --target wz_wasm
+```
 
 Task 5 verification included:
 
