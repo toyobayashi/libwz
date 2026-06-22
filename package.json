@@ -11,7 +11,7 @@
     "build:wasm": "node -e \"require('fs').rmSync('dist/wasm',{recursive:true,force:true})\" && npm run build:wasm:ts && emcmake cmake -S . -B build/wasm -DBUILD_WASM=ON -DBUILD_TESTS=OFF && cmake --build build/wasm",
     "build:wasm:ts": "tsc -p wasm/tsconfig.json && tsc --declaration --module es2022 --moduleResolution bundler --target es2022 --lib es2022,dom,esnext.disposable --strict --skipLibCheck --rootDir src --outDir dist/wasm src/native-binding.ts src/node-wrapper.ts && node -e \"require('fs').mkdirSync('dist/wasm',{recursive:true});require('fs').writeFileSync('dist/wasm/package.json',JSON.stringify({type:'module'},null,2)+'\\n')\"",
     "build:ts": "tsc -p tsconfig.json",
-    "test:wasm": "npm run build:wasm && node tests/wasm/esm-import.test.mjs && node tests/wasm/direct.test.mjs",
+    "test:wasm": "npm run build:wasm && node tests/wasm/esm-import.test.mjs && node tests/wasm/direct.test.mjs && node tests/wasm/worker-rpc.test.mjs",
     "types": "tsc -p tsconfig.json --emitDeclarationOnly",
     "prepack": "npm run build:ts && npm run build:wasm",
     "test": "npm run build:ts && node --test tests/*.test.js"
