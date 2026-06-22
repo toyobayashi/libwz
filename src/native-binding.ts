@@ -25,6 +25,8 @@ export interface NativeBinding {
   openFileWithIv(path: string, iv: ArrayBufferViewLike): NullableNativeHandle;
   openMemory(name: string, bytes: Uint8Array, gameVersion: number, mapleVersion: NativeMapleVersionValue): NullableNativeHandle;
   openMemoryWithIv(name: string, bytes: Uint8Array, iv: ArrayBufferViewLike): NullableNativeHandle;
+  openBlobSource?(id: number, size: number, name: string, gameVersion: number, mapleVersion: NativeMapleVersionValue): NullableNativeHandle;
+  openBlobSourceWithIv?(id: number, size: number, name: string, iv: ArrayBufferViewLike): NullableNativeHandle;
   createFile(gameVersion: number, mapleVersion: NativeMapleVersionValue): NullableNativeHandle;
   closeFile(ptr: NativeHandle): void;
   parseFile(ptr: NativeHandle): NativeParseStatusValue;

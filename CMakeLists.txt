@@ -183,25 +183,106 @@ if(BUILD_CAPI)
 endif()
 
 if(BUILD_WASM)
+    set(WZ_WASM_DIST_DIR "${CMAKE_CURRENT_SOURCE_DIR}/dist/wasm")
+    set(WZ_WASM_EXPORTED_FUNCTIONS "['_malloc','_free','_napi_register_wasm_v1','_node_api_module_get_api_version_v1']")
+    set(WZ_WASM_EXPORTED_RUNTIME_METHODS "['emnapiInit','HEAPU8','FS','NODEFS']")
+
+    function(configure_wz_wasm_target target_name output_name)
+        target_include_directories(${target_name} PRIVATE include)
+        target_compile_definitions(${target_name} PRIVATE
+            BUILDING_NODE_EXTENSION
+            NAPI_DISABLE_CPP_EXCEPTIONS
+        )
+        target_link_libraries(${target_name} PRIVATE wz_capi emnapi)
+        set_target_properties(${target_name} PROPERTIES
+            OUTPUT_NAME ${output_name}
+            RUNTIME_OUTPUT_DIRECTORY "${WZ_WASM_DIST_DIR}"
+        )
+        target_link_options(${target_name} PRIVATE
+            "--js-library=${CMAKE_CURRENT_SOURCE_DIR}/node_modules/emnapi/dist/library_napi.js"
+            "-sALLOW_MEMORY_GROWTH=1"
+            "-sENVIRONMENT=web,worker,node"
+            "-sEXPORT_ES6=1"
+            "-sEXPORTED_FUNCTIONS=${WZ_WASM_EXPORTED_FUNCTIONS}"
+            "-sEXPORTED_RUNTIME_METHODS=${WZ_WASM_EXPORTED_RUNTIME_METHODS}"
+            "-sFORCE_FILESYSTEM=1"
+            "-sMODULARIZE=1"
+            "-sNODERAWFS=1"
+        )
+    endfunction()
+
     add_executable(wz_wasm src/node/binding.cpp)
-    target_include_directories(wz_wasm PRIVATE include)
-    target_compile_definitions(wz_wasm PRIVATE
-        BUILDING_NODE_EXTENSION
-        NAPI_DISABLE_CPP_EXCEPTIONS
+    configure_wz_wasm_target(wz_wasm libwz)
+
+    add_executable(wz_wasm_sync src/node/binding.cpp)
+    configure_wz_wasm_target(wz_wasm_sync libwz-sync)
+    target_link_options(wz_wasm_sync PRIVATE
+        "-sWASM_ASYNC_COMPILATION=0"
     )
-    target_link_libraries(wz_wasm PRIVATE wz_capi emnapi)
-    set_target_properties(wz_wasm PROPERTIES
-        OUTPUT_NAME libwz
-        RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/dist/wasm"
-    )
-    target_link_options(wz_wasm PRIVATE
-        "--js-library=${CMAKE_CURRENT_SOURCE_DIR}/node_modules/emnapi/dist/library_napi.js"
-        "-sALLOW_MEMORY_GROWTH=1"
-        "-sENVIRONMENT=web,worker,node"
-        "-sEXPORT_ES6=1"
-        "-sEXPORTED_FUNCTIONS=['_malloc','_free','_napi_register_wasm_v1','_node_api_module_get_api_version_v1']"
-        "-sEXPORTED_RUNTIME_METHODS=['emnapiInit','HEAPU8']"
-        "-sMODULARIZE=1"
+
+    set(WZ_PATCH_SYNC_SCRIPT "${CMAKE_CURRENT_BINARY_DIR}/patch-libwz-sync.cmake")
+    file(WRITE "${WZ_PATCH_SYNC_SCRIPT}" [==[
+file(READ "${JS_FILE}" js_contents)
+string(REPLACE "\r\n" "\n" js_contents "${js_contents}")
+
+function(wz_replace_required needle replacement description)
+  string(FIND "${js_contents}" "${needle}" match_index)
+  if(match_index EQUAL -1)
+    message(FATAL_ERROR "Failed to patch libwz-sync.js: missing ${description}")
+  endif()
+  string(REPLACE "${needle}" "${replacement}" js_contents "${js_contents}")
+  set(js_contents "${js_contents}" PARENT_SCOPE)
+endfunction()
+
+function(wz_forbid forbidden description)
+  string(FIND "${js_contents}" "${forbidden}" forbidden_index)
+  if(NOT forbidden_index EQUAL -1)
+    message(FATAL_ERROR "Failed to patch libwz-sync.js: ${description}")
+  endif()
+endfunction()
+
+wz_replace_required("libwz-sync.wasm" "libwz.wasm" "sync wasm filename reference")
+wz_replace_required("async function Module(moduleArg = {})" "function Module(moduleArg = {})" "async Module wrapper")
+wz_replace_required("const { createRequire } = await import('node:module');" "" "dynamic createRequire import")
+wz_replace_required([=[  if (Module['instantiateWasm']) {
+    return new Promise((resolve, reject) => {
+      try {
+        Module['instantiateWasm'](info, (inst, mod) => {
+          resolve(receiveInstance(inst, mod));
+        });
+      } catch(e) {
+        err(`Module.instantiateWasm callback failed with error: ${e}`);
+        reject(e);
+      }
+    });
+  }
+]=] [=[  if (Module['instantiateWasm']) {
+    try {
+      var exports = Module['instantiateWasm'](info, (inst, mod) => receiveInstance(inst, mod));
+      if (exports) return exports;
+    } catch(e) {
+      err(`Module.instantiateWasm callback failed with error: ${e}`);
+      throw e;
+    }
+  }
+]=] "instantiateWasm Promise wrapper")
+set(js_contents "import { createRequire } from 'node:module';\n\n${js_contents}")
+
+wz_forbid("process.getBuiltinModule" "process.getBuiltinModule is not available on Node 18")
+wz_forbid("const { createRequire } = await import('node:module');" "dynamic createRequire import was not removed")
+wz_forbid("async function Module(moduleArg = {})" "Module wrapper is still async")
+wz_forbid("libwz-sync.wasm" "sync glue still references a second wasm binary")
+
+file(WRITE "${JS_FILE}" "${js_contents}")
+if(EXISTS "${SYNC_WASM_FILE}")
+  file(REMOVE "${SYNC_WASM_FILE}")
+endif()
+]==])
+    add_custom_command(TARGET wz_wasm_sync POST_BUILD
+        COMMAND ${CMAKE_COMMAND}
+            -DJS_FILE="${WZ_WASM_DIST_DIR}/libwz-sync.js"
+            -DSYNC_WASM_FILE="${WZ_WASM_DIST_DIR}/libwz-sync.wasm"
+            -P "${WZ_PATCH_SYNC_SCRIPT}"
     )
 endif()
 

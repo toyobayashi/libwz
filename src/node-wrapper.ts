@@ -7,7 +7,7 @@ import type {
   NativeHandle,
   NativeObjectInfo,
   NullableNativeHandle,
-} from "./native-binding";
+} from "./native-binding.js";
 
 export interface WzApiCapabilities {
   blobInput: boolean;
@@ -15,7 +15,16 @@ export interface WzApiCapabilities {
   saveToDisk: boolean;
 }
 
-const MapleVersion = Object.freeze({
+export interface BlobLike {
+  readonly size: number;
+  slice(start?: number, end?: number): BlobLike;
+}
+
+export interface FileLike extends BlobLike {
+  readonly name: string;
+}
+
+export const MapleVersion = Object.freeze({
   GMS: 0,
   EMS: 1,
   BMS: 2,
@@ -27,7 +36,7 @@ const MapleVersion = Object.freeze({
 } as const);
 export type MapleVersionValue = (typeof MapleVersion)[keyof typeof MapleVersion];
 
-const ParseStatus = Object.freeze({
+export const ParseStatus = Object.freeze({
   PATH_IS_NULL: -1,
   ERROR_GAME_VER_HASH: -2,
   FAILED_UNKNOWN: 0,
@@ -35,7 +44,7 @@ const ParseStatus = Object.freeze({
 } as const);
 export type ParseStatusValue = (typeof ParseStatus)[keyof typeof ParseStatus];
 
-const PropertyType = Object.freeze({
+export const PropertyType = Object.freeze({
   NULL: 0,
   SHORT: 1,
   INT: 2,
@@ -55,7 +64,7 @@ const PropertyType = Object.freeze({
 } as const);
 export type PropertyTypeValue = (typeof PropertyType)[keyof typeof PropertyType];
 
-const ObjectType = Object.freeze({
+export const ObjectType = Object.freeze({
   FILE: 0,
   IMAGE: 1,
   DIRECTORY: 2,
@@ -64,7 +73,7 @@ const ObjectType = Object.freeze({
 } as const);
 export type ObjectTypeValue = (typeof ObjectType)[keyof typeof ObjectType];
 
-const BinaryType = Object.freeze({
+export const BinaryType = Object.freeze({
   RAW: 0,
   MP3: 1,
   WAV: 2,
@@ -121,6 +130,11 @@ export interface WzFileConstructor extends Function {
   fromBytes(name: string, bytes: Uint8Array, mapleVersion: MapleVersionValue): WzFile;
   fromBytes(name: string, bytes: Uint8Array, gameVersion: number, mapleVersion: MapleVersionValue): WzFile;
   fromBytes(name: string, bytes: Uint8Array, iv: ArrayBufferViewLike): WzFile;
+  fromBlob(name: string, blob: BlobLike, mapleVersion: MapleVersionValue): WzFile;
+  fromBlob(name: string, blob: BlobLike, gameVersion: number, mapleVersion: MapleVersionValue): WzFile;
+  fromBlobWithIv(name: string, blob: BlobLike, iv: ArrayBufferViewLike): WzFile;
+  fromFile(file: FileLike, mapleVersion: MapleVersionValue): WzFile;
+  fromFile(file: FileLike, gameVersion: number, mapleVersion: MapleVersionValue): WzFile;
 }
 
 export interface WzDirectory extends WzObject {
@@ -380,6 +394,11 @@ export interface WzToolApi {
 }
 
 export interface WzApi {
+  MapleVersion: typeof MapleVersion;
+  ParseStatus: typeof ParseStatus;
+  PropertyType: typeof PropertyType;
+  ObjectType: typeof ObjectType;
+  BinaryType: typeof BinaryType;
   WzObject: WzObjectConstructor;
   WzFile: WzFileConstructor;
   WzDirectory: WzDirectoryConstructor;
@@ -632,6 +651,8 @@ export function createWzApiFromBinding(native: NativeBinding, capabilities: WzAp
   }
 
   class WzFile extends WzObject {
+    private readonly disposeCallbacks: Array<() => void> = [];
+
     static create(gameVersion: number, mapleVersion: MapleVersionValue): WzFile {
       const ptr = native.createFile(gameVersion, mapleVersion);
       if (ptr === null) throw new Error("failed to create WZ file");
@@ -661,6 +682,54 @@ export function createWzApiFromBinding(native: NativeBinding, capabilities: WzAp
       return createWzFile(ptr, true);
     }
 
+    static fromBlobSource(name: string, id: number, size: number, mapleVersion: MapleVersionValue): WzFile;
+    static fromBlobSource(name: string, id: number, size: number, gameVersion: number, mapleVersion: MapleVersionValue): WzFile;
+    static fromBlobSource(name: string, id: number, size: number, iv: ArrayBufferViewLike): WzFile;
+    static fromBlobSource(
+      name: string,
+      id: number,
+      size: number,
+      gameVersionOrMapleVersionOrIv: number | ArrayBufferViewLike,
+      mapleVersion?: MapleVersionValue
+    ): WzFile {
+      if (!capabilities.blobInput) {
+        throw new Error("Blob-backed WZ input is not supported in this runtime");
+      }
+
+      let ptr: NullableNativeHandle;
+      if (ArrayBuffer.isView(gameVersionOrMapleVersionOrIv)) {
+        const openBlobSourceWithIv = native.openBlobSourceWithIv;
+        if (openBlobSourceWithIv === undefined) {
+          throw new Error("Blob-backed WZ input with IV is not supported by this binding");
+        }
+        ptr = openBlobSourceWithIv(id, size, name, gameVersionOrMapleVersionOrIv);
+      } else {
+        const openBlobSource = native.openBlobSource;
+        if (openBlobSource === undefined) {
+          throw new Error("Blob-backed WZ input is not supported by this binding");
+        }
+        const gameVersion = mapleVersion === undefined ? -1 : gameVersionOrMapleVersionOrIv;
+        const version = mapleVersion === undefined
+          ? gameVersionOrMapleVersionOrIv as MapleVersionValue
+          : mapleVersion;
+        ptr = openBlobSource(id, size, name, gameVersion, version);
+      }
+      if (ptr === null) throw new Error("failed to open WZ file from Blob");
+      return createWzFile(ptr, true);
+    }
+
+    static fromBlob(): WzFile {
+      throw new Error("Blob-backed WZ input is not configured for this runtime");
+    }
+
+    static fromBlobWithIv(): WzFile {
+      throw new Error("Blob-backed WZ input is not configured for this runtime");
+    }
+
+    static fromFile(): WzFile {
+      throw new Error("File-backed WZ input is not configured for this runtime");
+    }
+
     constructor(path: string, mapleVersion?: MapleVersionValue);
     constructor(path: string, gameVersion: number, mapleVersion: MapleVersionValue);
     constructor(path: string, iv: ArrayBufferViewLike);
@@ -686,6 +755,10 @@ export function createWzApiFromBinding(native: NativeBinding, capabilities: WzAp
       }
       if (ptr === null) throw new Error("failed to open WZ file");
       super(ptr, true);
+    }
+
+    addDisposeCallback(callback: () => void): void {
+      this.disposeCallbacks.push(callback);
     }
 
     parseWzFile(): ParseStatusValue {
@@ -744,8 +817,12 @@ export function createWzApiFromBinding(native: NativeBinding, capabilities: WzAp
       if (this._ownsNative && this._ptr !== 0n) {
         const ptr = this._ptr;
         const ptrs = collectKnownFilePtrs(this);
-        native.closeFile(ptr);
-        invalidateHandles(ptrs);
+        try {
+          native.closeFile(ptr);
+        } finally {
+          invalidateHandles(ptrs);
+          for (const callback of this.disposeCallbacks.splice(0)) callback();
+        }
       }
     }
   }
@@ -1274,6 +1351,11 @@ export function createWzApiFromBinding(native: NativeBinding, capabilities: WzAp
 
 
   return {
+    MapleVersion,
+    ParseStatus,
+    PropertyType,
+    ObjectType,
+    BinaryType,
     WzObject,
     WzFile,
     WzDirectory,

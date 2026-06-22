@@ -1,10 +1,17 @@
-import type { ArrayBufferViewLike, DetectedMapleVersion, NativeBinding, NativeHandle } from "./native-binding";
+import type { ArrayBufferViewLike, DetectedMapleVersion, NativeBinding, NativeHandle } from "./native-binding.js";
 export interface WzApiCapabilities {
     blobInput: boolean;
     pathInput: boolean;
     saveToDisk: boolean;
 }
-declare const MapleVersion: Readonly<{
+export interface BlobLike {
+    readonly size: number;
+    slice(start?: number, end?: number): BlobLike;
+}
+export interface FileLike extends BlobLike {
+    readonly name: string;
+}
+export declare const MapleVersion: Readonly<{
     readonly GMS: 0;
     readonly EMS: 1;
     readonly BMS: 2;
@@ -15,14 +22,14 @@ declare const MapleVersion: Readonly<{
     readonly UNKNOWN: 99;
 }>;
 export type MapleVersionValue = (typeof MapleVersion)[keyof typeof MapleVersion];
-declare const ParseStatus: Readonly<{
+export declare const ParseStatus: Readonly<{
     readonly PATH_IS_NULL: -1;
     readonly ERROR_GAME_VER_HASH: -2;
     readonly FAILED_UNKNOWN: 0;
     readonly SUCCESS: 1;
 }>;
 export type ParseStatusValue = (typeof ParseStatus)[keyof typeof ParseStatus];
-declare const PropertyType: Readonly<{
+export declare const PropertyType: Readonly<{
     readonly NULL: 0;
     readonly SHORT: 1;
     readonly INT: 2;
@@ -41,7 +48,7 @@ declare const PropertyType: Readonly<{
     readonly PNG: 15;
 }>;
 export type PropertyTypeValue = (typeof PropertyType)[keyof typeof PropertyType];
-declare const ObjectType: Readonly<{
+export declare const ObjectType: Readonly<{
     readonly FILE: 0;
     readonly IMAGE: 1;
     readonly DIRECTORY: 2;
@@ -49,7 +56,7 @@ declare const ObjectType: Readonly<{
     readonly LIST: 4;
 }>;
 export type ObjectTypeValue = (typeof ObjectType)[keyof typeof ObjectType];
-declare const BinaryType: Readonly<{
+export declare const BinaryType: Readonly<{
     readonly RAW: 0;
     readonly MP3: 1;
     readonly WAV: 2;
@@ -102,6 +109,11 @@ export interface WzFileConstructor extends Function {
     fromBytes(name: string, bytes: Uint8Array, mapleVersion: MapleVersionValue): WzFile;
     fromBytes(name: string, bytes: Uint8Array, gameVersion: number, mapleVersion: MapleVersionValue): WzFile;
     fromBytes(name: string, bytes: Uint8Array, iv: ArrayBufferViewLike): WzFile;
+    fromBlob(name: string, blob: BlobLike, mapleVersion: MapleVersionValue): WzFile;
+    fromBlob(name: string, blob: BlobLike, gameVersion: number, mapleVersion: MapleVersionValue): WzFile;
+    fromBlobWithIv(name: string, blob: BlobLike, iv: ArrayBufferViewLike): WzFile;
+    fromFile(file: FileLike, mapleVersion: MapleVersionValue): WzFile;
+    fromFile(file: FileLike, gameVersion: number, mapleVersion: MapleVersionValue): WzFile;
 }
 export interface WzDirectory extends WzObject {
     getName(): string;
@@ -336,6 +348,11 @@ export interface WzToolApi {
     readonly getIvForVersion: (version: MapleVersionValue) => Uint8Array;
 }
 export interface WzApi {
+    MapleVersion: typeof MapleVersion;
+    ParseStatus: typeof ParseStatus;
+    PropertyType: typeof PropertyType;
+    ObjectType: typeof ObjectType;
+    BinaryType: typeof BinaryType;
     WzObject: WzObjectConstructor;
     WzFile: WzFileConstructor;
     WzDirectory: WzDirectoryConstructor;
@@ -363,4 +380,3 @@ export interface WzApi {
     WzTool: WzToolApi;
 }
 export declare function createWzApiFromBinding(native: NativeBinding, capabilities: WzApiCapabilities): WzApi;
-export {};

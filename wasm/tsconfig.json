@@ -1,7 +1,7 @@
 {
   "compilerOptions": {
     "declaration": true,
-    "lib": ["dom", "es2022"],
+    "lib": ["dom", "es2022", "esnext.disposable"],
     "module": "es2022",
     "moduleResolution": "bundler",
     "outDir": "../dist/wasm",
