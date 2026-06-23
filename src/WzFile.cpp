@@ -185,6 +185,17 @@ WzFileParseStatus WzFile::ParseMainWzDirectory() {
   fileReader_.reset();
   if (!source_) {
     fileStream_.Close();
+
+    const auto filePath = wz::to_path(path_);
+    std::error_code ec;
+    if (!std::filesystem::is_regular_file(filePath, ec) || ec) {
+      return WzFileParseStatus::Failed_Unknown;
+    }
+    const auto actualFileSize = std::filesystem::file_size(filePath, ec);
+    if (ec || actualFileSize < 17U) {
+      return WzFileParseStatus::Failed_Unknown;
+    }
+
     if (!fileStream_.Open(wz::to_path(path_), "rb")) {
       return WzFileParseStatus::Failed_Unknown;
     }
