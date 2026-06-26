@@ -183,10 +183,19 @@ if(BUILD_CAPI)
 endif()
 
 if(BUILD_WASM)
-    set(WZ_WASM_DIST_DIR "${CMAKE_CURRENT_SOURCE_DIR}/dist/wasm")
+    # set(WZ_WASM_SIZE_OPT_FLAGS
+    #     "$<$<CONFIG:Release>:-Oz>"
+    #     "$<$<CONFIG:Release>:-flto>"
+    # )
+    # foreach(wz_wasm_opt_target wz wz_capi zlibstatic tiny-aes emnapi)
+    #     if(TARGET ${wz_wasm_opt_target})
+    #         target_compile_options(${wz_wasm_opt_target} PRIVATE ${WZ_WASM_SIZE_OPT_FLAGS})
+    #     endif()
+    # endforeach()
+
+    set(WZ_WASM_DIST_DIR "${CMAKE_CURRENT_SOURCE_DIR}/dist")
     set(WZ_WASM_EXPORTED_FUNCTIONS "['_malloc','_free','_napi_register_wasm_v1','_node_api_module_get_api_version_v1']")
     set(WZ_WASM_EXPORTED_RUNTIME_METHODS "['emnapiInit','HEAPU8','FS','NODEFS']")
-    set(WZ_WASM_BROWSER_EXPORTED_RUNTIME_METHODS "['emnapiInit','HEAPU8','FS']")
 
     function(configure_wz_wasm_target target_name output_name environment exported_runtime_methods enable_noderawfs)
         target_include_directories(${target_name} PRIVATE include)
@@ -207,7 +216,15 @@ if(BUILD_WASM)
             "-sEXPORTED_FUNCTIONS=${WZ_WASM_EXPORTED_FUNCTIONS}"
             "-sEXPORTED_RUNTIME_METHODS=${exported_runtime_methods}"
             "-sFORCE_FILESYSTEM=1"
+            "-sMALLOC=emmalloc"
             "-sMODULARIZE=1"
+            "-lnodefs.js"
+        )
+        target_link_options(${target_name} PRIVATE
+            # "$<$<CONFIG:Release>:-Oz>"
+            # "$<$<CONFIG:Release>:-flto>"
+            "$<$<CONFIG:Release>:-sASSERTIONS=0>"
+            "$<$<CONFIG:Release>:--minify=0>"
         )
         if(enable_noderawfs)
             target_link_options(${target_name} PRIVATE
@@ -217,118 +234,38 @@ if(BUILD_WASM)
     endfunction()
 
     add_executable(wz_wasm src/node/binding.cpp)
-    configure_wz_wasm_target(wz_wasm libwz "web,worker,node" "${WZ_WASM_EXPORTED_RUNTIME_METHODS}" TRUE)
+    configure_wz_wasm_target(wz_wasm libwz "web,worker,node" "${WZ_WASM_EXPORTED_RUNTIME_METHODS}" FALSE)
 
-    add_executable(wz_wasm_browser src/node/binding.cpp)
-    configure_wz_wasm_target(wz_wasm_browser libwz-browser "web,worker" "${WZ_WASM_BROWSER_EXPORTED_RUNTIME_METHODS}" FALSE)
-
-    set(WZ_PATCH_BROWSER_SCRIPT "${CMAKE_CURRENT_BINARY_DIR}/patch-libwz-browser.cmake")
-    file(WRITE "${WZ_PATCH_BROWSER_SCRIPT}" [==[
+    set(WZ_PATCH_WASM_SCRIPT "${CMAKE_CURRENT_BINARY_DIR}/patch-libwz.cmake")
+    file(WRITE "${WZ_PATCH_WASM_SCRIPT}" [==[
 file(READ "${JS_FILE}" js_contents)
 string(REPLACE "\r\n" "\n" js_contents "${js_contents}")
 
-function(wz_replace_required needle replacement description)
+function(wz_replace_optional needle replacement)
   string(FIND "${js_contents}" "${needle}" match_index)
-  if(match_index EQUAL -1)
-    message(FATAL_ERROR "Failed to patch libwz-browser.js: missing ${description}")
-  endif()
-  string(REPLACE "${needle}" "${replacement}" js_contents "${js_contents}")
-  set(js_contents "${js_contents}" PARENT_SCOPE)
-endfunction()
-
-function(wz_forbid forbidden description)
-  string(FIND "${js_contents}" "${forbidden}" forbidden_index)
-  if(NOT forbidden_index EQUAL -1)
-    message(FATAL_ERROR "Failed to patch libwz-browser.js: ${description}")
+  if(NOT match_index EQUAL -1)
+    string(REPLACE "${needle}" "${replacement}" js_contents "${js_contents}")
+    set(js_contents "${js_contents}" PARENT_SCOPE)
+    set(WZ_PATCHED_NODE_MODULE_IMPORT TRUE PARENT_SCOPE)
   endif()
 endfunction()
 
-wz_replace_required("libwz-browser.wasm" "libwz.wasm" "browser wasm filename reference")
-wz_forbid("node:module" "browser glue imports node:module")
-wz_forbid("require('node:" "browser glue requires Node builtins")
-wz_forbid("libwz-browser.wasm" "browser glue still references a second wasm binary")
+set(WZ_PATCHED_NODE_MODULE_IMPORT FALSE)
+wz_replace_optional("await import('module')" "process.getBuiltinModule('module')")
+wz_replace_optional("await import(\"module\")" "process.getBuiltinModule('module')")
+if(NOT WZ_PATCHED_NODE_MODULE_IMPORT)
+  string(FIND "${js_contents}" "process.getBuiltinModule('module')" already_patched_index)
+  if(already_patched_index EQUAL -1)
+    message(FATAL_ERROR "Failed to patch libwz.js: missing Node module dynamic import")
+  endif()
+endif()
 
 file(WRITE "${JS_FILE}" "${js_contents}")
-if(EXISTS "${BROWSER_WASM_FILE}")
-  file(REMOVE "${BROWSER_WASM_FILE}")
-endif()
 ]==])
-    add_custom_command(TARGET wz_wasm_browser POST_BUILD
+    add_custom_command(TARGET wz_wasm POST_BUILD
         COMMAND ${CMAKE_COMMAND}
-            -DJS_FILE="${WZ_WASM_DIST_DIR}/libwz-browser.js"
-            -DBROWSER_WASM_FILE="${WZ_WASM_DIST_DIR}/libwz-browser.wasm"
-            -P "${WZ_PATCH_BROWSER_SCRIPT}"
-    )
-
-    add_executable(wz_wasm_sync src/node/binding.cpp)
-    configure_wz_wasm_target(wz_wasm_sync libwz-sync "web,worker,node" "${WZ_WASM_EXPORTED_RUNTIME_METHODS}" TRUE)
-    target_link_options(wz_wasm_sync PRIVATE
-        "-sWASM_ASYNC_COMPILATION=0"
-    )
-
-    set(WZ_PATCH_SYNC_SCRIPT "${CMAKE_CURRENT_BINARY_DIR}/patch-libwz-sync.cmake")
-    file(WRITE "${WZ_PATCH_SYNC_SCRIPT}" [==[
-file(READ "${JS_FILE}" js_contents)
-string(REPLACE "\r\n" "\n" js_contents "${js_contents}")
-
-function(wz_replace_required needle replacement description)
-  string(FIND "${js_contents}" "${needle}" match_index)
-  if(match_index EQUAL -1)
-    message(FATAL_ERROR "Failed to patch libwz-sync.js: missing ${description}")
-  endif()
-  string(REPLACE "${needle}" "${replacement}" js_contents "${js_contents}")
-  set(js_contents "${js_contents}" PARENT_SCOPE)
-endfunction()
-
-function(wz_forbid forbidden description)
-  string(FIND "${js_contents}" "${forbidden}" forbidden_index)
-  if(NOT forbidden_index EQUAL -1)
-    message(FATAL_ERROR "Failed to patch libwz-sync.js: ${description}")
-  endif()
-endfunction()
-
-wz_replace_required("libwz-sync.wasm" "libwz.wasm" "sync wasm filename reference")
-wz_replace_required("async function Module(moduleArg = {})" "function Module(moduleArg = {})" "async Module wrapper")
-wz_replace_required("const { createRequire } = await import('node:module');" "" "dynamic createRequire import")
-wz_replace_required([=[  if (Module['instantiateWasm']) {
-    return new Promise((resolve, reject) => {
-      try {
-        Module['instantiateWasm'](info, (inst, mod) => {
-          resolve(receiveInstance(inst, mod));
-        });
-      } catch(e) {
-        err(`Module.instantiateWasm callback failed with error: ${e}`);
-        reject(e);
-      }
-    });
-  }
-]=] [=[  if (Module['instantiateWasm']) {
-    try {
-      var exports = Module['instantiateWasm'](info, (inst, mod) => receiveInstance(inst, mod));
-      if (exports) return exports;
-    } catch(e) {
-      err(`Module.instantiateWasm callback failed with error: ${e}`);
-      throw e;
-    }
-  }
-]=] "instantiateWasm Promise wrapper")
-set(js_contents "import { createRequire } from 'node:module';\n\n${js_contents}")
-
-wz_forbid("process.getBuiltinModule" "process.getBuiltinModule is not available on Node 18")
-wz_forbid("const { createRequire } = await import('node:module');" "dynamic createRequire import was not removed")
-wz_forbid("async function Module(moduleArg = {})" "Module wrapper is still async")
-wz_forbid("libwz-sync.wasm" "sync glue still references a second wasm binary")
-
-file(WRITE "${JS_FILE}" "${js_contents}")
-if(EXISTS "${SYNC_WASM_FILE}")
-  file(REMOVE "${SYNC_WASM_FILE}")
-endif()
-]==])
-    add_custom_command(TARGET wz_wasm_sync POST_BUILD
-        COMMAND ${CMAKE_COMMAND}
-            -DJS_FILE="${WZ_WASM_DIST_DIR}/libwz-sync.js"
-            -DSYNC_WASM_FILE="${WZ_WASM_DIST_DIR}/libwz-sync.wasm"
-            -P "${WZ_PATCH_SYNC_SCRIPT}"
+            -DJS_FILE="${WZ_WASM_DIST_DIR}/libwz.js"
+            -P "${WZ_PATCH_WASM_SCRIPT}"
     )
 endif()
 

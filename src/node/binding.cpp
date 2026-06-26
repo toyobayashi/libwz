@@ -3,6 +3,9 @@
 #include <cstring>
 #include <string>
 #include <vector>
+#ifdef __EMSCRIPTEN__
+#include <emnapi.h>
+#endif
 #include "wz/wz_api.h"
 
 namespace {
@@ -26,6 +29,28 @@ inline void ThrowIfError(Napi::Env env) {
   const char* msg = info ? info->message : nullptr;
   Napi::Error::New(env, msg ? msg : "libwz error").ThrowAsJavaScriptException();
 }
+
+#ifdef __EMSCRIPTEN__
+inline bool SyncMemory(Napi::Env env,
+                       bool js_to_wasm,
+                       Napi::Value value,
+                       size_t byte_offset,
+                       size_t length) {
+  napi_value raw = value;
+  napi_status status =
+      emnapi_sync_memory(env, js_to_wasm, &raw, byte_offset, length);
+  if (status != napi_ok) {
+    Napi::Error::New(env, "emnapi_sync_memory failed")
+        .ThrowAsJavaScriptException();
+    return false;
+  }
+  return true;
+}
+#else
+inline bool SyncMemory(Napi::Env, bool, Napi::Value, size_t, size_t) {
+  return true;
+}
+#endif
 
 #define WZ_NODE_API_CALL(env, expr)                                            \
   do {                                                                         \
@@ -72,6 +97,7 @@ Napi::Value ReadBytes(const Napi::CallbackInfo& info, SizeFn fn) {
   auto bytes = static_cast<uint8_t*>(storage.Data());
   if (size > 0) {
     WZ_NODE_API_CALL(env, fn(prop, bytes, size, &size));
+    if (!SyncMemory(env, false, storage, 0, size)) return Napi::Value();
   }
   return Napi::Uint8Array::New(env, size, storage, 0);
 }
@@ -86,8 +112,41 @@ Napi::Value ReadPngBytes(const Napi::CallbackInfo& info, SizeFn fn) {
   auto bytes = static_cast<uint8_t*>(storage.Data());
   if (size > 0) {
     WZ_NODE_API_CALL(env, fn(png, bytes, size, &size));
+    if (!SyncMemory(env, false, storage, 0, size)) return Napi::Value();
   }
   return Napi::Uint8Array::New(env, size, storage, 0);
+}
+
+struct BlobReadCallbackState {
+  Napi::Env env;
+  Napi::FunctionReference read;
+};
+
+int BlobReadCallback(void* userdata,
+                     uint64_t offset,
+                     uint8_t* destination,
+                     size_t length,
+                     size_t* out_bytes_read) {
+  auto* state = static_cast<BlobReadCallbackState*>(userdata);
+  if (!state || !out_bytes_read) return 0;
+  Napi::HandleScope scope(state->env);
+  Napi::Value result = state->read.Call({
+      Napi::Number::New(state->env, static_cast<double>(offset)),
+      Napi::Number::New(state->env, static_cast<double>(length)),
+  });
+  if (state->env.IsExceptionPending() || !result.IsTypedArray()) return 0;
+  Napi::TypedArray typed = result.As<Napi::TypedArray>();
+  if (typed.TypedArrayType() != napi_uint8_array) return 0;
+  Napi::Uint8Array bytes = result.As<Napi::Uint8Array>();
+  if (bytes.ByteLength() != length) return 0;
+  if (!SyncMemory(state->env, true, bytes, 0, length)) return 0;
+  if (length > 0) std::memcpy(destination, bytes.Data(), length);
+  *out_bytes_read = length;
+  return 1;
+}
+
+void ReleaseBlobReadCallback(void* userdata) {
+  delete static_cast<BlobReadCallbackState*>(userdata);
 }
 
 Napi::Value OpenFile(const Napi::CallbackInfo& info) {
@@ -108,6 +167,7 @@ Napi::Value OpenFileWithIv(const Napi::CallbackInfo& info) {
   Napi::Env env = info.Env();
   std::string path = info[0].As<Napi::String>().Utf8Value();
   Napi::Uint8Array iv = info[1].As<Napi::Uint8Array>();
+  if (!SyncMemory(env, true, iv, 0, iv.ByteLength())) return Napi::Value();
   uint8_t bytes[4] = {0, 0, 0, 0};
   std::memcpy(bytes, iv.Data(), iv.ByteLength() < 4 ? iv.ByteLength() : 4);
   wz_file file = nullptr;
@@ -119,17 +179,19 @@ Napi::Value OpenMemory(const Napi::CallbackInfo& info) {
   Napi::Env env = info.Env();
   std::string name = info[0].As<Napi::String>().Utf8Value();
   Napi::Uint8Array bytes = info[1].As<Napi::Uint8Array>();
+  if (!SyncMemory(env, true, bytes, 0, bytes.ByteLength())) {
+    return Napi::Value();
+  }
   int gameVersion = info[2].As<Napi::Number>().Int32Value();
   int version = info[3].As<Napi::Number>().Int32Value();
   wz_file file = nullptr;
-  WZ_NODE_API_CALL(
-      env,
-      wz_open_memory(name.c_str(),
-                     bytes.Data(),
-                     bytes.ByteLength(),
-                     static_cast<short>(gameVersion),
-                     static_cast<wz_maple_version>(version),
-                     &file));
+  WZ_NODE_API_CALL(env,
+                   wz_open_memory(name.c_str(),
+                                  bytes.Data(),
+                                  bytes.ByteLength(),
+                                  static_cast<short>(gameVersion),
+                                  static_cast<wz_maple_version>(version),
+                                  &file));
   return file ? ToHandle(env, file) : env.Null();
 }
 
@@ -138,51 +200,76 @@ Napi::Value OpenMemoryWithIv(const Napi::CallbackInfo& info) {
   std::string name = info[0].As<Napi::String>().Utf8Value();
   Napi::Uint8Array data = info[1].As<Napi::Uint8Array>();
   Napi::Uint8Array iv = info[2].As<Napi::Uint8Array>();
+  if (!SyncMemory(env, true, data, 0, data.ByteLength())) {
+    return Napi::Value();
+  }
+  if (!SyncMemory(env, true, iv, 0, iv.ByteLength())) return Napi::Value();
   uint8_t iv_bytes[4] = {0, 0, 0, 0};
   std::memcpy(iv_bytes, iv.Data(), iv.ByteLength() < 4 ? iv.ByteLength() : 4);
   wz_file file = nullptr;
-  WZ_NODE_API_CALL(env,
-                   wz_open_memory_with_iv(name.c_str(),
-                                          data.Data(),
-                                          data.ByteLength(),
-                                          iv_bytes,
-                                          &file));
+  WZ_NODE_API_CALL(
+      env,
+      wz_open_memory_with_iv(
+          name.c_str(), data.Data(), data.ByteLength(), iv_bytes, &file));
   return file ? ToHandle(env, file) : env.Null();
 }
 
 Napi::Value OpenBlobSource(const Napi::CallbackInfo& info) {
   Napi::Env env = info.Env();
-  uint32_t blobId = info[0].As<Napi::Number>().Uint32Value();
   uint64_t size =
-      static_cast<uint64_t>(info[1].As<Napi::Number>().DoubleValue());
-  std::string name = info[2].As<Napi::String>().Utf8Value();
-  int gameVersion = info[3].As<Napi::Number>().Int32Value();
-  int version = info[4].As<Napi::Number>().Int32Value();
-  wz_file file = nullptr;
-  WZ_NODE_API_CALL(
+      static_cast<uint64_t>(info[0].As<Napi::Number>().DoubleValue());
+  std::string name = info[1].As<Napi::String>().Utf8Value();
+  int gameVersion = info[2].As<Napi::Number>().Int32Value();
+  int version = info[3].As<Napi::Number>().Int32Value();
+  auto* state = new BlobReadCallbackState{
       env,
-      wz_open_blob_source(blobId,
-                          size,
-                          name.c_str(),
-                          static_cast<short>(gameVersion),
-                          static_cast<wz_maple_version>(version),
-                          &file));
+      Napi::Persistent(info[4].As<Napi::Function>()),
+  };
+  wz_file file = nullptr;
+  wz_error_code err =
+      wz_open_blob_source_with_callback(state,
+                                        BlobReadCallback,
+                                        ReleaseBlobReadCallback,
+                                        size,
+                                        name.c_str(),
+                                        static_cast<short>(gameVersion),
+                                        static_cast<wz_maple_version>(version),
+                                        &file);
+  if (err != WZ_ERROR_NONE) {
+    ReleaseBlobReadCallback(state);
+    ThrowIfError(env);
+    return Napi::Value();
+  }
   return file ? ToHandle(env, file) : env.Null();
 }
 
 Napi::Value OpenBlobSourceWithIv(const Napi::CallbackInfo& info) {
   Napi::Env env = info.Env();
-  uint32_t blobId = info[0].As<Napi::Number>().Uint32Value();
   uint64_t size =
-      static_cast<uint64_t>(info[1].As<Napi::Number>().DoubleValue());
-  std::string name = info[2].As<Napi::String>().Utf8Value();
-  Napi::Uint8Array iv = info[3].As<Napi::Uint8Array>();
+      static_cast<uint64_t>(info[0].As<Napi::Number>().DoubleValue());
+  std::string name = info[1].As<Napi::String>().Utf8Value();
+  Napi::Uint8Array iv = info[2].As<Napi::Uint8Array>();
+  if (!SyncMemory(env, true, iv, 0, iv.ByteLength())) return Napi::Value();
   uint8_t iv_bytes[4] = {0, 0, 0, 0};
   std::memcpy(iv_bytes, iv.Data(), iv.ByteLength() < 4 ? iv.ByteLength() : 4);
+  auto* state = new BlobReadCallbackState{
+      env,
+      Napi::Persistent(info[3].As<Napi::Function>()),
+  };
   wz_file file = nullptr;
-  WZ_NODE_API_CALL(env,
-                   wz_open_blob_source_with_iv(
-                       blobId, size, name.c_str(), iv_bytes, &file));
+  wz_error_code err =
+      wz_open_blob_source_with_callback_and_iv(state,
+                                               BlobReadCallback,
+                                               ReleaseBlobReadCallback,
+                                               size,
+                                               name.c_str(),
+                                               iv_bytes,
+                                               &file);
+  if (err != WZ_ERROR_NONE) {
+    ReleaseBlobReadCallback(state);
+    ThrowIfError(env);
+    return Napi::Value();
+  }
   return file ? ToHandle(env, file) : env.Null();
 }
 
@@ -1095,6 +1182,7 @@ Napi::Value ToolIvForVersion(const Napi::CallbackInfo& info) {
   Napi::ArrayBuffer storage = Napi::ArrayBuffer::New(env, 4);
   auto bytes = static_cast<uint8_t*>(storage.Data());
   if (iv) std::memcpy(bytes, iv, 4);
+  if (!SyncMemory(env, false, storage, 0, 4)) return Napi::Value();
   return Napi::Uint8Array::New(env, 4, storage, 0);
 }
 

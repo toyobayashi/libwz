@@ -1,47 +1,47 @@
-"use strict";
+import type {
+  BinaryType,
+  MapleVersion,
+  ObjectType,
+  ParseStatus,
+  PropertyType
+} from './node-wrapper.js'
 
-type NativeMapleVersionValue = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 99;
-type NativeParseStatusValue = -2 | -1 | 0 | 1;
-type NativePropertyTypeValue = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15;
-type NativeObjectTypeValue = 0 | 1 | 2 | 3 | 4;
-type NativeBinaryTypeValue = 0 | 1 | 2;
-
-export type NativeHandle = bigint;
-export type NullableNativeHandle = NativeHandle | null;
-export type ArrayBufferViewLike = Uint8Array | Int8Array | Uint8ClampedArray;
+export type NativeHandle = bigint
+export type NullableNativeHandle = NativeHandle | null
+export type ArrayBufferViewLike = Uint8Array | Int8Array | Uint8ClampedArray
 
 export interface NativeObjectInfo {
-  type: NativeObjectTypeValue;
+  type: ObjectType;
   ptr: NativeHandle;
 }
 
 export interface DetectedMapleVersion {
-  mapleVersion: NativeMapleVersionValue;
+  mapleVersion: MapleVersion;
   version: number;
 }
 
 export interface NativeBinding {
-  openFile(path: string, gameVersion: number, mapleVersion: NativeMapleVersionValue): NullableNativeHandle;
+  openFile(path: string, gameVersion: number, mapleVersion: MapleVersion): NullableNativeHandle;
   openFileWithIv(path: string, iv: ArrayBufferViewLike): NullableNativeHandle;
-  openMemory(name: string, bytes: Uint8Array, gameVersion: number, mapleVersion: NativeMapleVersionValue): NullableNativeHandle;
+  openMemory(name: string, bytes: Uint8Array, gameVersion: number, mapleVersion: MapleVersion): NullableNativeHandle;
   openMemoryWithIv(name: string, bytes: Uint8Array, iv: ArrayBufferViewLike): NullableNativeHandle;
-  openBlobSource?(id: number, size: number, name: string, gameVersion: number, mapleVersion: NativeMapleVersionValue): NullableNativeHandle;
-  openBlobSourceWithIv?(id: number, size: number, name: string, iv: ArrayBufferViewLike): NullableNativeHandle;
-  createFile(gameVersion: number, mapleVersion: NativeMapleVersionValue): NullableNativeHandle;
+  openBlobSource?(size: number, name: string, gameVersion: number, mapleVersion: MapleVersion, readRange: BlobReadRangeCallback): NullableNativeHandle;
+  openBlobSourceWithIv?(size: number, name: string, iv: ArrayBufferViewLike, readRange: BlobReadRangeCallback): NullableNativeHandle;
+  createFile(gameVersion: number, mapleVersion: MapleVersion): NullableNativeHandle;
   closeFile(ptr: NativeHandle): void;
-  parseFile(ptr: NativeHandle): NativeParseStatusValue;
+  parseFile(ptr: NativeHandle): ParseStatus;
   fileSaveToDisk(ptr: NativeHandle, path: string): void;
   fileName(ptr: NativeHandle): string;
   filePath(ptr: NativeHandle): string;
   fileVersion(ptr: NativeHandle): number;
-  fileMapleVersion(ptr: NativeHandle): NativeMapleVersionValue;
+  fileMapleVersion(ptr: NativeHandle): MapleVersion;
   fileWzDirectory(ptr: NativeHandle): NullableNativeHandle;
   fileIs64Bit(ptr: NativeHandle): boolean;
   fileIsUnloaded(ptr: NativeHandle): boolean;
   fileVersionHash(ptr: NativeHandle): number;
   fileObjectFromPath(ptr: NativeHandle, path: string, checkFirstDirectoryName: boolean): NativeObjectInfo | null;
 
-  objectType(ptr: NativeHandle): NativeObjectTypeValue;
+  objectType(ptr: NativeHandle): ObjectType;
   objectName(ptr: NativeHandle): string;
   objectParent(ptr: NativeHandle): NativeObjectInfo | null;
   objectFullPath(ptr: NativeHandle): string;
@@ -83,7 +83,7 @@ export interface NativeBinding {
   imageRemoveProperty(ptr: NativeHandle, prop: NativeHandle): void;
   imageClearProperties(ptr: NativeHandle): void;
 
-  propType(ptr: NativeHandle): NativePropertyTypeValue;
+  propType(ptr: NativeHandle): PropertyType;
   propName(ptr: NativeHandle): string;
   propCountChildren(ptr: NativeHandle): number;
   propGetChild(ptr: NativeHandle, index: number): NullableNativeHandle;
@@ -145,7 +145,7 @@ export interface NativeBinding {
   binaryWav(ptr: NativeHandle): Uint8Array;
   binaryLength(ptr: NativeHandle): number;
   binaryFrequency(ptr: NativeHandle): number;
-  binaryType(ptr: NativeHandle): NativeBinaryTypeValue;
+  binaryType(ptr: NativeHandle): BinaryType;
   binaryHeaderEncrypted(ptr: NativeHandle): boolean;
 
   rawData(ptr: NativeHandle): Uint8Array;
@@ -158,5 +158,7 @@ export interface NativeBinding {
   luaString(ptr: NativeHandle): string;
 
   detectMapleVersion(path: string): DetectedMapleVersion;
-  ivForVersion(version: NativeMapleVersionValue): Uint8Array;
+  ivForVersion(version: MapleVersion): Uint8Array;
 }
+
+export type BlobReadRangeCallback = (offset: number, length: number) => Uint8Array

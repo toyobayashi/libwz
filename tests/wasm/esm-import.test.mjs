@@ -1,8 +1,12 @@
-import assert from "node:assert/strict";
-import { createWzWorker } from "../../dist/wasm/browser.js";
-import { loadWzModule } from "../../dist/wasm/loader.js";
+import assert from 'node:assert/strict'
+import * as wz from '../../dist/index.js'
 
-assert.equal(typeof createWzWorker, "function");
+assert.equal(typeof wz.init, 'function')
+assert.equal(typeof wz.getWzBindingType, 'function')
+assert.equal(typeof wz.WzFile, 'function')
+assert.equal(typeof wz.createWzApi, 'undefined')
+assert.equal(typeof wz.createWzApiSync, 'undefined')
 
-const { module } = await loadWzModule();
-assert.ok(module.HEAPU8 instanceof Uint8Array);
+assert.equal(wz.getWzBindingType(), 'native')
+await wz.init()
+assert.equal(wz.getWzBindingType(), 'native')

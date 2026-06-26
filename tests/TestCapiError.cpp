@@ -155,15 +155,6 @@ TEST(WzCapi, OpenMemoryWithIvRejectsNullIv) {
   EXPECT_EQ(file, nullptr);
 }
 
-#ifndef __EMSCRIPTEN__
-TEST(WzCapi, OpenBlobSourceIsNotImplementedInNativeBuilds) {
-  wz_file file = nullptr;
-  EXPECT_EQ(wz_open_blob_source(1, 16, "blob.wz", -1, WZ_GMS, &file),
-            WZ_ERROR_NOT_IMPLEMENTED);
-  EXPECT_EQ(file, nullptr);
-}
-#endif  // __EMSCRIPTEN__
-
 TEST(CapiError, SuccessfulCallClearsPreviousError) {
   const char* name = nullptr;
   EXPECT_EQ(wz_file_name(nullptr, &name), WZ_ERROR_NULL_HANDLE);

@@ -2,13 +2,22 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "webpack --config webpack.config.mjs"
+    "build": "webpack --config webpack.config.mjs",
+    "dev": "webpack serve --config webpack.config.mjs"
   },
   "dependencies": {
-    "libwz": "file:../../.."
+    "libwz": "file:../../..",
+    "react": "19.2.3",
+    "react-dom": "19.2.3"
   },
   "devDependencies": {
+    "@types/react": "19.2.7",
+    "@types/react-dom": "19.2.3",
+    "html-webpack-plugin": "5.6.5",
+    "ts-loader": "9.5.4",
+    "typescript": "~5.9.3",
     "webpack": "5.107.2",
-    "webpack-cli": "7.0.3"
+    "webpack-cli": "7.0.3",
+    "webpack-dev-server": "5.2.2"
   }
 }

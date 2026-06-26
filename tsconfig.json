@@ -1,11 +1,13 @@
 {
   "compilerOptions": {
     "declaration": true,
-    "module": "commonjs",
+    "module": "es2022",
+    "moduleResolution": "bundler",
     "target": "es2022",
-    "lib": ["es2022", "esnext.disposable"],
+    "lib": ["es2022", "dom", "dom.iterable", "esnext.disposable"],
+    "jsx": "react-jsx",
     "strict": true,
     "skipLibCheck": true
   },
-  "include": ["index.ts"]
+  "include": ["js/**/*.ts"]
 }

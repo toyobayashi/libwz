@@ -85,38 +85,40 @@ extracts the correct one at runtime.
 
 ## Quick Start — JavaScript / Wasm
 
-The root `libwz` package entry uses the native Node addon and keeps the
-existing synchronous API. The `libwz/wasm` entry exposes the same object-shaped
-API through WebAssembly, and is useful in Node.js or inside your own browser
-Worker.
+The root `libwz` package entry uses the native Node addon in Node.js and the
+Wasm build through the package `browser` export in browser bundlers. Both
+entries export the same classes and constants, plus one async `init()` function
+for the Wasm runtime.
+
+Node.js requires `^20.19.0 || >=22.12.0`. `process.getBuiltinModule()` exists
+in Node.js 20.16.0 and 22.3.0, but the package also relies on the modern
+`require(esm)` interoperability that is available by default from Node.js
+20.19.0 and 22.12.0; Node.js 24.x is covered by the `>=22.12.0` range.
 
 ```js
-import { createWzApi, createWzApiSync, MapleVersion } from "libwz/wasm";
+import { init, MapleVersion, WzFile } from "libwz";
 
-const wz = await createWzApi();
-using file = new wz.WzFile("Character.wz", MapleVersion.GMS);
+await init();
+using file = new WzFile("Character.wz", MapleVersion.GMS);
 file.parseWzFile();
-
-const syncWz = createWzApiSync();
-using syncFile = new syncWz.WzFile("Character.wz", syncWz.MapleVersion.GMS);
-syncFile.parseWzFile();
 ```
 
-Browser main-thread code should use the Worker proxy entry. The proxy mirrors
-the Node class names, but operations are async because they cross a Worker
-boundary. It supports `await using` / `Symbol.asyncDispose` for owned objects.
+Pass a custom Wasm URL or path when your bundler or CDN serves the binary from
+a different location.
 
 ```js
-import { createWzWorker, MapleVersion } from "libwz/wasm/browser-main";
+import { init } from "libwz";
 
-await using wz = await createWzWorker();
-await using file = await wz.WzFile.fromBlob("Character.wz", blob, MapleVersion.GMS);
-await file.parseWzFile();
+await init(new URL("./assets/libwz.wasm", import.meta.url));
 ```
 
-Browser bundlers should import `libwz/wasm` or `libwz/wasm/browser-main`
-directly. The package publishes one Wasm binary, `dist/wasm/libwz.wasm`; the
-async, sync, and browser Worker glue all reuse that file.
+Use `getWzBindingType()` to inspect whether the active backend is `"native"` or
+`"wasm"`. If the native addon cannot be loaded, `init()` falls back to Wasm.
+In Node.js, pass a Wasm URL or `{ forceWasm: true }` to force the Wasm backend
+even when the native addon is available.
+
+The package publishes one Wasm binary, `dist/libwz.wasm`, and no synchronous or
+main-thread Worker wrapper entry.
 
 ## Build Options
 

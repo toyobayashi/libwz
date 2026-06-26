@@ -2,52 +2,44 @@
   "name": "libwz",
   "version": "0.1.0",
   "description": "MapleStory wz parser.",
-  "types": "index.d.ts",
-  "main": "index.js",
+  "type": "module",
+  "types": "dist/index.d.ts",
+  "main": "dist/index.js",
+  "engines": {
+    "node": "^20.19.0 || >=22.12.0"
+  },
   "scripts": {
     "install": "node-gyp rebuild",
     "build": "npm run build:ts && node-gyp configure build",
     "build:native": "node-gyp configure build",
-    "build:wasm": "node -e \"require('fs').rmSync('dist/wasm',{recursive:true,force:true})\" && npm run build:wasm:ts && emcmake cmake -S . -B build/wasm -DBUILD_WASM=ON -DBUILD_TESTS=OFF && cmake --build build/wasm",
-    "build:wasm:ts": "tsc -p wasm/tsconfig.json && tsc --declaration --module es2022 --moduleResolution bundler --target es2022 --lib es2022,dom,esnext.disposable --strict --skipLibCheck --rootDir src --outDir dist/wasm src/native-binding.ts src/node-wrapper.ts && node -e \"require('fs').mkdirSync('dist/wasm',{recursive:true});require('fs').writeFileSync('dist/wasm/package.json',JSON.stringify({type:'module'},null,2)+'\\n')\"",
-    "build:ts": "tsc -p tsconfig.json",
+    "build:wasm": "node -e \"import('node:fs').then(({ rmSync }) => { rmSync('dist/libwz.js', { force: true }); rmSync('dist/libwz.wasm', { force: true }); rmSync('dist/wasm', { recursive: true, force: true }) })\" && npm run build:ts && emcmake cmake -S . -B build/wasm -DBUILD_WASM=ON -DBUILD_TESTS=OFF -DCMAKE_BUILD_TYPE=Release && cmake --build build/wasm",
+    "build:wasm:ts": "npm run build:ts",
+    "dev:wasm:vite": "npm run build:ts && npm --prefix tests/wasm/vite run dev",
+    "dev:wasm:webpack": "npm run build:ts && npm --prefix tests/wasm/webpack run dev",
+    "build:ts": "node scripts/build-ts.mjs",
+    "lint:js": "eslint .",
+    "format:js": "eslint . --fix",
     "test:wasm:bundlers": "npm --prefix tests/wasm/vite install --ignore-scripts --package-lock=false && npm --prefix tests/wasm/vite run build && npm --prefix tests/wasm/webpack install --ignore-scripts --package-lock=false && npm --prefix tests/wasm/webpack run build",
-    "test:wasm": "npm run build:wasm && node tests/wasm/esm-import.test.mjs && node tests/wasm/direct.test.mjs && node tests/wasm/worker-rpc.test.mjs && node tests/wasm/browser-main.test.mjs && node tests/wasm/parity.test.mjs",
-    "types": "tsc -p tsconfig.json --emitDeclarationOnly",
+    "test:wasm": "npm run build:wasm && node tests/wasm/esm-import.test.mjs && node tests/wasm/direct.test.mjs && node tests/wasm/parity.test.mjs",
+    "types": "npm run build:ts",
     "prepack": "npm run build:ts && npm run build:wasm",
-    "test": "npm run build:ts && node --test tests/*.test.js"
+    "test": "npm run build:ts && node --test tests/*.test.mjs"
   },
   "exports": {
     ".": {
-      "types": "./index.d.ts",
-      "require": "./index.js",
-      "default": "./index.js"
-    },
-    "./wasm": {
-      "browser": {
-        "types": "./dist/wasm/browser-index.d.ts",
-        "import": "./dist/wasm/browser-index.js"
-      },
-      "types": "./dist/wasm/index.d.ts",
-      "import": "./dist/wasm/index.js"
-    },
-    "./wasm/browser-main": {
-      "types": "./dist/wasm/browser-main.d.ts",
-      "import": "./dist/wasm/browser-main.js"
+      "types": "./dist/index.d.ts",
+      "browser": "./dist/index.js",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
     }
   },
   "files": [
     "binding.gyp",
     "deps",
-    "dist/wasm",
+    "dist",
     "include",
-    "index.js",
-    "index.d.ts",
-    "index.ts",
     "src/capi",
-    "src/native-binding.d.ts",
-    "src/node-wrapper.d.ts",
-    "src/node-wrapper.js",
+    "js",
     "src/node",
     "src/Properties",
     "src/Util",
@@ -61,8 +53,7 @@
     "src/WzImageProperty.cpp",
     "src/WzObject.cpp",
     "src/WzPropertyCollection.cpp",
-    "tsconfig.json",
-    "wasm"
+    "tsconfig.json"
   ],
   "keywords": [
     "maplestory",
@@ -82,9 +73,20 @@
     "access": "public"
   },
   "devDependencies": {
+    "@rollup/plugin-typescript": "^12.3.0",
+    "@stylistic/eslint-plugin": "^5.10.0",
+    "@types/react": "^19.2.7",
+    "@types/react-dom": "^19.2.3",
     "emnapi": "1.11.1",
+    "eslint": "^9.39.4",
+    "eslint-config-love": "^154.0.0",
     "node-addon-api": "8.8.0",
     "node-gyp": "^11.2.0",
+    "react": "^19.2.3",
+    "react-dom": "^19.2.3",
+    "rollup": "^4.62.2",
+    "rollup-plugin-dts": "^6.4.1",
+    "tslib": "^2.8.1",
     "typescript": "~5.9.3"
   },
   "dependencies": {

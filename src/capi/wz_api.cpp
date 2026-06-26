@@ -4,6 +4,7 @@
 #include <cstring>
 #include <memory>
 #include <optional>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -140,6 +141,36 @@ static wz::WzObject* unwrap_object(wz_object o) {
   return reinterpret_cast<wz::WzObject*>(o);
 }
 
+#ifdef __EMSCRIPTEN__
+static std::shared_ptr<wz::WzBlobDataSource> make_blob_source(
+    void* userdata,
+    wz_blob_read_callback read_callback,
+    wz_blob_release_callback release_callback,
+    uint64_t size) {
+  auto release = [release_callback](void* ptr) {
+    if (release_callback) release_callback(ptr);
+  };
+  auto owner = std::shared_ptr<void>(userdata, release);
+  auto source = std::make_shared<wz::WzBlobDataSource>(
+      size,
+      [owner, read_callback](uint64_t offset, std::span<uint8_t> destination)
+          -> wz::Result<size_t> {
+        size_t bytes_read = 0;
+        const int ok = read_callback(owner.get(),
+                                     offset,
+                                     destination.data(),
+                                     destination.size(),
+                                     &bytes_read);
+        if (!ok) {
+          return std::unexpected(
+              wz::Error::IoError("Blob read callback failed"));
+        }
+        return bytes_read;
+      });
+  return source;
+}
+#endif
+
 extern "C" {
 
 wz_error_code wz_get_last_error_info(const wz_last_error_info** info) {
@@ -191,21 +222,30 @@ wz_error_code wz_open_memory(const char* file_name,
   return wz_clear_last_error();
 }
 
-wz_error_code wz_open_blob_source(uint32_t blob_id,
-                                  uint64_t size,
-                                  const char* file_name,
-                                  int16_t game_version,
-                                  wz_maple_version version,
-                                  wz_file* out_file) {
-  if (auto ec = init_out("wz_open_blob_source", out_file);
+wz_error_code wz_open_blob_source_with_callback(
+    void* userdata,
+    wz_blob_read_callback read_callback,
+    wz_blob_release_callback release_callback,
+    uint64_t size,
+    const char* file_name,
+    int16_t game_version,
+    wz_maple_version version,
+    wz_file* out_file) {
+  if (auto ec = init_out("wz_open_blob_source_with_callback", out_file);
       ec != WZ_ERROR_NONE) {
     return ec;
   }
   if (!file_name) {
-    return set_error_invalid_arg("wz_open_blob_source", "file_name");
+    return set_error_invalid_arg("wz_open_blob_source_with_callback",
+                                 "file_name");
+  }
+  if (!read_callback) {
+    return set_error_invalid_arg("wz_open_blob_source_with_callback",
+                                 "read_callback");
   }
 #ifdef __EMSCRIPTEN__
-  auto source = std::make_shared<wz::WzBlobDataSource>(blob_id, size);
+  auto source =
+      make_blob_source(userdata, read_callback, release_callback, size);
   auto* f = new wz::WzFile(file_name,
                            source,
                            game_version,
@@ -213,7 +253,9 @@ wz_error_code wz_open_blob_source(uint32_t blob_id,
   *out_file = reinterpret_cast<wz_file>(f);
   return wz_clear_last_error();
 #else
-  (void)blob_id;
+  (void)userdata;
+  (void)read_callback;
+  (void)release_callback;
   (void)size;
   (void)game_version;
   (void)version;
@@ -279,27 +321,41 @@ wz_error_code wz_open_memory_with_iv(const char* file_name,
   return wz_clear_last_error();
 }
 
-wz_error_code wz_open_blob_source_with_iv(uint32_t blob_id,
-                                          uint64_t size,
-                                          const char* file_name,
-                                          const uint8_t iv[4],
-                                          wz_file* out_file) {
-  if (auto ec = init_out("wz_open_blob_source_with_iv", out_file);
+wz_error_code wz_open_blob_source_with_callback_and_iv(
+    void* userdata,
+    wz_blob_read_callback read_callback,
+    wz_blob_release_callback release_callback,
+    uint64_t size,
+    const char* file_name,
+    const uint8_t iv[4],
+    wz_file* out_file) {
+  if (auto ec = init_out("wz_open_blob_source_with_callback_and_iv", out_file);
       ec != WZ_ERROR_NONE) {
     return ec;
   }
   if (!file_name) {
-    return set_error_invalid_arg("wz_open_blob_source_with_iv", "file_name");
+    return set_error_invalid_arg("wz_open_blob_source_with_callback_and_iv",
+                                 "file_name");
   }
-  if (!iv) return set_error_invalid_arg("wz_open_blob_source_with_iv", "iv");
+  if (!read_callback) {
+    return set_error_invalid_arg("wz_open_blob_source_with_callback_and_iv",
+                                 "read_callback");
+  }
+  if (!iv) {
+    return set_error_invalid_arg("wz_open_blob_source_with_callback_and_iv",
+                                 "iv");
+  }
 #ifdef __EMSCRIPTEN__
   std::array<uint8_t, 4> iv_arr = {iv[0], iv[1], iv[2], iv[3]};
-  auto source = std::make_shared<wz::WzBlobDataSource>(blob_id, size);
+  auto source =
+      make_blob_source(userdata, read_callback, release_callback, size);
   auto* f = new wz::WzFile(file_name, source, iv_arr);
   *out_file = reinterpret_cast<wz_file>(f);
   return wz_clear_last_error();
 #else
-  (void)blob_id;
+  (void)userdata;
+  (void)read_callback;
+  (void)release_callback;
   (void)size;
   return wz_set_last_error(WZ_ERROR_NOT_IMPLEMENTED,
                            "Blob sources require Emscripten");

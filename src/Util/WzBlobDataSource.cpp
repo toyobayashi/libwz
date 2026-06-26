@@ -1,29 +1,13 @@
 #include "wz/Util/WzBlobDataSource.h"
 
-#ifdef __EMSCRIPTEN__
-
-#include <emscripten.h>
-
 #include <algorithm>
 #include <limits>
+#include <utility>
 
 namespace wz {
 
-namespace {
-
-EM_JS(int,
-      ReadBlobRange,
-      (uint32_t blob_id, double offset, uint8_t* destination, int length),
-      {
-        const reader = globalThis.__libwzReadBlobRange;
-        if (!(typeof reader == "function")) return -1;
-        return reader(blob_id, offset, destination, length);
-      });
-
-}  // namespace
-
-WzBlobDataSource::WzBlobDataSource(uint32_t blob_id, uint64_t size)
-    : blob_id_(blob_id), size_(size) {}
+WzBlobDataSource::WzBlobDataSource(uint64_t size, ReadCallback read_callback)
+    : size_(size), read_callback_(std::move(read_callback)) {}
 
 Result<size_t> WzBlobDataSource::ReadAt(uint64_t offset,
                                         std::span<uint8_t> destination) {
@@ -42,14 +26,18 @@ Result<size_t> WzBlobDataSource::ReadAt(uint64_t offset,
     return std::unexpected(Error::IoError("Blob read offset exceeds limits"));
   }
 
-  const int bytes_read = ReadBlobRange(blob_id_,
-                                       static_cast<double>(offset),
-                                       destination.data(),
-                                       static_cast<int>(count));
-  if (bytes_read < 0 || bytes_read != static_cast<int>(count)) {
+  if (!read_callback_) {
+    return std::unexpected(Error::IoError("Blob read callback is not set"));
+  }
+
+  auto bytes_read = read_callback_(offset, destination.subspan(0, count));
+  if (!bytes_read.has_value()) {
+    return std::unexpected(bytes_read.error());
+  }
+  if (bytes_read.value() != count) {
     return std::unexpected(Error::IoError("Failed to read blob range"));
   }
-  return static_cast<size_t>(bytes_read);
+  return bytes_read.value();
 }
 
 uint64_t WzBlobDataSource::Size() const {
@@ -57,5 +45,3 @@ uint64_t WzBlobDataSource::Size() const {
 }
 
 }  // namespace wz
-
-#endif  // __EMSCRIPTEN__
