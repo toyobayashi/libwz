@@ -67,7 +67,6 @@
       "target_name": "wz",
       "sources": [
         "src/node/binding.cpp",
-        "src/capi/wz_api.cpp",
         "src/WzEnums.cpp",
         "src/WzAESConstant.cpp",
         "src/Util/WzMutableKey.cpp",
@@ -101,17 +100,13 @@
         "src/WzImageProperty.cpp",
         "src/WzObject.cpp",
         "src/WzPropertyCollection.cpp",
-        "src/WzFileManager.cpp"
       ],
       "include_dirs": [
-        "<!@(node -p \"require('node-addon-api').include\")",
         "include",
-        "include/wz/capi",
         "deps/tiny-aes",
         "deps/zlib"
       ],
       "dependencies": [
-        "<!(node -p \"require('node-addon-api').gyp\")",
         "tiny_aes",
         "zlibstatic"
       ],

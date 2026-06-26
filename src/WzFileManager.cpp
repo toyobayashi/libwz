@@ -1,4 +1,4 @@
-#include "wz/WzFileManager.h"
+#include "WzFileManager.h"
 #include <algorithm>
 #include <cctype>
 #include <cerrno>

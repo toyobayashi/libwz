@@ -35,7 +35,7 @@ if(BUILD_WASM)
     endif()
     set(BUILD_CAPI ON)
     set(BUILD_JNI OFF)
-    set(EMNAPI_FIND_NODE_ADDON_API ON CACHE BOOL "" FORCE)
+    set(EMNAPI_FIND_NODE_ADDON_API OFF CACHE BOOL "" FORCE)
 endif()
 
 include(FetchContent)
@@ -110,7 +110,6 @@ set(WZ_SOURCES
     src/WzImageProperty.cpp
     src/WzObject.cpp
     src/WzPropertyCollection.cpp
-    src/WzFileManager.cpp
 )
 
 set(WZ_HEADERS
@@ -126,7 +125,6 @@ set(WZ_HEADERS
     include/wz/PngUtility.h
     include/wz/PortalType.h
     include/wz/CRC32.h
-    include/wz/WzFileManager.h
     include/wz/Util/WzBinaryReader.h
     include/wz/Util/WzDataSource.h
     include/wz/Util/WzBinaryWriter.h
@@ -203,7 +201,7 @@ if(BUILD_WASM)
             BUILDING_NODE_EXTENSION
             NAPI_DISABLE_CPP_EXCEPTIONS
         )
-        target_link_libraries(${target_name} PRIVATE wz_capi emnapi)
+        target_link_libraries(${target_name} PRIVATE wz emnapi)
         set_target_properties(${target_name} PROPERTIES
             OUTPUT_NAME ${output_name}
             RUNTIME_OUTPUT_DIRECTORY "${WZ_WASM_DIST_DIR}"

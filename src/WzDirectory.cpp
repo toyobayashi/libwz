@@ -1,6 +1,5 @@
 #include "wz/WzDirectory.h"
 #include <algorithm>
-#include <functional>
 #include <limits>
 #include <mutex>
 #include <sstream>
@@ -381,8 +380,7 @@ Result<int> WzDirectory::GenerateDataFile(const std::array<uint8_t, 4>* useIv,
 
   const bool useCustomIv = useIv != nullptr;
 
-  std::function<Result<void>(WzDirectory*)> prepareImageData =
-      [&](WzDirectory* dir) -> Result<void> {
+  auto prepareImageData = [&](auto&& self, WzDirectory* dir) -> Result<void> {
     for (auto& img : dir->images_) {
       img->SetChanged(img->Changed() || useCustomIv || !isDefaultUserKey);
       if (img->Changed()) {
@@ -416,7 +414,7 @@ Result<int> WzDirectory::GenerateDataFile(const std::array<uint8_t, 4>* useIv,
     }
 
     for (auto& childDir : dir->subDirs_) {
-      auto childResult = prepareImageData(childDir.get());
+      auto childResult = self(self, childDir.get());
       if (!childResult.has_value()) {
         return std::unexpected(childResult.error());
       }
@@ -424,14 +422,14 @@ Result<int> WzDirectory::GenerateDataFile(const std::array<uint8_t, 4>* useIv,
     return {};
   };
 
-  auto prepareResult = prepareImageData(this);
+  auto prepareResult = prepareImageData(prepareImageData, this);
   if (!prepareResult.has_value()) {
     return std::unexpected(prepareResult.error());
   }
 
   WzObjectValueSizer objectSizer;
-  std::function<Result<int>(WzDirectory*)> calculateDirectorySize =
-      [&](WzDirectory* dir) -> Result<int> {
+  auto calculateDirectorySize = [&](auto&& self,
+                                    WzDirectory* dir) -> Result<int> {
     dir->size_ = 0;
     const int entryCount =
         static_cast<int>(dir->subDirs_.size() + dir->images_.size());
@@ -486,7 +484,7 @@ Result<int> WzDirectory::GenerateDataFile(const std::array<uint8_t, 4>* useIv,
     }
 
     for (auto [childDir, nameLen] : childNameLengths) {
-      auto childSize = calculateDirectorySize(childDir);
+      auto childSize = self(self, childDir);
       if (!childSize.has_value()) return std::unexpected(childSize.error());
       auto addResult = AddCheckedInt(&dir->size_, nameLen);
       if (!addResult.has_value()) return std::unexpected(addResult.error());
@@ -518,7 +516,7 @@ Result<int> WzDirectory::GenerateDataFile(const std::array<uint8_t, 4>* useIv,
     return dir->size_;
   };
 
-  auto sizeResult = calculateDirectorySize(this);
+  auto sizeResult = calculateDirectorySize(calculateDirectorySize, this);
   if (!sizeResult.has_value()) {
     return std::unexpected(sizeResult.error());
   }

@@ -5,7 +5,6 @@
 #include <vector>
 #include "wz/WzDirectory.h"
 #include "wz/WzFile.h"
-#include "wz/WzFileManager.h"
 #include "wz/WzImage.h"
 #include "wz/wz_api.h"
 #define JNI_FUNC(cls, method) Java_io_github_toyobayashi_libwz_##cls##_##method
@@ -1503,98 +1502,98 @@ JNI_FUNC(WzTool, nativeGetIvForVersion)(JNIEnv* env, jclass, jint version) {
 
 // ==================== WzFileManager ====================
 
-JNIEXPORT jlong JNICALL JNI_FUNC(WzFileManager, nativeCreate)(
-    JNIEnv* env, jclass, jstring directory, jboolean isStandalone) {
-  JniUtfString dir(env, directory);
-  auto* manager = new wz::WzFileManager(dir.c_str(), isStandalone);
-  return reinterpret_cast<jlong>(manager);
-}
+// JNIEXPORT jlong JNICALL JNI_FUNC(WzFileManager, nativeCreate)(
+//     JNIEnv* env, jclass, jstring directory, jboolean isStandalone) {
+//   JniUtfString dir(env, directory);
+//   auto* manager = new wz::WzFileManager(dir.c_str(), isStandalone);
+//   return reinterpret_cast<jlong>(manager);
+// }
 
-JNIEXPORT void JNICALL
-JNI_FUNC(WzFileManager, nativeBuildWzFileList)(JNIEnv*, jclass, jlong ptr) {
-  reinterpret_cast<wz::WzFileManager*>(ptr)->BuildWzFileList();
-}
+// JNIEXPORT void JNICALL
+// JNI_FUNC(WzFileManager, nativeBuildWzFileList)(JNIEnv*, jclass, jlong ptr) {
+//   reinterpret_cast<wz::WzFileManager*>(ptr)->BuildWzFileList();
+// }
 
-JNIEXPORT jobjectArray JNICALL JNI_FUNC(WzFileManager,
-                                        nativeGetWzFileListKeys)(JNIEnv* env,
-                                                                 jclass,
-                                                                 jlong ptr) {
-  auto* manager = reinterpret_cast<wz::WzFileManager*>(ptr);
-  const auto& map = manager->GetWzFilesList();
-  jclass stringClass = env->FindClass("java/lang/String");
-  jobjectArray arr =
-      env->NewObjectArray(static_cast<jsize>(map.size()), stringClass, nullptr);
-  jsize i = 0;
-  for (const auto& pair : map) {
-    env->SetObjectArrayElement(arr, i++, env->NewStringUTF(pair.first.c_str()));
-  }
-  return arr;
-}
+// JNIEXPORT jobjectArray JNICALL JNI_FUNC(WzFileManager,
+//                                         nativeGetWzFileListKeys)(JNIEnv* env,
+//                                                                  jclass,
+//                                                                  jlong ptr) {
+//   auto* manager = reinterpret_cast<wz::WzFileManager*>(ptr);
+//   const auto& map = manager->GetWzFilesList();
+//   jclass stringClass = env->FindClass("java/lang/String");
+//   jobjectArray arr =
+//       env->NewObjectArray(static_cast<jsize>(map.size()), stringClass, nullptr);
+//   jsize i = 0;
+//   for (const auto& pair : map) {
+//     env->SetObjectArrayElement(arr, i++, env->NewStringUTF(pair.first.c_str()));
+//   }
+//   return arr;
+// }
 
-JNIEXPORT jobjectArray JNICALL JNI_FUNC(WzFileManager,
-                                        nativeGetWzFileListValues)(
-    JNIEnv* env, jclass, jlong ptr, jstring baseName) {
-  auto* manager = reinterpret_cast<wz::WzFileManager*>(ptr);
-  JniUtfString key(env, baseName);
-  const auto& map = manager->GetWzFilesList();
-  auto it = map.find(key.c_str());
-  jclass stringClass = env->FindClass("java/lang/String");
-  if (it == map.end()) {
-    return env->NewObjectArray(0, stringClass, nullptr);
-  }
-  const auto& list = it->second;
-  jobjectArray arr = env->NewObjectArray(
-      static_cast<jsize>(list.size()), stringClass, nullptr);
-  for (jsize i = 0; i < static_cast<jsize>(list.size()); i++) {
-    env->SetObjectArrayElement(arr, i, env->NewStringUTF(list[i].c_str()));
-  }
-  return arr;
-}
+// JNIEXPORT jobjectArray JNICALL JNI_FUNC(WzFileManager,
+//                                         nativeGetWzFileListValues)(
+//     JNIEnv* env, jclass, jlong ptr, jstring baseName) {
+//   auto* manager = reinterpret_cast<wz::WzFileManager*>(ptr);
+//   JniUtfString key(env, baseName);
+//   const auto& map = manager->GetWzFilesList();
+//   auto it = map.find(key.c_str());
+//   jclass stringClass = env->FindClass("java/lang/String");
+//   if (it == map.end()) {
+//     return env->NewObjectArray(0, stringClass, nullptr);
+//   }
+//   const auto& list = it->second;
+//   jobjectArray arr = env->NewObjectArray(
+//       static_cast<jsize>(list.size()), stringClass, nullptr);
+//   for (jsize i = 0; i < static_cast<jsize>(list.size()); i++) {
+//     env->SetObjectArrayElement(arr, i, env->NewStringUTF(list[i].c_str()));
+//   }
+//   return arr;
+// }
 
-JNIEXPORT jlong JNICALL JNI_FUNC(WzFileManager, nativeLoadWzFile)(
-    JNIEnv* env, jclass, jlong ptr, jstring baseName, jint mapVersion) {
-  auto* manager = reinterpret_cast<wz::WzFileManager*>(ptr);
-  JniUtfString name(env, baseName);
-  wz::Result<wz::WzFile*> file_result = manager->LoadWzFile(
-      name.c_str(), static_cast<wz::WzMapleVersion>(mapVersion));
-  if (!file_result.has_value()) {
-    jclass exClass = env->FindClass("java/lang/RuntimeException");
-    if (exClass) env->ThrowNew(exClass, file_result.error().message().c_str());
-    return 0;
-  }
-  wz::WzFile* file = file_result.value();
-  if (!file) return 0;
-  return reinterpret_cast<jlong>(file);
-}
+// JNIEXPORT jlong JNICALL JNI_FUNC(WzFileManager, nativeLoadWzFile)(
+//     JNIEnv* env, jclass, jlong ptr, jstring baseName, jint mapVersion) {
+//   auto* manager = reinterpret_cast<wz::WzFileManager*>(ptr);
+//   JniUtfString name(env, baseName);
+//   wz::Result<wz::WzFile*> file_result = manager->LoadWzFile(
+//       name.c_str(), static_cast<wz::WzMapleVersion>(mapVersion));
+//   if (!file_result.has_value()) {
+//     jclass exClass = env->FindClass("java/lang/RuntimeException");
+//     if (exClass) env->ThrowNew(exClass, file_result.error().message().c_str());
+//     return 0;
+//   }
+//   wz::WzFile* file = file_result.value();
+//   if (!file) return 0;
+//   return reinterpret_cast<jlong>(file);
+// }
 
-JNIEXPORT void JNICALL JNI_FUNC(WzFileManager, nativeUnloadWzFile)(
-    JNIEnv*, jclass, jlong ptr, jlong wzFilePtr) {
-  auto* manager = reinterpret_cast<wz::WzFileManager*>(ptr);
-  auto* file = reinterpret_cast<wz::WzFile*>(wzFilePtr);
-  if (file) {
-    manager->UnloadWzFile(file);
-  }
-}
+// JNIEXPORT void JNICALL JNI_FUNC(WzFileManager, nativeUnloadWzFile)(
+//     JNIEnv*, jclass, jlong ptr, jlong wzFilePtr) {
+//   auto* manager = reinterpret_cast<wz::WzFileManager*>(ptr);
+//   auto* file = reinterpret_cast<wz::WzFile*>(wzFilePtr);
+//   if (file) {
+//     manager->UnloadWzFile(file);
+//   }
+// }
 
-JNIEXPORT void JNICALL JNI_FUNC(WzFileManager,
-                                nativeDispose)(JNIEnv*, jclass, jlong ptr) {
-  auto* manager = reinterpret_cast<wz::WzFileManager*>(ptr);
-  delete manager;
-}
+// JNIEXPORT void JNICALL JNI_FUNC(WzFileManager,
+//                                 nativeDispose)(JNIEnv*, jclass, jlong ptr) {
+//   auto* manager = reinterpret_cast<wz::WzFileManager*>(ptr);
+//   delete manager;
+// }
 
-JNIEXPORT jlong JNICALL JNI_FUNC(WzFileManager, nativeLoadDataWzHotfixFile)(
-    JNIEnv* env, jclass, jlong ptr, jstring basePath, jint mapVersion) {
-  auto* manager = reinterpret_cast<wz::WzFileManager*>(ptr);
-  JniUtfString path(env, basePath);
-  auto result = manager->LoadDataWzHotfixFile(
-      path.c_str(), static_cast<wz::WzMapleVersion>(mapVersion));
-  if (!result.has_value()) {
-    jclass exClass = env->FindClass("java/lang/RuntimeException");
-    if (exClass) env->ThrowNew(exClass, result.error().message().c_str());
-    return 0;
-  }
-  wz::WzImage* img = result.value();
-  return reinterpret_cast<jlong>(img);
-}
+// JNIEXPORT jlong JNICALL JNI_FUNC(WzFileManager, nativeLoadDataWzHotfixFile)(
+//     JNIEnv* env, jclass, jlong ptr, jstring basePath, jint mapVersion) {
+//   auto* manager = reinterpret_cast<wz::WzFileManager*>(ptr);
+//   JniUtfString path(env, basePath);
+//   auto result = manager->LoadDataWzHotfixFile(
+//       path.c_str(), static_cast<wz::WzMapleVersion>(mapVersion));
+//   if (!result.has_value()) {
+//     jclass exClass = env->FindClass("java/lang/RuntimeException");
+//     if (exClass) env->ThrowNew(exClass, result.error().message().c_str());
+//     return 0;
+//   }
+//   wz::WzImage* img = result.value();
+//   return reinterpret_cast<jlong>(img);
+// }
 
 }  // extern "C"

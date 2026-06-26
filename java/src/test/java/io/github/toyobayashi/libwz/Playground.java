@@ -3,7 +3,6 @@ package io.github.toyobayashi.libwz;
 import io.github.toyobayashi.libwz.WzEnums.*;
 
 import java.io.File;
-import java.util.Map;
 
 public class Playground {
     public static void main(String[] args) {
@@ -12,23 +11,13 @@ public class Playground {
         String baseDir = HOME + File.separator + "kinoko" + File.separator + "MapleStory";
         new File("tmp").mkdirs();
 
-        try (WzFileManager manager = new WzFileManager(baseDir, false)) {
-            manager.buildWzFileList();
-
-            Map<String, String[]> filesList = manager.getWzFilesList();
-            for (var entry : filesList.entrySet()) {
-                System.out.println("Base: " + entry.getKey());
-                for (String file : entry.getValue()) {
-                    System.out.println("  File: " + file);
-                }
-            }
-
-            WzFile wzFile = manager.loadWzFile("UI.wz", version);
-            if (wzFile == null) {
-                System.err.println("Failed to load UI.wz");
+        String uiPath = baseDir + File.separator + "UI.wz";
+        try (WzFile wzFile = new WzFile(uiPath, version)) {
+            ParseStatus status = wzFile.parseWzFile();
+            if (status != ParseStatus.SUCCESS) {
+                System.err.println("Failed to parse .wz file: " + uiPath);
                 return;
             }
-
             WzDirectory root = wzFile.getWzDirectory();
             if (root == null) {
                 System.err.println("Root directory is null for file: UI.wz");
@@ -65,20 +54,6 @@ public class Playground {
                     break;
                 }
             }
-
-            manager.unloadWzFile(wzFile);
-            wzFile = manager.loadWzFile("Sound.wz", version);
-            String dirName = wzFile.getWzDirectory().getName();
-            String pFloralLife = dirName + "/Bgm00.img/FloralLife";
-            System.err.println("Getting object from path: " + pFloralLife);
-            WzObject obj = wzFile.getObjectFromPath(pFloralLife);
-            System.err.println("Object type: " + obj.getObjectType());
-            if (obj instanceof WzBinaryProperty sound) {
-                sound.saveToFile("tmp/FloralLife444.mp3");
-            } else {
-                System.err.println("Failed to find sound property at path: Bgm00.img/FloralLife");
-            }
-            manager.unloadWzFile(wzFile);
         }
 
         String filePath = baseDir + File.separator + "Sound.wz";

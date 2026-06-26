@@ -82,29 +82,29 @@ class UnitTest1 {
         }
     }
 
-    @Test
-    @DisplayName("Test opening and verifying hotfix WZ file")
-    void testOpeningHotfixWzFile() {
-        String filePath = Paths.get(WZ_FILES_ROOT, "Hotfix",
-            "Data.wz").toString();
+    // @Test
+    // @DisplayName("Test opening and verifying hotfix WZ file")
+    // void testOpeningHotfixWzFile() {
+    //     String filePath = Paths.get(WZ_FILES_ROOT, "Hotfix",
+    //         "Data.wz").toString();
 
-        File f = new File(filePath);
-        if (!f.exists()) {
-            System.err.println("Skipping missing hotfix: " + filePath);
-            return;
-        }
+    //     File f = new File(filePath);
+    //     if (!f.exists()) {
+    //         System.err.println("Skipping missing hotfix: " + filePath);
+    //         return;
+    //     }
 
-        System.out.println("Testing hotfix: Data.wz");
+    //     System.out.println("Testing hotfix: Data.wz");
 
-        try (WzFileManager mgr = new WzFileManager("", true)) {
-            WzImage img = mgr.loadDataWzHotfixFile(filePath, MapleVersion.BMS);
-            assertNotNull(img, "Hotfix Data.wz loading failed");
-            assertEquals(true, img.isParsed(), "Hotfix image should be parsed");
-            assertNotNull(img.wzProperties(), "Hotfix image properties should not be null");
-            assertEquals(true, img.wzProperties().size() > 0,
-                "Hotfix image should have at least one property");
-        }
-    }
+    //     try (WzFileManager mgr = new WzFileManager("", true)) {
+    //         WzImage img = mgr.loadDataWzHotfixFile(filePath, MapleVersion.BMS);
+    //         assertNotNull(img, "Hotfix Data.wz loading failed");
+    //         assertEquals(true, img.isParsed(), "Hotfix image should be parsed");
+    //         assertNotNull(img.wzProperties(), "Hotfix image properties should not be null");
+    //         assertEquals(true, img.wzProperties().size() > 0,
+    //             "Hotfix image should have at least one property");
+    //     }
+    // }
 
     @Test
     @DisplayName("Top-most helpers preserve the native object type")

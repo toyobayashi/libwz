@@ -17,7 +17,6 @@
 #include "wz/Util/WzTool.h"
 #include "wz/WzAESConstant.h"
 #include "wz/WzDirectory.h"
-#include "wz/WzFileManager.h"
 #include "wz/WzImage.h"
 
 namespace wz {
@@ -379,183 +378,34 @@ WzObject* WzFile::GetObjectFromPath(const std::string& path,
                                     bool checkFirstDirectoryName) {
   if (!wzDir_) return nullptr;
 
-  if (!checkFirstDirectoryName) {
-    // C# checkFirstDirectoryName=false: start from own WzDirectory
-    WzObject* curObj = wzDir_.get();
-    std::string remaining = path;
-    while (!remaining.empty()) {
-      size_t pos = remaining.find('/');
-      std::string component;
-      if (pos == std::string::npos) {
-        component = remaining;
-        remaining.clear();
-      } else {
-        component = remaining.substr(0, pos);
-        remaining = remaining.substr(pos + 1);
-      }
-      if (component.empty()) continue;
-      curObj = TraverseComponent(curObj, component);
-      if (!curObj) return nullptr;
+  WzObject* curObj = wzDir_.get();
+  std::string remaining = path;
+
+  if (checkFirstDirectoryName) {
+    size_t firstSep = remaining.find('/');
+    std::string firstComponent = firstSep == std::string::npos
+                                     ? remaining
+                                     : remaining.substr(0, firstSep);
+    if (firstComponent == wzDir_->Name() || firstComponent == Name()) {
+      remaining =
+          firstSep == std::string::npos ? "" : remaining.substr(firstSep + 1);
     }
-    return curObj;
   }
 
-  // C# checkFirstDirectoryName=true: cross-file lookup
-  auto* mgr = WzFileManager::fileManager;
-  if (!mgr) return nullptr;
-
-  size_t firstSep = path.find('/');
-  if (firstSep == std::string::npos) return wzDir_.get();
-
-  std::string firstComponent = path.substr(0, firstSep);
-  std::string remaining = path.substr(firstSep + 1);
-
-  WzObject* curObj = nullptr;
-  int pathIndex = 0;
-
-  bool bIsCanvasDir = WzFileManager::ContainsCanvasDirectory(path);
-  if (bIsCanvasDir) {
-    std::string beforeCanvasPath =
-        WzFileManager::NormaliseWzCanvasDirectory(path);
-    std::replace(beforeCanvasPath.begin(), beforeCanvasPath.end(), '\\', '/');
-    auto wzDir = mgr->GetWzDirectoriesFromBase(beforeCanvasPath, true);
-
-    std::string canvasMarker =
-        std::string("/") + WzFileManager::CANVAS_DIRECTORY_NAME + "/";
-    size_t canvasPos = path.find(canvasMarker);
-    std::string itemDirectoryPath =
-        (canvasPos != std::string::npos)
-            ? path.substr(canvasPos + canvasMarker.size())
-            : path;
-
-    size_t subPos = itemDirectoryPath.find('/');
-    std::string firstItem = (subPos != std::string::npos)
-                                ? itemDirectoryPath.substr(0, subPos)
-                                : itemDirectoryPath;
-
-    size_t count = 1;
-    for (size_t p = itemDirectoryPath.find('/'); p != std::string::npos;
-         p = itemDirectoryPath.find('/', p + 1)) {
-      count++;
-    }
-
-    bool found = false;
-    for (auto* dir : wzDir) {
-      WzObject* inner = (*dir)[firstItem];
-      if (inner) {
-        curObj = inner;
-        int totalSegments = 1;
-        for (size_t p = path.find('/'); p != std::string::npos;
-             p = path.find('/', p + 1)) {
-          totalSegments++;
-        }
-        pathIndex = totalSegments - static_cast<int>(count) + 1;
-        found = true;
-        break;
-      }
-    }
-    if (!found) return nullptr;
-  } else {
-    // Match C#: look up WzDirectory by first component name directly
-    // from the manager's loaded directories. Bypass GetWzDirectoriesFromBase
-    // because its pre-BB redirect may not apply here.
-    std::string lookup = firstComponent;
-    for (auto& c : lookup) c = static_cast<char>(std::tolower(c));
-
-    WzDirectory* wzInnerDir = nullptr;
-    // Try lookup as-is, then strip ".wz"
-    for (int attempt = 0; attempt < 2 && !wzInnerDir; ++attempt) {
-      std::string key = (attempt == 1 && lookup.size() > 3 &&
-                         lookup.substr(lookup.size() - 3) == ".wz")
-                            ? lookup.substr(0, lookup.size() - 3)
-                            : lookup;
-      for (const auto& pair : mgr->GetWzFiles()) {
-        WzDirectory* dir = pair.second->GetWzDirectory();
-        if (!dir) continue;
-        std::string name = dir->Name();
-        bool match = name.size() == firstComponent.size() &&
-                     std::equal(name.begin(),
-                                name.end(),
-                                firstComponent.begin(),
-                                [](char a, char b) {
-                                  return std::tolower(a) == std::tolower(b);
-                                });
-        bool suffixMatch =
-            (name.size() > 3 && name.size() - 3 == firstComponent.size() &&
-             std::equal(name.begin(),
-                        name.end() - 3,
-                        firstComponent.begin(),
-                        [](char a, char b) {
-                          return std::tolower(a) == std::tolower(b);
-                        }));
-        if (match || suffixMatch) {
-          wzInnerDir = dir;
-          break;
-        }
-      }
-    }
-
-    if (wzInnerDir) {
-      curObj = wzInnerDir;
-      pathIndex = 1;
+  while (!remaining.empty()) {
+    size_t pos = remaining.find('/');
+    std::string component;
+    if (pos == std::string::npos) {
+      component = remaining;
+      remaining.clear();
     } else {
-      // Count total segments
-      int totalSegments = 1;
-      for (size_t p = path.find('/'); p != std::string::npos;
-           p = path.find('/', p + 1)) {
-        totalSegments++;
-      }
-
-      if (totalSegments >= 2) {
-        size_t s2 = remaining.find('/');
-        std::string seg2 =
-            (s2 != std::string::npos) ? remaining.substr(0, s2) : remaining;
-        std::string segRem =
-            (s2 != std::string::npos) ? remaining.substr(s2 + 1) : "";
-
-        curObj = mgr->FindWzImageByName(lookup, seg2);
-        if (curObj) {
-          pathIndex = 2;
-        } else if (totalSegments >= 3) {
-          std::string combinedBase = lookup + "/" + seg2;
-          size_t s3 = segRem.find('/');
-          std::string seg3 =
-              (s3 != std::string::npos) ? segRem.substr(0, s3) : segRem;
-
-          curObj = mgr->FindWzImageByName(combinedBase, seg3);
-          if (curObj) {
-            pathIndex = 3;
-          } else {
-            return nullptr;
-          }
-        } else {
-          return nullptr;
-        }
-      } else {
-        return nullptr;
-      }
+      component = remaining.substr(0, pos);
+      remaining = remaining.substr(pos + 1);
     }
+    if (component.empty()) continue;
+    curObj = TraverseComponent(curObj, component);
+    if (!curObj) return nullptr;
   }
-
-  if (!curObj) return nullptr;
-
-  // Iterate remaining path segments from pathIndex
-  int currentIdx = 0;
-  size_t segStart = 0;
-  for (size_t p = 0; p <= path.size(); ++p) {
-    if (p == path.size() || path[p] == '/') {
-      if (p > segStart) {
-        if (currentIdx >= pathIndex) {
-          std::string seg = path.substr(segStart, p - segStart);
-          curObj = TraverseComponent(curObj, seg);
-          if (!curObj) return nullptr;
-        }
-        currentIdx++;
-      }
-      segStart = p + 1;
-    }
-  }
-
   return curObj;
 }
 

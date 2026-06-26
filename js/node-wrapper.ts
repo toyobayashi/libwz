@@ -79,9 +79,9 @@ const capabilities = new Proxy({} as WzApiCapabilities, {
   }
 })
 
-function assertPtr (ptr: unknown): asserts ptr is NativeHandle {
+function assertHandle (ptr: unknown): asserts ptr is NativeHandle {
   if (typeof ptr !== 'bigint' || ptr === 0n) {
-    throw new TypeError('native pointer must be a non-zero bigint')
+    throw new TypeError('native handle must be a non-zero bigint')
   }
 }
 
@@ -212,7 +212,7 @@ export class WzObject {
     if (new.target === WzObject) {
       throw new TypeError('WzObject is abstract')
     }
-    assertPtr(ptr)
+    assertHandle(ptr)
     this._ptr = ptr
     this._ownsNative = ownsNative
     registerHandle(ptr, this)

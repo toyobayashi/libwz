@@ -24,29 +24,13 @@ int main() {
       std::filesystem::path(HOME ? HOME : "") / "kinoko" / "MapleStory";
   wz::WzMapleVersion version = wz::WzMapleVersion::GMS;
 
-  bool isStandalone =
-      false;  // Set to true if loading single file without directory structure
-  auto manager = std::make_unique<wz::WzFileManager>(BASE_MAPLE_DIR.string(),
-                                                     isStandalone);
-  manager->BuildWzFileList();  // Scans and builds list of available .wz files
-  const auto& map = manager->GetWzFilesList();
-  for (const auto& [baseName, fileList] : map) {
-    std::cout << "Base: " << baseName << "\n";
-    for (const auto& file : fileList) {
-      std::cout << "  File: " << file << "\n";
-    }
-  }
-
   auto filePath = (BASE_MAPLE_DIR / "UI.wz").string();
-  auto wzFileResult = manager->LoadWzFile("UI.wz", version);
-  EXPECT_OK(
-      wzFileResult.has_value(), "Failed to load WzFile: %s", filePath.c_str());
-  wz::WzFile* wzFile = wzFileResult.value();
-  EXPECT_OK(wzFile->ParseWzFile() == wz::WzFileParseStatus::Success,
+  wz::WzFile wzFile(filePath, version);
+  EXPECT_OK(wzFile.ParseWzFile() == wz::WzFileParseStatus::Success,
             "Failed to parse .wz file: %s",
             filePath.c_str());
   // Access the root directory
-  wz::WzDirectory* root = wzFile->GetWzDirectory();
+  wz::WzDirectory* root = wzFile.GetWzDirectory();
   EXPECT_OK(
       root != nullptr, "Root directory is null for file: %s", filePath.c_str());
 
@@ -80,8 +64,6 @@ int main() {
       break;
     }
   }
-
-  manager->UnloadWzFile(wzFile);
 
   filePath = (BASE_MAPLE_DIR / "Sound.wz").string();
   wz::WzFile soundFile(filePath, version);

@@ -1,5 +1,5 @@
-#ifndef WZ_WZFILEMANAGER_H_
-#define WZ_WZFILEMANAGER_H_
+#ifndef SRC_WZFILEMANAGER_H_
+#define SRC_WZFILEMANAGER_H_
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -125,4 +125,4 @@ class WzFileManager final {
 };
 
 }  // namespace wz
-#endif  // WZ_WZFILEMANAGER_H_
+#endif  // SRC_WZFILEMANAGER_H_

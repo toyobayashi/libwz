@@ -8,7 +8,6 @@
 #include "wz/Properties/WzStringProperty.h"
 #include "wz/Util/WzBinaryWriter.h"
 #include "wz/WzFile.h"
-#include "wz/WzFileManager.h"
 #include "wz/WzImage.h"
 
 namespace wz {
@@ -234,18 +233,18 @@ Result<WzImageProperty*> WzCanvasProperty::GetLinkedWzImageProperty() {
         realpath = wzfName + "/" + realpath;
         foundProperty = wzFileParent->GetObjectFromPath(realpath);
       } else {
-        if (WzFileManager::fileManager &&
-            WzFileManager::fileManager->Is64Bit()) {
-          if (WzFileManager::ContainsCanvasDirectory(outlink)) {
-            std::string canvasFolderBase =
-                WzFileManager::NormaliseWzCanvasDirectory(outlink);
-            auto result = WzFileManager::fileManager->LoadCanvasSection(
-                canvasFolderBase, wzFileParent->MapleVersion());
-            if (!result.has_value()) {
-              return std::unexpected(result.error());
-            }
-          }
-        }
+        // if (WzFileManager::fileManager &&
+        //     WzFileManager::fileManager->Is64Bit()) {
+        //   if (WzFileManager::ContainsCanvasDirectory(outlink)) {
+        //     std::string canvasFolderBase =
+        //         WzFileManager::NormaliseWzCanvasDirectory(outlink);
+        //     auto result = WzFileManager::fileManager->LoadCanvasSection(
+        //         canvasFolderBase, wzFileParent->MapleVersion());
+        //     if (!result.has_value()) {
+        //       return std::unexpected(result.error());
+        //     }
+        //   }
+        // }
         foundProperty = wzFileParent->GetObjectFromPath(outlink);
       }
       if (foundProperty &&
