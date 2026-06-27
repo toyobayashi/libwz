@@ -48,9 +48,9 @@ Result<void> WzCanvasProperty::WriteValue(WzBinaryWriter* writer) const {
   writer->WriteInt32(0);
   writer->WriteInt32(static_cast<int32_t>(bytes.value().size()) + 1);
   writer->WriteByte(0);
-  writer->BaseStream().write(
-      reinterpret_cast<const char*>(bytes.value().data()),
-      static_cast<std::streamsize>(bytes.value().size()));
+  if (!writer->BaseStream().Write(bytes.value().data(), bytes.value().size())) {
+    return std::unexpected(Error::IoError("Failed to write canvas property"));
+  }
   return {};
 }
 

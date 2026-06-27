@@ -3,11 +3,11 @@
 
 #include <cstddef>
 #include <cstdint>
-#include <istream>
 #include <span>
 #include <vector>
 
 #include "wz/Result.h"
+#include "wz/Util/WzStream.h"
 
 namespace wz {
 
@@ -19,18 +19,17 @@ class WzDataSource {
   virtual uint64_t Size() const = 0;
 };
 
-class WzStreamDataSource final : public WzDataSource {
+class WzFileDataSource final : public WzDataSource {
  public:
-  explicit WzStreamDataSource(std::istream& input);
+  explicit WzFileDataSource(WzFileStream* input);
 
   Result<size_t> ReadAt(uint64_t offset,
                         std::span<uint8_t> destination) override;
   uint64_t Size() const override;
 
  private:
-  std::istream* input_;
+  WzFileStream* input_ = nullptr;
   uint64_t size_;
-  bool is_valid_;
 };
 
 class WzMemoryDataSource final : public WzDataSource {

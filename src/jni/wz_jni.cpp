@@ -1522,10 +1522,12 @@ JNI_FUNC(WzTool, nativeGetIvForVersion)(JNIEnv* env, jclass, jint version) {
 //   const auto& map = manager->GetWzFilesList();
 //   jclass stringClass = env->FindClass("java/lang/String");
 //   jobjectArray arr =
-//       env->NewObjectArray(static_cast<jsize>(map.size()), stringClass, nullptr);
+//       env->NewObjectArray(
+//           static_cast<jsize>(map.size()), stringClass, nullptr);
 //   jsize i = 0;
 //   for (const auto& pair : map) {
-//     env->SetObjectArrayElement(arr, i++, env->NewStringUTF(pair.first.c_str()));
+//     env->SetObjectArrayElement(
+//         arr, i++, env->NewStringUTF(pair.first.c_str()));
 //   }
 //   return arr;
 // }
@@ -1558,7 +1560,9 @@ JNI_FUNC(WzTool, nativeGetIvForVersion)(JNIEnv* env, jclass, jint version) {
 //       name.c_str(), static_cast<wz::WzMapleVersion>(mapVersion));
 //   if (!file_result.has_value()) {
 //     jclass exClass = env->FindClass("java/lang/RuntimeException");
-//     if (exClass) env->ThrowNew(exClass, file_result.error().message().c_str());
+//     if (exClass) {
+//       env->ThrowNew(exClass, file_result.error().message().c_str());
+//     }
 //     return 0;
 //   }
 //   wz::WzFile* file = file_result.value();

@@ -1,11 +1,11 @@
 #include "wz/Properties/WzVideoProperty.h"
 #include <algorithm>
 #include <filesystem>
-#include <fstream>
 #include <mutex>
 #include "wz/Util/WzBinaryReader.h"
 #include "wz/Util/WzBinaryWriter.h"
 #include "wz/Util/WzPath.h"
+#include "wz/Util/WzStream.h"
 #include "wz/WzImage.h"
 
 namespace wz {
@@ -36,8 +36,9 @@ Result<void> WzVideoProperty::WriteValue(WzBinaryWriter* writer) const {
   }
   writer->WriteByte(static_cast<uint8_t>(type_));
   writer->WriteCompressedInt(static_cast<int32_t>(data.value().size()));
-  writer->BaseStream().write(reinterpret_cast<const char*>(data.value().data()),
-                             static_cast<std::streamsize>(data.value().size()));
+  if (!writer->BaseStream().Write(data.value().data(), data.value().size())) {
+    return std::unexpected(Error::IoError("Failed to write video property"));
+  }
   return {};
 }
 
@@ -121,10 +122,11 @@ Result<void> WzVideoProperty::SaveToFile(const std::string& filePath) {
     std::filesystem::create_directories(parentPath, ec);
     if (ec) return std::unexpected(Error::IoError(ec.message()));
   }
-  std::ofstream out(outPath, std::ios::binary);
-  if (!out)
+  WzFileStream out;
+  if (!out.Open(outPath, "wb"))
     return std::unexpected(Error::IoError("Failed to open file for writing"));
-  out.write(reinterpret_cast<const char*>(bytes.data()), bytes.size());
+  if (!out.Write(bytes.data(), bytes.size()))
+    return std::unexpected(Error::IoError("Failed to write file"));
   return {};
 }
 

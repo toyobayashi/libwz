@@ -2,30 +2,19 @@
 
 #include <algorithm>
 #include <cstring>
-#include <limits>
 #include <utility>
 
 namespace wz {
 
-WzStreamDataSource::WzStreamDataSource(std::istream& input)
-    : input_(&input), size_(0), is_valid_(false) {
-  input_->clear();
-  input_->seekg(0, std::ios::end);
-  const std::istream::pos_type end = input_->tellg();
-  if (end == std::istream::pos_type(-1)) {
-    input_->clear();
-    return;
-  }
-  size_ = static_cast<uint64_t>(end);
-  input_->clear();
-  input_->seekg(0, std::ios::beg);
-  is_valid_ = input_->good();
-}
+WzFileDataSource::WzFileDataSource(WzFileStream* input)
+    : input_(input),
+      size_(input_ && input_->Size() > 0 ? static_cast<uint64_t>(input_->Size())
+                                         : 0) {}
 
-Result<size_t> WzStreamDataSource::ReadAt(uint64_t offset,
-                                          std::span<uint8_t> destination) {
-  if (!is_valid_) {
-    return std::unexpected(Error::IoError("Source stream is not seekable"));
+Result<size_t> WzFileDataSource::ReadAt(uint64_t offset,
+                                        std::span<uint8_t> destination) {
+  if (!input_ || !input_->IsOpen()) {
+    return std::unexpected(Error::IoError("Source file is not open"));
   }
   if (offset > size_) {
     return std::unexpected(Error::IoError("Read offset is beyond source size"));
@@ -35,30 +24,18 @@ Result<size_t> WzStreamDataSource::ReadAt(uint64_t offset,
   const size_t count = static_cast<size_t>(
       std::min<uint64_t>(available, static_cast<uint64_t>(destination.size())));
   if (count == 0) return 0;
-  if (count >
-      static_cast<size_t>(std::numeric_limits<std::streamsize>::max())) {
-    return std::unexpected(Error::IoError("Read size exceeds stream limits"));
-  }
-  if (offset >
-      static_cast<uint64_t>(std::numeric_limits<std::streamoff>::max())) {
-    return std::unexpected(Error::IoError("Read offset exceeds stream limits"));
+
+  if (!input_->Seek(static_cast<int64_t>(offset), WzSeekOrigin::Begin)) {
+    return std::unexpected(Error::IoError("Failed to seek source file"));
   }
 
-  input_->clear();
-  input_->seekg(static_cast<std::streamoff>(offset), std::ios::beg);
-  if (!input_->good()) {
-    return std::unexpected(Error::IoError("Failed to seek source stream"));
-  }
-
-  input_->read(reinterpret_cast<char*>(destination.data()),
-               static_cast<std::streamsize>(count));
-  if (input_->gcount() != static_cast<std::streamsize>(count)) {
-    return std::unexpected(Error::IoError("Failed to read source stream"));
+  if (input_->Read(destination.data(), count) != count) {
+    return std::unexpected(Error::IoError("Failed to read source file"));
   }
   return count;
 }
 
-uint64_t WzStreamDataSource::Size() const {
+uint64_t WzFileDataSource::Size() const {
   return size_;
 }
 

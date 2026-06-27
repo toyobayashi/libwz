@@ -4,10 +4,11 @@
 #include <cerrno>
 #include <cstdlib>
 #include <filesystem>
-#include <fstream>
 #include <memory>
+#include <vector>
 #include "wz/Util/ListFileParser.h"
 #include "wz/Util/WzPath.h"
+#include "wz/Util/WzStream.h"
 #include "wz/Util/WzTool.h"
 #include "wz/WzDirectory.h"
 #include "wz/WzFile.h"
@@ -53,6 +54,34 @@ static int SafeStoi(const std::string& s) {
   auto v = std::strtol(s.c_str(), &end, 10);
   if (errno != 0 || end == s.c_str() || *end != '\0' || v < 0) return -1;
   return static_cast<int>(v);
+}
+
+static std::vector<std::string> ReadTextLines(const std::string& filePath) {
+  WzFileStream stream;
+  if (!stream.Open(wz::to_path(filePath), "rb") || stream.Size() < 0) {
+    return {};
+  }
+  std::vector<uint8_t> bytes(static_cast<size_t>(stream.Size()));
+  if (!bytes.empty() &&
+      stream.Read(bytes.data(), bytes.size()) != bytes.size()) {
+    return {};
+  }
+  std::vector<std::string> lines;
+  std::string line;
+  for (uint8_t byte : bytes) {
+    if (byte == '\n') {
+      if (!line.empty() && line.back() == '\r') line.pop_back();
+      lines.push_back(line);
+      line.clear();
+    } else {
+      line.push_back(static_cast<char>(byte));
+    }
+  }
+  if (!line.empty() || (!bytes.empty() && bytes.back() == '\n')) {
+    if (!line.empty() && line.back() == '\r') line.pop_back();
+    lines.push_back(line);
+  }
+  return lines;
 }
 
 WzFileManager::WzFileManager()
@@ -321,9 +350,7 @@ void WzFileManager::BuildWzFileList() {
       std::string iniFile = iniFiles[0];
       int wzFileIndex = -1;
       {
-        std::ifstream iniStream(wz::to_path(iniFile));
-        std::string line;
-        while (std::getline(iniStream, line)) {
+        for (const auto& line : ReadTextLines(iniFile)) {
           auto pipePos = line.find('|');
           if (pipePos != std::string::npos &&
               line.substr(0, pipePos) == "LastWzIndex") {
@@ -504,8 +531,8 @@ Result<WzImage*> WzFileManager::LoadDataWzHotfixFile(
   if (!fs::is_regular_file(filePath, ec) || ec)
     return std::unexpected(Error::IoError("File does not exist: " + filePath));
 
-  std::ifstream fstream(wz::to_path(filePath), std::ios::binary);
-  if (!fstream.is_open()) {
+  WzFileStream fstream;
+  if (!fstream.Open(wz::to_path(filePath), "rb")) {
     return std::unexpected(Error::IoError("Failed to open file: " + filePath));
   }
 
@@ -559,9 +586,7 @@ Result<void> WzFileManager::LoadCanvasSection(const std::string& canvasFolder,
   if (iniFile.empty()) return {};
 
   {
-    std::ifstream iniStream(wz::to_path(iniFile));
-    std::string line;
-    while (std::getline(iniStream, line)) {
+    for (const auto& line : ReadTextLines(iniFile)) {
       auto pipePos = line.find('|');
       if (pipePos != std::string::npos &&
           line.substr(0, pipePos) == "LastWzIndex") {

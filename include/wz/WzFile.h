@@ -1,7 +1,6 @@
 #ifndef WZ_WZFILE_H_
 #define WZ_WZFILE_H_
 #include <array>
-#include <fstream>
 #include <memory>
 #include <optional>
 #include <string>
@@ -10,6 +9,7 @@
 #include "wz/Util/Defines.h"
 #include "wz/Util/WzBinaryReader.h"
 #include "wz/Util/WzDataSource.h"
+#include "wz/Util/WzStream.h"
 #include "wz/WzDirectory.h"
 #include "wz/WzEnums.h"
 #include "wz/WzHeader.h"
@@ -75,7 +75,7 @@ class WzFile final : public WzObject {
   std::string path_;
   std::shared_ptr<WzDataSource> source_;
   std::unique_ptr<WzDirectory> wzDir_;
-  std::ifstream fileStream_;
+  WzFileStream fileStream_;
   std::optional<WzBinaryReader> fileReader_;
   WzHeader header_;
   uint16_t wzVersionHeader_ = 0;

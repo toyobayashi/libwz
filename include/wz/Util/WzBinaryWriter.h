@@ -2,12 +2,12 @@
 #define WZ_UTIL_WZBINARYWRITER_H_
 #include <array>
 #include <cstdint>
-#include <ostream>
 #include <string>
 #include <unordered_map>
 #include "wz/Util/Defines.h"
 #include "wz/Util/WzKeyGenerator.h"
 #include "wz/Util/WzMutableKey.h"
+#include "wz/Util/WzStream.h"
 #include "wz/WzEnums.h"
 #include "wz/WzHeader.h"
 
@@ -15,8 +15,8 @@ namespace wz {
 
 class WzBinaryWriter {
  public:
-  WzBinaryWriter(std::ostream& output, const std::array<uint8_t, 4>& WzIv);
-  WzBinaryWriter(std::ostream& output,
+  WzBinaryWriter(WzStream& output, const std::array<uint8_t, 4>& WzIv);
+  WzBinaryWriter(WzStream& output,
                  const std::array<uint8_t, 4>& WzIv,
                  uint32_t hash);
   ~WzBinaryWriter() = default;
@@ -29,7 +29,7 @@ class WzBinaryWriter {
   void SetHash(uint32_t h) { hash_ = h; }
   WzHeader* GetHeader() { return &header_; }
   void SetHeader(const WzHeader& h) { header_ = h; }
-  std::ostream& BaseStream() { return *output_; }
+  WzStream& BaseStream() { return *output_; }
   void ClearStringCache();
 
   int64_t Position();
@@ -55,7 +55,7 @@ class WzBinaryWriter {
   void WriteOffset(int64_t value);
 
  private:
-  std::ostream* output_;
+  WzStream* output_ = nullptr;
   WzMutableKey wzKey_;
   uint32_t hash_ = 0;
   WzHeader header_ = WzHeader::GetDefault();
@@ -63,6 +63,7 @@ class WzBinaryWriter {
 
   template <typename T>
   void WriteLittleEndian(T value);
+  bool WriteRawByte(uint8_t value);
   void WriteAsciiString(const std::string& value);
   void WriteUnicodeString(const std::u16string& value);
 };

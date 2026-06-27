@@ -4,11 +4,11 @@
 #include <array>
 #include <cstring>
 #include <filesystem>
-#include <fstream>
 #include <mutex>
 #include "wz/PngUtility.h"
 #include "wz/Util/WzBinaryReader.h"
 #include "wz/Util/WzPath.h"
+#include "wz/Util/WzStream.h"
 #include "wz/WzImage.h"
 
 namespace wz {
@@ -42,21 +42,21 @@ static uint32_t ToBigEndian32(uint32_t x) {
          ((x & 0x00FF0000u) >> 8) | ((x & 0xFF000000u) >> 24);
 }
 
-static void WritePngChunk(std::ofstream& out,
+static bool WritePngChunk(WzFileStream* out,
                           const char type[4],
                           const uint8_t* data,
                           uint32_t len) {
   uint32_t beLen = ToBigEndian32(len);
-  out.write(reinterpret_cast<const char*>(&beLen), 4);
-  out.write(type, 4);
-  if (len > 0) out.write(reinterpret_cast<const char*>(data), len);
+  if (!out->Write(&beLen, 4)) return false;
+  if (!out->Write(type, 4)) return false;
+  if (len > 0 && !out->Write(data, len)) return false;
 
   std::vector<uint8_t> crcInput(4 + len);
   std::memcpy(crcInput.data(), type, 4);
   if (len > 0) std::memcpy(crcInput.data() + 4, data, len);
   uint32_t crc = PngCrc32(crcInput.data(), 4 + len);
   uint32_t beCrc = ToBigEndian32(crc);
-  out.write(reinterpret_cast<const char*>(&beCrc), 4);
+  return out->Write(&beCrc, 4);
 }
 
 }  // namespace
@@ -417,12 +417,14 @@ Result<void> WzPngProperty::SaveToFile(const std::string& filePath) {
     std::filesystem::create_directories(parentPath, ec);
     if (ec) return std::unexpected(Error::IoError(ec.message()));
   }
-  std::ofstream out(outPath, std::ios::binary);
-  if (!out)
+  WzFileStream out;
+  if (!out.Open(outPath, "wb"))
     return std::unexpected(Error::IoError("Failed to open file for writing"));
 
   const uint8_t signature[8] = {137, 80, 78, 71, 13, 10, 26, 10};
-  out.write(reinterpret_cast<const char*>(signature), 8);
+  if (!out.Write(signature, sizeof(signature))) {
+    return std::unexpected(Error::IoError("Failed to write PNG signature"));
+  }
 
   struct {
     uint32_t w, h;
@@ -435,12 +437,21 @@ Result<void> WzPngProperty::SaveToFile(const std::string& filePath) {
   ihdr.compression = 0;
   ihdr.filter = 0;
   ihdr.interlace = 0;
-  WritePngChunk(out, "IHDR", reinterpret_cast<const uint8_t*>(&ihdr), 13);
+  if (!WritePngChunk(
+          &out, "IHDR", reinterpret_cast<const uint8_t*>(&ihdr), 13)) {
+    return std::unexpected(Error::IoError("Failed to write PNG IHDR"));
+  }
 
-  WritePngChunk(
-      out, "IDAT", compressed.data(), static_cast<uint32_t>(compressedSize));
+  if (!WritePngChunk(&out,
+                     "IDAT",
+                     compressed.data(),
+                     static_cast<uint32_t>(compressedSize))) {
+    return std::unexpected(Error::IoError("Failed to write PNG IDAT"));
+  }
 
-  WritePngChunk(out, "IEND", nullptr, 0);
+  if (!WritePngChunk(&out, "IEND", nullptr, 0)) {
+    return std::unexpected(Error::IoError("Failed to write PNG IEND"));
+  }
 
   return {};
 }

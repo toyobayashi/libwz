@@ -2,7 +2,6 @@
 #include <algorithm>
 #include <limits>
 #include <mutex>
-#include <sstream>
 #include <unordered_set>
 #include <utility>
 #include <vector>
@@ -372,7 +371,7 @@ void WzDirectory::SetHash(uint32_t h) {
 
 Result<int> WzDirectory::GenerateDataFile(const std::array<uint8_t, 4>* useIv,
                                           bool isDefaultUserKey,
-                                          std::ostream* tempStream) {
+                                          WzMemoryStream* tempStream) {
   if (!tempStream) {
     return std::unexpected(
         Error::InvalidArgument("Cannot generate WZ data with null stream"));
@@ -384,7 +383,7 @@ Result<int> WzDirectory::GenerateDataFile(const std::array<uint8_t, 4>* useIv,
     for (auto& img : dir->images_) {
       img->SetChanged(img->Changed() || useCustomIv || !isDefaultUserKey);
       if (img->Changed()) {
-        std::ostringstream imageData(std::ios::out | std::ios::binary);
+        WzMemoryStream imageData;
         WzBinaryWriter imageWriter(imageData,
                                    useCustomIv ? *useIv : dir->wz_iv_);
         auto saveResult =
@@ -393,17 +392,14 @@ Result<int> WzDirectory::GenerateDataFile(const std::array<uint8_t, 4>* useIv,
           return std::unexpected(saveResult.error());
         }
 
-        const std::string bytes = imageData.str();
-        img->CalculateAndSetImageChecksum(
-            std::vector<uint8_t>(bytes.begin(), bytes.end()));
-        img->SetTempFileStart(static_cast<int64_t>(tempStream->tellp()));
-        tempStream->write(bytes.data(),
-                          static_cast<std::streamsize>(bytes.size()));
-        if (!*tempStream) {
+        const auto& bytes = imageData.Buffer();
+        img->CalculateAndSetImageChecksum(bytes);
+        img->SetTempFileStart(tempStream->Position());
+        if (!tempStream->Write(bytes.data(), bytes.size())) {
           return std::unexpected(
               Error::IoError("Failed to write temporary WZ image data"));
         }
-        img->SetTempFileEnd(static_cast<int64_t>(tempStream->tellp()));
+        img->SetTempFileEnd(tempStream->Position());
       } else {
         img->SetTempFileStart(img->Offset());
         img->SetTempFileEnd(img->Offset() + img->BlockSize());
@@ -563,7 +559,7 @@ Result<void> WzDirectory::SaveDirectory(WzBinaryWriter* writer) {
 }
 
 Result<void> WzDirectory::SaveImages(WzBinaryWriter* writer,
-                                     std::istream* tempStream) {
+                                     WzMemoryStream* tempStream) {
   if (!writer || !tempStream) {
     return std::unexpected(
         Error::InvalidArgument("Cannot save WZ images with null stream"));
@@ -583,16 +579,19 @@ Result<void> WzDirectory::SaveImages(WzBinaryWriter* writer,
         return std::unexpected(
             Error::DataError("Invalid changed WZ image byte range"));
       }
-      tempStream->seekg(start, std::ios::beg);
-      std::vector<char> buffer(static_cast<size_t>(img->BlockSize()));
-      tempStream->read(buffer.data(),
-                       static_cast<std::streamsize>(buffer.size()));
-      if (tempStream->gcount() != static_cast<std::streamsize>(buffer.size())) {
+      if (!tempStream->Seek(start, WzSeekOrigin::Begin)) {
+        return std::unexpected(
+            Error::IoError("Failed to seek changed WZ image data"));
+      }
+      std::vector<uint8_t> buffer(static_cast<size_t>(img->BlockSize()));
+      if (tempStream->Read(buffer.data(), buffer.size()) != buffer.size()) {
         return std::unexpected(
             Error::IoError("Failed to read changed WZ image data"));
       }
-      writer->BaseStream().write(buffer.data(),
-                                 static_cast<std::streamsize>(buffer.size()));
+      if (!writer->BaseStream().Write(buffer.data(), buffer.size())) {
+        return std::unexpected(
+            Error::IoError("Failed to write changed WZ image data"));
+      }
     } else {
       if (!img->Reader()) {
         return std::unexpected(Error::InvalidArgument(
@@ -618,12 +617,12 @@ Result<void> WzDirectory::SaveImages(WzBinaryWriter* writer,
         return std::unexpected(
             Error::IoError("Failed to read unchanged WZ image data"));
       }
-      writer->BaseStream().write(reinterpret_cast<const char*>(bytes.data()),
-                                 static_cast<std::streamsize>(bytes.size()));
+      if (!writer->BaseStream().Write(bytes.data(), bytes.size())) {
+        img->Reader()->SetPosition(originalPos);
+        return std::unexpected(
+            Error::IoError("Failed to write unchanged WZ image data"));
+      }
       img->Reader()->SetPosition(originalPos);
-    }
-    if (!writer->BaseStream()) {
-      return std::unexpected(Error::IoError("Failed to write WZ image data"));
     }
   }
 

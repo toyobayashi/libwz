@@ -1,9 +1,8 @@
 #include <gtest/gtest.h>
 #include <filesystem>
-#include <fstream>
-#include <iterator>
 #include <string>
 #include <vector>
+#include "TestStreams.h"
 #include "wz/wz_api.h"
 
 namespace {
@@ -21,9 +20,7 @@ wz_error_code LastErrorCode() {
 }
 
 std::vector<uint8_t> ReadAllBytes(const std::filesystem::path& path) {
-  std::ifstream input(path, std::ios::binary);
-  return std::vector<uint8_t>(std::istreambuf_iterator<char>(input),
-                              std::istreambuf_iterator<char>());
+  return test::ReadFile(path);
 }
 
 }  // namespace

@@ -3,10 +3,8 @@
 #include <cctype>
 #include <cstring>
 #include <filesystem>
-#include <fstream>
 #include <limits>
 #include <memory>
-#include <sstream>
 #include "wz/Properties/WzCanvasProperty.h"
 #include "wz/Properties/WzConvexProperty.h"
 #include "wz/Properties/WzSubProperty.h"
@@ -75,7 +73,7 @@ WzFile::~WzFile() {
     fileReader_->Close();
     fileReader_.reset();
   }
-  if (fileStream_.is_open()) fileStream_.close();
+  fileStream_.Close();
   source_.reset();
   path_.clear();
   name_.clear();
@@ -186,13 +184,13 @@ WzFileParseStatus WzFile::ParseMainWzDirectory() {
   wzDir_.reset();
   fileReader_.reset();
   if (!source_) {
-    if (fileStream_.is_open()) fileStream_.close();
-    fileStream_ = std::ifstream(wz::to_path(path_), std::ios::binary);
-    if (!fileStream_.is_open()) {
+    fileStream_.Close();
+    if (!fileStream_.Open(wz::to_path(path_), "rb")) {
       return WzFileParseStatus::Failed_Unknown;
     }
 
-    fileReader_.emplace(fileStream_, wz_iv_);
+    fileReader_.emplace(std::make_shared<WzFileDataSource>(&fileStream_),
+                        wz_iv_);
   } else {
     fileReader_.emplace(source_, wz_iv_);
   }
@@ -290,7 +288,7 @@ Result<void> WzFile::SaveToDisk(const std::string& path,
   CreateWZVersionHash();
   wzDir_->SetHash(versionHash_);
 
-  std::stringstream tempStream(std::ios::in | std::ios::out | std::ios::binary);
+  WzMemoryStream tempStream;
   WzTool::ClearWzObjectValueLengthCache();
   auto generateResult = wzDir_->GenerateDataFile(
       isSameIv ? nullptr : &saveIv, isDefaultUserKey, &tempStream);
@@ -321,8 +319,8 @@ Result<void> WzFile::SaveToDisk(const std::string& path,
   }
   header_.SetFSize(fileSize);
 
-  std::ofstream output(wz::to_path(path), std::ios::binary | std::ios::trunc);
-  if (!output.is_open()) {
+  WzFileStream output;
+  if (!output.Open(wz::to_path(path), "wb")) {
     return std::unexpected(Error::IoError("Failed to open WZ output file"));
   }
   WzBinaryWriter writer(output, saveIv, versionHash_);
@@ -354,15 +352,17 @@ Result<void> WzFile::SaveToDisk(const std::string& path,
   }
   writer.ClearStringCache();
 
-  tempStream.clear();
-  tempStream.seekg(0, std::ios::beg);
+  if (!tempStream.Seek(0, WzSeekOrigin::Begin)) {
+    return std::unexpected(
+        Error::IoError("Failed to rewind temporary WZ image data"));
+  }
   auto saveImagesResult = wzDir_->SaveImages(&writer, &tempStream);
   if (!saveImagesResult.has_value()) {
     return std::unexpected(saveImagesResult.error());
   }
   writer.ClearStringCache();
 
-  if (!output) {
+  if (!output.Flush()) {
     return std::unexpected(Error::IoError("Failed to write WZ output file"));
   }
 

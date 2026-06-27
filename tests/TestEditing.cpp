@@ -1,12 +1,11 @@
 #include <gtest/gtest.h>
 
 #include <filesystem>
-#include <fstream>
 #include <memory>
-#include <sstream>
 #include <string>
 #include <vector>
 
+#include "TestStreams.h"
 #include "wz/Properties/WzIntProperty.h"
 #include "wz/Properties/WzLuaProperty.h"
 #include "wz/Properties/WzRawDataProperty.h"
@@ -14,14 +13,16 @@
 #include "wz/Properties/WzVideoProperty.h"
 #include "wz/Util/WzBinaryReader.h"
 #include "wz/Util/WzBinaryWriter.h"
+#include "wz/Util/WzStream.h"
 #include "wz/WzAESConstant.h"
 #include "wz/WzDirectory.h"
 #include "wz/WzImage.h"
 
 namespace {
 
-std::filesystem::path TempPath(const std::string& name) {
-  return std::filesystem::temp_directory_path() / name;
+wz::WzBinaryReader MakeReader(const wz::WzMemoryStream& stream) {
+  return wz::WzBinaryReader(test::MemorySource(stream.Buffer()),
+                            wz::WzAESConstant::WZ_GMSIV);
 }
 
 }  // namespace
@@ -263,105 +264,77 @@ TEST(EditingTest, ImageRenameIsValidatedButDoesNotMarkImageChanged) {
 }
 
 TEST(EditingTest, SaveChangedImageWritesPropertyHeaderAndBlockSize) {
-  const auto path = TempPath("libwz_editing_save_changed_image.bin");
-  {
-    std::ofstream out(path, std::ios::binary);
-    wz::WzBinaryWriter writer(out, wz::WzAESConstant::WZ_GMSIV);
-    wz::WzImage image("test.img");
-    image.AddProperty(std::make_unique<wz::WzIntProperty>("count", 42));
+  wz::WzMemoryStream out;
+  wz::WzBinaryWriter writer(out, wz::WzAESConstant::WZ_GMSIV);
+  wz::WzImage image("test.img");
+  image.AddProperty(std::make_unique<wz::WzIntProperty>("count", 42));
 
-    auto result = image.SaveImage(&writer);
+  auto result = image.SaveImage(&writer);
 
-    ASSERT_TRUE(result.has_value()) << result.error().message();
-    EXPECT_GT(image.BlockSize(), 0);
-  }
-
-  std::ifstream in(path, std::ios::binary);
-  wz::WzBinaryReader reader(in, wz::WzAESConstant::WZ_GMSIV);
+  ASSERT_TRUE(result.has_value()) << result.error().message();
+  EXPECT_GT(image.BlockSize(), 0);
+  auto reader = MakeReader(out);
 
   EXPECT_EQ(reader.ReadByte(), wz::WzImage::WzImageHeaderByte_WithoutOffset);
   EXPECT_EQ(reader.ReadString(), "Property");
   EXPECT_EQ(reader.ReadUInt16(), 0);
   EXPECT_EQ(reader.ReadCompressedInt(), 1);
-
-  std::error_code ec;
-  std::filesystem::remove(path, ec);
 }
 
 TEST(EditingTest, SaveLuaImageWritesLuaBodyWithoutPropertyHeader) {
-  const auto path = TempPath("libwz_editing_lua_image.bin");
   const std::vector<uint8_t> encryptedBytes = {0x10, 0x20, 0x30, 0x40};
-  {
-    std::ofstream out(path, std::ios::binary);
-    wz::WzBinaryWriter writer(out, wz::WzAESConstant::WZ_GMSIV);
-    wz::WzImage image("script.lua");
-    image.AddProperty(
-        std::make_unique<wz::WzLuaProperty>("Script", encryptedBytes));
+  wz::WzMemoryStream out;
+  wz::WzBinaryWriter writer(out, wz::WzAESConstant::WZ_GMSIV);
+  wz::WzImage image("script.lua");
+  image.AddProperty(
+      std::make_unique<wz::WzLuaProperty>("Script", encryptedBytes));
 
-    auto result = image.SaveImage(&writer);
+  auto result = image.SaveImage(&writer);
 
-    ASSERT_TRUE(result.has_value()) << result.error().message();
-    EXPECT_GT(image.BlockSize(), 0);
-  }
-
-  std::ifstream in(path, std::ios::binary);
-  wz::WzBinaryReader reader(in, wz::WzAESConstant::WZ_GMSIV);
+  ASSERT_TRUE(result.has_value()) << result.error().message();
+  EXPECT_GT(image.BlockSize(), 0);
+  auto reader = MakeReader(out);
 
   EXPECT_EQ(reader.ReadByte(), 0x01);
   EXPECT_EQ(reader.ReadCompressedInt(),
             static_cast<int>(encryptedBytes.size()));
   EXPECT_EQ(reader.ReadBytes(encryptedBytes.size()), encryptedBytes);
-  EXPECT_EQ(in.peek(), std::char_traits<char>::eof());
-
-  std::error_code ec;
-  std::filesystem::remove(path, ec);
+  EXPECT_EQ(reader.Available(), 0);
 }
 
 TEST(EditingTest, SaveSubPropertyWithOnlyLuaWritesLuaBodyWithoutHeader) {
-  const auto path = TempPath("libwz_editing_lua_sub_property.bin");
   const std::vector<uint8_t> encryptedBytes = {0x10, 0x20, 0x30, 0x40};
-  {
-    std::ofstream out(path, std::ios::binary);
-    wz::WzBinaryWriter writer(out, wz::WzAESConstant::WZ_GMSIV);
-    wz::WzSubProperty sub("script");
-    sub.AddProperty(
-        std::make_unique<wz::WzLuaProperty>("Script", encryptedBytes));
+  wz::WzMemoryStream out;
+  wz::WzBinaryWriter writer(out, wz::WzAESConstant::WZ_GMSIV);
+  wz::WzSubProperty sub("script");
+  sub.AddProperty(
+      std::make_unique<wz::WzLuaProperty>("Script", encryptedBytes));
 
-    auto result = sub.WriteValue(&writer);
+  auto result = sub.WriteValue(&writer);
 
-    ASSERT_TRUE(result.has_value()) << result.error().message();
-  }
-
-  std::ifstream in(path, std::ios::binary);
-  wz::WzBinaryReader reader(in, wz::WzAESConstant::WZ_GMSIV);
+  ASSERT_TRUE(result.has_value()) << result.error().message();
+  auto reader = MakeReader(out);
 
   EXPECT_EQ(reader.ReadByte(), 0x01);
   EXPECT_EQ(reader.ReadCompressedInt(),
             static_cast<int>(encryptedBytes.size()));
   EXPECT_EQ(reader.ReadBytes(encryptedBytes.size()), encryptedBytes);
-  EXPECT_EQ(in.peek(), std::char_traits<char>::eof());
-
-  std::error_code ec;
-  std::filesystem::remove(path, ec);
+  EXPECT_EQ(reader.Available(), 0);
 }
 
 TEST(EditingTest, ReopenSavedLuaImageParsesSingleLuaProperty) {
-  const auto path = TempPath("libwz_editing_lua_image_reopen.bin");
   const std::vector<uint8_t> encryptedBytes = {0x01, 0x02, 0x03};
-  {
-    std::ofstream out(path, std::ios::binary);
-    wz::WzBinaryWriter writer(out, wz::WzAESConstant::WZ_GMSIV);
-    wz::WzImage image("script.lua");
-    image.AddProperty(
-        std::make_unique<wz::WzLuaProperty>("Script", encryptedBytes));
-    ASSERT_TRUE(image.SaveImage(&writer).has_value());
-  }
+  wz::WzMemoryStream out;
+  wz::WzBinaryWriter writer(out, wz::WzAESConstant::WZ_GMSIV);
+  wz::WzImage saved("script.lua");
+  saved.AddProperty(
+      std::make_unique<wz::WzLuaProperty>("Script", encryptedBytes));
+  ASSERT_TRUE(saved.SaveImage(&writer).has_value());
 
-  std::ifstream in(path, std::ios::binary);
-  wz::WzBinaryReader reader(in, wz::WzAESConstant::WZ_GMSIV);
+  auto reader = MakeReader(out);
   wz::WzImage image("script.lua", reader, 0);
   image.SetOffset(0);
-  image.SetBlockSize(static_cast<int>(std::filesystem::file_size(path)));
+  image.SetBlockSize(static_cast<int>(out.Buffer().size()));
 
   auto parseResult = image.ParseImage();
 
@@ -373,17 +346,12 @@ TEST(EditingTest, ReopenSavedLuaImageParsesSingleLuaProperty) {
   auto* lua = static_cast<wz::WzLuaProperty*>(prop);
   EXPECT_EQ(lua->Name(), "Script");
   EXPECT_EQ(lua->Value(), encryptedBytes);
-
-  std::error_code ec;
-  std::filesystem::remove(path, ec);
 }
 
 TEST(EditingTest, SaveChangedUnparsedImageParsesExistingProperties) {
-  const auto sourcePath = TempPath("libwz_editing_changed_unparsed_source.bin");
-  const auto savedPath = TempPath("libwz_editing_changed_unparsed_saved.bin");
+  wz::WzMemoryStream sourceData;
   {
-    std::ofstream out(sourcePath, std::ios::binary);
-    wz::WzBinaryWriter writer(out, wz::WzAESConstant::WZ_GMSIV);
+    wz::WzBinaryWriter writer(sourceData, wz::WzAESConstant::WZ_GMSIV);
     writer.WriteStringValue("Property",
                             wz::WzImage::WzImageHeaderByte_WithoutOffset,
                             wz::WzImage::WzImageHeaderByte_WithOffset);
@@ -393,26 +361,23 @@ TEST(EditingTest, SaveChangedUnparsedImageParsesExistingProperties) {
                     .has_value());
   }
 
+  wz::WzMemoryStream savedData;
   {
-    std::ifstream source(sourcePath, std::ios::binary);
-    wz::WzBinaryReader reader(source, wz::WzAESConstant::WZ_GMSIV);
+    auto reader = MakeReader(sourceData);
     wz::WzImage image("test.img", reader, 0);
     image.SetOffset(0);
-    image.SetBlockSize(
-        static_cast<int>(std::filesystem::file_size(sourcePath)));
+    image.SetBlockSize(static_cast<int>(sourceData.Buffer().size()));
     image.SetChanged(true);
     ASSERT_FALSE(image.Parsed());
 
-    std::ofstream saved(savedPath, std::ios::binary);
-    wz::WzBinaryWriter writer(saved, wz::WzAESConstant::WZ_GMSIV);
+    wz::WzBinaryWriter writer(savedData, wz::WzAESConstant::WZ_GMSIV);
 
     auto result = image.SaveImage(&writer);
 
     ASSERT_TRUE(result.has_value()) << result.error().message();
   }
 
-  std::ifstream in(savedPath, std::ios::binary);
-  wz::WzBinaryReader reader(in, wz::WzAESConstant::WZ_GMSIV);
+  auto reader = MakeReader(savedData);
 
   EXPECT_EQ(reader.ReadByte(), wz::WzImage::WzImageHeaderByte_WithoutOffset);
   EXPECT_EQ(reader.ReadString(), "Property");
@@ -422,18 +387,12 @@ TEST(EditingTest, SaveChangedUnparsedImageParsesExistingProperties) {
   EXPECT_EQ(reader.ReadString(), "count");
   EXPECT_EQ(reader.ReadByte(), 3);
   EXPECT_EQ(reader.ReadCompressedInt(), 7);
-
-  std::error_code ec;
-  std::filesystem::remove(sourcePath, ec);
-  std::filesystem::remove(savedPath, ec);
 }
 
 TEST(EditingTest, SaveForceReadDoesNotDuplicateAlreadyParsedProperties) {
-  const auto sourcePath = TempPath("libwz_editing_force_parsed_source.bin");
-  const auto savedPath = TempPath("libwz_editing_force_parsed_saved.bin");
+  wz::WzMemoryStream sourceData;
   {
-    std::ofstream out(sourcePath, std::ios::binary);
-    wz::WzBinaryWriter writer(out, wz::WzAESConstant::WZ_GMSIV);
+    wz::WzBinaryWriter writer(sourceData, wz::WzAESConstant::WZ_GMSIV);
     writer.WriteStringValue("Property",
                             wz::WzImage::WzImageHeaderByte_WithoutOffset,
                             wz::WzImage::WzImageHeaderByte_WithOffset);
@@ -443,27 +402,24 @@ TEST(EditingTest, SaveForceReadDoesNotDuplicateAlreadyParsedProperties) {
                     .has_value());
   }
 
+  wz::WzMemoryStream savedData;
   {
-    std::ifstream source(sourcePath, std::ios::binary);
-    wz::WzBinaryReader reader(source, wz::WzAESConstant::WZ_GMSIV);
+    auto reader = MakeReader(sourceData);
     wz::WzImage image("test.img", reader, 0);
     image.SetOffset(0);
-    image.SetBlockSize(
-        static_cast<int>(std::filesystem::file_size(sourcePath)));
+    image.SetBlockSize(static_cast<int>(sourceData.Buffer().size()));
     ASSERT_TRUE(image.ParseImage().has_value());
     ASSERT_TRUE(image.Parsed());
     ASSERT_EQ(image.WzProperties()->size(), 1);
 
-    std::ofstream saved(savedPath, std::ios::binary);
-    wz::WzBinaryWriter writer(saved, wz::WzAESConstant::WZ_GMSIV);
+    wz::WzBinaryWriter writer(savedData, wz::WzAESConstant::WZ_GMSIV);
 
     auto result = image.SaveImage(&writer, true, true);
 
     ASSERT_TRUE(result.has_value()) << result.error().message();
   }
 
-  std::ifstream in(savedPath, std::ios::binary);
-  wz::WzBinaryReader reader(in, wz::WzAESConstant::WZ_GMSIV);
+  auto reader = MakeReader(savedData);
 
   EXPECT_EQ(reader.ReadByte(), wz::WzImage::WzImageHeaderByte_WithoutOffset);
   EXPECT_EQ(reader.ReadString(), "Property");
@@ -473,10 +429,6 @@ TEST(EditingTest, SaveForceReadDoesNotDuplicateAlreadyParsedProperties) {
   EXPECT_EQ(reader.ReadString(), "count");
   EXPECT_EQ(reader.ReadByte(), 3);
   EXPECT_EQ(reader.ReadCompressedInt(), 7);
-
-  std::error_code ec;
-  std::filesystem::remove(sourcePath, ec);
-  std::filesystem::remove(savedPath, ec);
 }
 
 TEST(EditingTest, CalculateAndSetImageChecksumSumsBytes) {

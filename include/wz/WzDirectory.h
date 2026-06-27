@@ -1,13 +1,12 @@
 #ifndef WZ_WZDIRECTORY_H_
 #define WZ_WZDIRECTORY_H_
 #include <array>
-#include <istream>
 #include <memory>
-#include <ostream>
 #include <string>
 #include <vector>
 #include "wz/Result.h"
 #include "wz/Util/Defines.h"
+#include "wz/Util/WzStream.h"
 #include "wz/WzEnums.h"
 #include "wz/WzObject.h"
 
@@ -77,9 +76,9 @@ class WzDirectory final : public WzObject {
 
   Result<int> GenerateDataFile(const std::array<uint8_t, 4>* useIv,
                                bool isDefaultUserKey,
-                               std::ostream* tempStream);
+                               WzMemoryStream* tempStream);
   Result<void> SaveDirectory(WzBinaryWriter* writer);
-  Result<void> SaveImages(WzBinaryWriter* writer, std::istream* tempStream);
+  Result<void> SaveImages(WzBinaryWriter* writer, WzMemoryStream* tempStream);
   Result<uint32_t> GetOffsets(uint32_t currentOffset);
   Result<uint32_t> GetImgOffsets(uint32_t currentOffset);
 

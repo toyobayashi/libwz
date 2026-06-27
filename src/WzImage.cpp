@@ -32,12 +32,12 @@ WzImage::WzImage(const std::string& name, WzBinaryReader& reader, int checksum)
 }
 
 WzImage::WzImage(const std::string& name,
-                 std::ifstream&& dataStream,
+                 WzFileStream&& dataStream,
                  WzMapleVersion mapleVersion)
     : dataStream_(std::move(dataStream)), properties_(this) {
   SetName(name);
   auto iv = WzTool::GetIvByMapleVersion(mapleVersion);
-  ownedReader_.emplace(dataStream_, iv);
+  ownedReader_.emplace(std::make_shared<WzFileDataSource>(&dataStream_), iv);
   reader_ = &ownedReader_.value();
 }
 
@@ -312,8 +312,10 @@ Result<void> WzImage::SaveImage(WzBinaryWriter* writer,
   const int64_t originalPos = reader_->Position();
   reader_->SetPosition(offset_);
   auto bytes = reader_->ReadBytes(static_cast<size_t>(size_));
-  writer->BaseStream().write(reinterpret_cast<const char*>(bytes.data()),
-                             static_cast<std::streamsize>(bytes.size()));
+  if (!writer->BaseStream().Write(bytes.data(), bytes.size())) {
+    reader_->SetPosition(originalPos);
+    return std::unexpected(Error::IoError("Failed to write unchanged WzImage"));
+  }
   reader_->SetPosition(originalPos);
   return {};
 }

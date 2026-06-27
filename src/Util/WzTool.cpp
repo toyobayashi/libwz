@@ -1,9 +1,9 @@
 #include "wz/Util/WzTool.h"
-#include <fstream>
 #include <memory>
 #include <string>
 #include <unordered_set>
 #include "wz/Util/WzPath.h"
+#include "wz/Util/WzStream.h"
 #include "wz/WzAESConstant.h"
 #include "wz/WzDirectory.h"
 #include "wz/WzFile.h"
@@ -247,20 +247,20 @@ WzMapleVersion WzTool::DetectMapleVersion(const std::string& wzFilePath,
 }
 
 bool WzTool::IsListFile(const std::string& path) {
-  std::ifstream reader(wz::to_path(path), std::ios::binary);
-  if (!reader) return false;
+  WzFileStream reader;
+  if (!reader.Open(wz::to_path(path), "rb")) return false;
   int32_t header = 0;
-  reader.read(reinterpret_cast<char*>(&header), sizeof(header));
+  if (reader.Read(&header, sizeof(header)) != sizeof(header)) return false;
   return header != WZ_HEADER;
 }
 
 bool WzTool::IsDataWzHotfixFile(const std::string& path) {
-  std::ifstream reader(wz::to_path(path), std::ios::binary);
-  if (!reader) return false;
-  char firstByte = 0;
-  reader.read(&firstByte, 1);
-  return static_cast<uint8_t>(firstByte) ==
-         WzImage::WzImageHeaderByte_WithoutOffset;
+  WzFileStream reader;
+  if (!reader.Open(wz::to_path(path), "rb")) return false;
+  uint8_t firstByte = 0;
+  if (reader.Read(&firstByte, sizeof(firstByte)) != sizeof(firstByte))
+    return false;
+  return firstByte == WzImage::WzImageHeaderByte_WithoutOffset;
 }
 
 }  // namespace wz

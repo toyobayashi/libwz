@@ -3,57 +3,27 @@
 #include <algorithm>
 #include <cstdint>
 #include <cstring>
-#include <sstream>
+#include <filesystem>
+#include <memory>
 #include <vector>
 
+#include "TestStreams.h"
 #include "wz/Result.h"
 #include "wz/Util/WzBinaryReader.h"
 #include "wz/Util/WzDataSource.h"
+#include "wz/Util/WzStream.h"
 #include "wz/WzAESConstant.h"
 
 namespace {
 
-class NonSeekableStreamBuffer : public std::stringbuf {
- protected:
-  pos_type seekoff(off_type,
-                   std::ios_base::seekdir,
-                   std::ios_base::openmode) override {
-    return pos_type(off_type(-1));
-  }
+std::filesystem::path TempPath(const std::string& name) {
+  return std::filesystem::temp_directory_path() / name;
+}
 
-  pos_type seekpos(pos_type, std::ios_base::openmode) override {
-    return pos_type(off_type(-1));
-  }
-};
-
-class TruncatedStreamBuffer : public std::stringbuf {
- public:
-  TruncatedStreamBuffer() : std::stringbuf("ab") {}
-
- protected:
-  pos_type seekoff(off_type offset,
-                   std::ios_base::seekdir direction,
-                   std::ios_base::openmode which) override {
-    if (offset == 0 && direction == std::ios_base::end) {
-      reports_end_position_ = true;
-      return pos_type(4);
-    }
-    if (offset == 0 && direction == std::ios_base::cur &&
-        reports_end_position_) {
-      return pos_type(4);
-    }
-    reports_end_position_ = false;
-    return std::stringbuf::seekoff(offset, direction, which);
-  }
-
-  pos_type seekpos(pos_type position, std::ios_base::openmode which) override {
-    reports_end_position_ = false;
-    return std::stringbuf::seekpos(position, which);
-  }
-
- private:
-  bool reports_end_position_ = false;
-};
+void RemoveIfExists(const std::filesystem::path& path) {
+  std::error_code ec;
+  std::filesystem::remove(path, ec);
+}
 
 class CountingSource final : public wz::WzDataSource {
  public:
@@ -77,6 +47,8 @@ class CountingSource final : public wz::WzDataSource {
   std::vector<uint8_t> bytes_ = {1, 0, 0, 0, 2, 0, 0, 0};
   int read_count_ = 0;
 };
+
+}  // namespace
 
 TEST(WzMemoryDataSourceTest, ReadsExactRange) {
   wz::WzMemoryDataSource source({1, 2, 3, 4});
@@ -121,27 +93,32 @@ TEST(WzMemoryDataSourceTest, AllowsEmptyReadAtEnd) {
 }
 
 TEST(WzDataSourceTest, ReturnsZeroForNonemptyReadAtEnd) {
+  const auto path = TempPath("libwz_datasource_end.bin");
+  RemoveIfExists(path);
+  ASSERT_TRUE(test::WriteFile(path, "abcd"));
+  wz::WzFileStream file;
+  ASSERT_TRUE(file.Open(path, "rb"));
+
   wz::WzMemoryDataSource memory_source({1, 2, 3, 4});
-  std::istringstream input("abcd");
-  wz::WzStreamDataSource stream_source(input);
+  wz::WzFileDataSource file_source(&file);
   std::vector<uint8_t> memory_destination(1);
-  std::vector<uint8_t> stream_destination(1);
+  std::vector<uint8_t> file_destination(1);
 
   auto memory_result =
       memory_source.ReadAt(memory_source.Size(), memory_destination);
-  auto stream_result =
-      stream_source.ReadAt(stream_source.Size(), stream_destination);
+  auto file_result = file_source.ReadAt(file_source.Size(), file_destination);
 
   ASSERT_TRUE(memory_result.has_value());
-  ASSERT_TRUE(stream_result.has_value());
+  ASSERT_TRUE(file_result.has_value());
   EXPECT_EQ(memory_result.value(), 0U);
-  EXPECT_EQ(stream_result.value(), 0U);
+  EXPECT_EQ(file_result.value(), 0U);
+
+  RemoveIfExists(path);
 }
 
-TEST(WzStreamDataSourceTest, RejectsNonSeekableStream) {
-  NonSeekableStreamBuffer buffer;
-  std::istream input(&buffer);
-  wz::WzStreamDataSource source(input);
+TEST(WzFileDataSourceTest, RejectsClosedFile) {
+  wz::WzFileStream file;
+  wz::WzFileDataSource source(&file);
   std::vector<uint8_t> destination(1);
 
   auto result = source.ReadAt(0, destination);
@@ -150,32 +127,30 @@ TEST(WzStreamDataSourceTest, RejectsNonSeekableStream) {
   EXPECT_EQ(result.error().code(), wz::ErrorCode::IoError);
 }
 
-TEST(WzStreamDataSourceTest, ReadsEmptySeekableStreamAtEnd) {
-  std::istringstream input("");
-  wz::WzStreamDataSource source(input);
+TEST(WzFileDataSourceTest, ReadsEmptyFileAtEnd) {
+  const auto path = TempPath("libwz_datasource_empty.bin");
+  RemoveIfExists(path);
+  ASSERT_TRUE(test::WriteFile(path, ""));
+  wz::WzFileStream file;
+  ASSERT_TRUE(file.Open(path, "rb"));
+  wz::WzFileDataSource source(&file);
   std::vector<uint8_t> destination(1);
 
   auto result = source.ReadAt(0, destination);
 
   ASSERT_TRUE(result.has_value());
   EXPECT_EQ(result.value(), 0U);
+
+  RemoveIfExists(path);
 }
 
-TEST(WzStreamDataSourceTest, RejectsShortReadBeforeCapturedEnd) {
-  TruncatedStreamBuffer buffer;
-  std::istream input(&buffer);
-  wz::WzStreamDataSource source(input);
-  std::vector<uint8_t> destination(4);
-
-  auto result = source.ReadAt(0, destination);
-
-  ASSERT_FALSE(result.has_value());
-  EXPECT_EQ(result.error().code(), wz::ErrorCode::IoError);
-}
-
-TEST(WzStreamDataSourceTest, ReadsIndependentRandomRanges) {
-  std::istringstream input("abcdef");
-  wz::WzStreamDataSource source(input);
+TEST(WzFileDataSourceTest, ReadsIndependentRandomRanges) {
+  const auto path = TempPath("libwz_datasource_ranges.bin");
+  RemoveIfExists(path);
+  ASSERT_TRUE(test::WriteFile(path, "abcdef"));
+  wz::WzFileStream file;
+  ASSERT_TRUE(file.Open(path, "rb"));
+  wz::WzFileDataSource source(&file);
   std::vector<uint8_t> first(2);
   std::vector<uint8_t> second(3);
 
@@ -188,6 +163,26 @@ TEST(WzStreamDataSourceTest, ReadsIndependentRandomRanges) {
   EXPECT_EQ(second_result.value(), 3U);
   EXPECT_EQ(first, (std::vector<uint8_t>{'d', 'e'}));
   EXPECT_EQ(second, (std::vector<uint8_t>{'a', 'b', 'c'}));
+
+  RemoveIfExists(path);
+}
+
+TEST(WzFileDataSourceTest, BorrowsFileStreamLifetime) {
+  const auto path = TempPath("libwz_datasource_borrowed.bin");
+  RemoveIfExists(path);
+  ASSERT_TRUE(test::WriteFile(path, "abcd"));
+  wz::WzFileStream file;
+  ASSERT_TRUE(file.Open(path, "rb"));
+  wz::WzFileDataSource source(&file);
+  file.Close();
+  std::vector<uint8_t> destination(1);
+
+  auto result = source.ReadAt(0, destination);
+
+  ASSERT_FALSE(result.has_value());
+  EXPECT_EQ(result.error().code(), wz::ErrorCode::IoError);
+
+  RemoveIfExists(path);
 }
 
 TEST(WzBinaryReaderTest, CachesSequentialScalarReads) {
@@ -217,5 +212,3 @@ TEST(WzBinaryReaderTest, ReportsPositionAvailabilityAndSourceSize) {
   EXPECT_EQ(reader.Position(), 4);
   EXPECT_EQ(reader.Available(), 4);
 }
-
-}  // namespace

@@ -1,9 +1,9 @@
 #include "wz/Properties/WzLuaProperty.h"
 #include <filesystem>
-#include <fstream>
 #include "wz/Util/WzBinaryWriter.h"
 #include "wz/Util/WzKeyGenerator.h"
 #include "wz/Util/WzPath.h"
+#include "wz/Util/WzStream.h"
 
 namespace wz {
 WzLuaProperty::WzLuaProperty(const std::string& name,
@@ -16,9 +16,10 @@ WzLuaProperty::WzLuaProperty(const std::string& name,
 Result<void> WzLuaProperty::WriteValue(WzBinaryWriter* writer) const {
   writer->WriteByte(0x01);
   writer->WriteCompressedInt(static_cast<int32_t>(encryptedBytes_.size()));
-  writer->BaseStream().write(
-      reinterpret_cast<const char*>(encryptedBytes_.data()),
-      static_cast<std::streamsize>(encryptedBytes_.size()));
+  if (!writer->BaseStream().Write(encryptedBytes_.data(),
+                                  encryptedBytes_.size())) {
+    return std::unexpected(Error::IoError("Failed to write Lua property"));
+  }
   return {};
 }
 
@@ -45,10 +46,11 @@ Result<void> WzLuaProperty::SaveToFile(const std::string& filePath) {
     std::filesystem::create_directories(parentPath, ec);
     if (ec) return std::unexpected(Error::IoError(ec.message()));
   }
-  std::ofstream out(outPath);
-  if (!out)
+  WzFileStream out;
+  if (!out.Open(outPath, "wb"))
     return std::unexpected(Error::IoError("Failed to open file for writing"));
-  out << str;
+  if (!out.Write(str.data(), str.size()))
+    return std::unexpected(Error::IoError("Failed to write file"));
   return {};
 }
 

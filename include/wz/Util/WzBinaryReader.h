@@ -1,7 +1,6 @@
 #ifndef WZ_UTIL_WZBINARYREADER_H_
 #define WZ_UTIL_WZBINARYREADER_H_
 #include <cstdint>
-#include <istream>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -18,9 +17,6 @@ namespace wz {
 
 class WzBinaryReader {
  public:
-  WzBinaryReader(std::istream& input,
-                 const std::array<uint8_t, 4>& wzIv,
-                 int64_t startOffset = 0);
   WzBinaryReader(std::shared_ptr<WzDataSource> source,
                  const std::array<uint8_t, 4>& wzIv,
                  int64_t startOffset = 0);
@@ -69,7 +65,6 @@ class WzBinaryReader {
 
   int64_t Position();
   void SetPosition(int64_t pos);
-  void Seek(int64_t offset, int origin);
   void PrintHexBytes(int numberOfBytes);
   void Close();
 

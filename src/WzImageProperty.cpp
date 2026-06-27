@@ -65,9 +65,15 @@ Result<void> WriteExtendedValue(WzBinaryWriter* writer,
 
   const int64_t newPos = writer->Position();
   const int32_t len = static_cast<int32_t>(newPos - beforePos);
-  writer->BaseStream().seekp(beforePos);
+  if (!writer->BaseStream().Seek(beforePos, WzSeekOrigin::Begin)) {
+    return std::unexpected(
+        Error::IoError("Failed to seek WZ extended property length"));
+  }
   writer->WriteInt32(len - 4);
-  writer->BaseStream().seekp(newPos);
+  if (!writer->BaseStream().Seek(newPos, WzSeekOrigin::Begin)) {
+    return std::unexpected(
+        Error::IoError("Failed to restore WZ extended property position"));
+  }
   return {};
 }
 

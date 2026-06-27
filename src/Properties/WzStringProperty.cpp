@@ -3,10 +3,10 @@
 #include <cstdint>
 #include <cstdlib>
 #include <filesystem>
-#include <fstream>
 #include <limits>
 #include "wz/Util/WzBinaryWriter.h"
 #include "wz/Util/WzPath.h"
+#include "wz/Util/WzStream.h"
 
 namespace wz {
 
@@ -52,10 +52,11 @@ Result<void> WzStringProperty::SaveToFile(const std::string& filePath) {
     std::filesystem::create_directories(parentPath, ec);
     if (ec) return std::unexpected(Error::IoError(ec.message()));
   }
-  std::ofstream out(outPath);
-  if (!out)
+  WzFileStream out;
+  if (!out.Open(outPath, "wb"))
     return std::unexpected(Error::IoError("Failed to open file for writing"));
-  out << value_;
+  if (!out.Write(value_.data(), value_.size()))
+    return std::unexpected(Error::IoError("Failed to write file"));
   return {};
 }
 

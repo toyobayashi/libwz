@@ -1,6 +1,5 @@
 #include <cstdio>
 #include <filesystem>
-#include <iostream>
 #include <memory>
 #include <string>
 #include "wz/wz.h"
@@ -45,15 +44,15 @@ int main() {
 
   const auto* properties = img->WzProperties();
   for (auto* prop : *properties) {
-    std::cout << "Property: " << prop->Name()
-              << ", Type: " << static_cast<int>(prop->PropertyType())
-              << std::endl;
+    printf("Property: %s, Type: %d\n",
+           prop->Name().c_str(),
+           static_cast<int>(prop->PropertyType()));
     if (prop->Name() == "gauge") {
       for (auto* subProp :
            *static_cast<wz::WzSubProperty*>(prop)->WzProperties()) {
-        std::cout << "subProp: " << subProp->Name()
-                  << ", Type: " << static_cast<int>(subProp->PropertyType())
-                  << std::endl;
+        printf("subProp: %s, Type: %d\n",
+               subProp->Name().c_str(),
+               static_cast<int>(subProp->PropertyType()));
         if (subProp->Name() == "graduation") {
           EXPECT_OK(static_cast<wz::WzCanvasProperty*>(subProp)
                         ->PngProperty()
@@ -80,9 +79,9 @@ int main() {
             "Failed to save FloralLife2.mp3");
 
   for (auto* prop : *img->WzProperties()) {
-    std::cout << "Property: " << prop->Name()
-              << ", Type: " << static_cast<int>(prop->PropertyType())
-              << std::endl;
+    printf("Property: %s, Type: %d\n",
+           prop->Name().c_str(),
+           static_cast<int>(prop->PropertyType()));
     if (prop->PropertyType() == wz::WzPropertyType::Sound) {
       wz::WzBinaryProperty* soundProp =
           static_cast<wz::WzBinaryProperty*>(prop);

@@ -28,12 +28,6 @@ static std::string Utf16ToUtf8(const std::u16string& utf16) {
   return result;
 }
 
-WzBinaryReader::WzBinaryReader(std::istream& input,
-                               const std::array<uint8_t, 4>& WzIv,
-                               int64_t startOffset)
-    : WzBinaryReader(
-          std::make_shared<WzStreamDataSource>(input), WzIv, startOffset) {}
-
 WzBinaryReader::WzBinaryReader(std::shared_ptr<WzDataSource> source,
                                const std::array<uint8_t, 4>& WzIv,
                                int64_t startOffset)
@@ -155,19 +149,6 @@ int64_t WzBinaryReader::Position() {
 
 void WzBinaryReader::SetPosition(int64_t pos) {
   position_ = pos;
-}
-
-void WzBinaryReader::Seek(int64_t offset, int origin) {
-  int64_t base = 0;
-  if (origin == static_cast<int>(std::ios_base::cur)) {
-    base = position_;
-  } else if (origin == static_cast<int>(std::ios_base::end)) {
-    const uint64_t size = SourceSize();
-    base = size > static_cast<uint64_t>(std::numeric_limits<int64_t>::max())
-               ? std::numeric_limits<int64_t>::max()
-               : static_cast<int64_t>(size);
-  }
-  position_ = base + offset;
 }
 
 std::string WzBinaryReader::DecodeAscii(int length) {
