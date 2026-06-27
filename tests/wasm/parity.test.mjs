@@ -35,17 +35,9 @@ test('native and wasm expose matching root summaries', async () => {
     return summarizeParsedRoot(file, file.parseWzFile(), native.ParseStatus)
   })()
 
-  await wz.init(undefined, {
-    mount: {
-      hostPath: root,
-      wasmPath: '/repo'
-    }
-  })
+  await wz.init({ forceWasm: true })
   const direct = (() => {
-    using file = new wz.WzFile(
-      `/repo/${path.relative(root, sample)}`,
-      wz.MapleVersion.GMS
-    )
+    using file = new wz.WzFile(sample, wz.MapleVersion.GMS)
     return summarizeParsedRoot(file, file.parseWzFile(), wz.ParseStatus)
   })()
 

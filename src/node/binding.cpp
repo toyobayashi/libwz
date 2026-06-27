@@ -203,6 +203,32 @@ inline bool ReadBytesView(napi_env env,
   return false;
 }
 
+inline bool IsBytesView(napi_env env, napi_value value, bool* out) {
+  bool is_typed_array = false;
+  napi_status status = napi_is_typedarray(env, value, &is_typed_array);
+  if (status != napi_ok) {
+    ThrowNodeApiError(env, "failed to inspect typed array");
+    return false;
+  }
+  if (!is_typed_array) {
+    *out = false;
+    return true;
+  }
+  napi_typedarray_type type;
+  size_t length = 0;
+  void* data = nullptr;
+  napi_value array_buffer = nullptr;
+  size_t byte_offset = 0;
+  status = napi_get_typedarray_info(
+      env, value, &type, &length, &data, &array_buffer, &byte_offset);
+  if (status != napi_ok) {
+    ThrowNodeApiError(env, "failed to inspect typed array");
+    return false;
+  }
+  *out = type == napi_uint8_array;
+  return true;
+}
+
 inline bool ReadIv(napi_env env,
                    napi_value value,
                    std::array<uint8_t, 4>* out) {
@@ -403,6 +429,12 @@ std::shared_ptr<wz::WzBlobDataSource> MakeBlobSource(napi_env env,
   NODE_API_CALL(env,                                                           \
                 napi_get_cb_info(env, info, &argc, args, nullptr, nullptr),    \
                 "failed to read callback arguments")
+#define GET_ARGS_MAX(n)                                                        \
+  napi_value args[n] = {};                                                     \
+  size_t argc = n;                                                             \
+  NODE_API_CALL(env,                                                           \
+                napi_get_cb_info(env, info, &argc, args, nullptr, nullptr),    \
+                "failed to read callback arguments")
 #define READ_HANDLE(type, name, value)                                         \
   type name = nullptr;                                                         \
   if (!ReadHandle<type>(env, value, &name)) return nullptr
@@ -488,23 +520,18 @@ std::shared_ptr<wz::WzBlobDataSource> MakeBlobSource(napi_env env,
                   "failed to create string");                                  \
     return node_api_result;                                                    \
   } while (false)
-#define EXPORT(name, fn)                                                       \
-  do {                                                                         \
-    napi_value node_api_export = nullptr;                                      \
-    NODE_API_CALL(                                                             \
-        env,                                                                   \
-        napi_create_function(                                                  \
-            env, name, NAPI_AUTO_LENGTH, fn, nullptr, &node_api_export),       \
-        "failed to create export function");                                   \
-    NODE_API_CALL(                                                             \
-        env,                                                                   \
-        napi_set_named_property(env, exports, name, node_api_export),          \
-        "failed to set export function");                                      \
-  } while (false)
 
 FN(OpenFile) {
-  GET_ARGS(3);
+  GET_ARGS_MAX(3);
   READ_STRING(path, args[0]);
+  if (argc == 2) {
+    bool is_iv = false;
+    if (!IsBytesView(env, args[1], &is_iv)) return nullptr;
+    if (is_iv) {
+      READ_IV(iv, args[1]);
+      return ToHandle(env, new wz::WzFile(path, iv));
+    }
+  }
   READ_INT(game_version, args[1]);
   READ_INT(version, args[2]);
   return ToHandle(env,
@@ -513,21 +540,22 @@ FN(OpenFile) {
                                  static_cast<wz::WzMapleVersion>(version)));
 }
 
-FN(OpenFileWithIv) {
-  GET_ARGS(2);
-  READ_STRING(path, args[0]);
-  READ_IV(iv, args[1]);
-  return ToHandle(env, new wz::WzFile(path, iv));
-}
-
 FN(OpenMemory) {
-  GET_ARGS(4);
+  GET_ARGS_MAX(4);
   READ_STRING(name, args[0]);
   uint8_t* data = nullptr;
   size_t size = 0;
   if (!ReadBytesView(env, args[1], &data, &size)) return nullptr;
   std::vector<uint8_t> bytes(data, data + size);
   auto source = std::make_shared<wz::WzMemoryDataSource>(std::move(bytes));
+  if (argc == 3) {
+    bool is_iv = false;
+    if (!IsBytesView(env, args[2], &is_iv)) return nullptr;
+    if (is_iv) {
+      READ_IV(iv, args[2]);
+      return ToHandle(env, new wz::WzFile(name, source, iv));
+    }
+  }
   READ_INT(game_version, args[2]);
   READ_INT(version, args[3]);
   return ToHandle(env,
@@ -537,22 +565,20 @@ FN(OpenMemory) {
                                  static_cast<wz::WzMapleVersion>(version)));
 }
 
-FN(OpenMemoryWithIv) {
-  GET_ARGS(3);
-  READ_STRING(name, args[0]);
-  uint8_t* data = nullptr;
-  size_t size = 0;
-  if (!ReadBytesView(env, args[1], &data, &size)) return nullptr;
-  std::vector<uint8_t> bytes(data, data + size);
-  auto source = std::make_shared<wz::WzMemoryDataSource>(std::move(bytes));
-  READ_IV(iv, args[2]);
-  return ToHandle(env, new wz::WzFile(name, source, iv));
-}
-
 FN(OpenBlobSource) {
-  GET_ARGS(5);
+  GET_ARGS_MAX(5);
   READ_DOUBLE(size, args[0]);
   READ_STRING(name, args[1]);
+  if (argc == 4) {
+    bool is_iv = false;
+    if (!IsBytesView(env, args[2], &is_iv)) return nullptr;
+    if (is_iv) {
+      READ_IV(iv, args[2]);
+      auto source = MakeBlobSource(env, size, args[3]);
+      if (!source) return nullptr;
+      return ToHandle(env, new wz::WzFile(name, source, iv));
+    }
+  }
   READ_INT(game_version, args[2]);
   READ_INT(version, args[3]);
   auto source = MakeBlobSource(env, size, args[4]);
@@ -562,16 +588,6 @@ FN(OpenBlobSource) {
                                  source,
                                  static_cast<short>(game_version),
                                  static_cast<wz::WzMapleVersion>(version)));
-}
-
-FN(OpenBlobSourceWithIv) {
-  GET_ARGS(4);
-  READ_DOUBLE(size, args[0]);
-  READ_STRING(name, args[1]);
-  READ_IV(iv, args[2]);
-  auto source = MakeBlobSource(env, size, args[3]);
-  if (!source) return nullptr;
-  return ToHandle(env, new wz::WzFile(name, source, iv));
 }
 
 FN(CreateFile) {
@@ -1056,6 +1072,78 @@ FN(PropGetBytes) {
   return Bytes(env, result.value());
 }
 
+FN(PropertyValue) {
+  GET_ARGS(1);
+  READ_HANDLE(wz::WzImageProperty*, prop, args[0]);
+  if (!CheckNotNull(env, prop, "propertyValue")) return nullptr;
+  switch (prop->PropertyType()) {
+    case wz::WzPropertyType::Short:
+      RETURN_INT(static_cast<wz::WzShortProperty*>(prop)->Value());
+    case wz::WzPropertyType::Int:
+      RETURN_INT(static_cast<wz::WzIntProperty*>(prop)->Value());
+    case wz::WzPropertyType::Long:
+      RETURN_BIGINT(static_cast<wz::WzLongProperty*>(prop)->Value());
+    case wz::WzPropertyType::Float:
+      RETURN_DOUBLE(static_cast<wz::WzFloatProperty*>(prop)->Value());
+    case wz::WzPropertyType::Double:
+      RETURN_DOUBLE(static_cast<wz::WzDoubleProperty*>(prop)->Value());
+    case wz::WzPropertyType::String:
+      RETURN_STRING(static_cast<wz::WzStringProperty*>(prop)->Value());
+    case wz::WzPropertyType::UOL:
+      RETURN_STRING(static_cast<wz::WzUOLProperty*>(prop)->Value());
+    default:
+      NODE_API_THROW(env, "propertyValue: wrong property type");
+  }
+}
+
+FN(PropertySetValue) {
+  GET_ARGS(2);
+  READ_HANDLE(wz::WzImageProperty*, prop, args[0]);
+  if (!CheckNotNull(env, prop, "propertySetValue")) return nullptr;
+  switch (prop->PropertyType()) {
+    case wz::WzPropertyType::Short: {
+      READ_INT(value, args[1]);
+      static_cast<wz::WzShortProperty*>(prop)->SetValue(
+          static_cast<int16_t>(value));
+      RETURN_UNDEFINED();
+    }
+    case wz::WzPropertyType::Int: {
+      READ_INT(value, args[1]);
+      static_cast<wz::WzIntProperty*>(prop)->SetValue(value);
+      RETURN_UNDEFINED();
+    }
+    case wz::WzPropertyType::Long: {
+      int64_t value = 0;
+      if (!ReadInt64(env, args[1], &value)) return nullptr;
+      static_cast<wz::WzLongProperty*>(prop)->SetValue(value);
+      RETURN_UNDEFINED();
+    }
+    case wz::WzPropertyType::Float: {
+      READ_DOUBLE(value, args[1]);
+      static_cast<wz::WzFloatProperty*>(prop)->SetValue(
+          static_cast<float>(value));
+      RETURN_UNDEFINED();
+    }
+    case wz::WzPropertyType::Double: {
+      READ_DOUBLE(value, args[1]);
+      static_cast<wz::WzDoubleProperty*>(prop)->SetValue(value);
+      RETURN_UNDEFINED();
+    }
+    case wz::WzPropertyType::String: {
+      READ_STRING(value, args[1]);
+      static_cast<wz::WzStringProperty*>(prop)->SetValue(value);
+      RETURN_UNDEFINED();
+    }
+    case wz::WzPropertyType::UOL: {
+      READ_STRING(value, args[1]);
+      static_cast<wz::WzUOLProperty*>(prop)->SetValue(value);
+      RETURN_UNDEFINED();
+    }
+    default:
+      NODE_API_THROW(env, "propertySetValue: wrong property type");
+  }
+}
+
 FN(PropertyFree) {
   GET_ARGS(1);
   READ_HANDLE(wz::WzImageProperty*, prop, args[0]);
@@ -1183,114 +1271,6 @@ T* TypedProp(napi_env env,
   if (!ReadHandle<wz::WzImageProperty*>(env, value, &prop)) return nullptr;
   return CheckPropertyType(env, prop, type, name) ? static_cast<T*>(prop)
                                                   : nullptr;
-}
-
-FN(ShortValue) {
-  GET_ARGS(1);
-  auto* prop = TypedProp<wz::WzShortProperty>(
-      env, args[0], wz::WzPropertyType::Short, "shortValue");
-  if (!prop) return nullptr;
-  RETURN_INT(prop->Value());
-}
-
-FN(ShortSetValue) {
-  GET_ARGS(2);
-  auto* prop = TypedProp<wz::WzShortProperty>(
-      env, args[0], wz::WzPropertyType::Short, "shortSetValue");
-  if (!prop) return nullptr;
-  READ_INT(value, args[1]);
-  prop->SetValue(static_cast<int16_t>(value));
-  RETURN_UNDEFINED();
-}
-
-FN(IntValue) {
-  GET_ARGS(1);
-  auto* prop = TypedProp<wz::WzIntProperty>(
-      env, args[0], wz::WzPropertyType::Int, "intValue");
-  if (!prop) return nullptr;
-  RETURN_INT(prop->Value());
-}
-
-FN(IntSetValue) {
-  GET_ARGS(2);
-  auto* prop = TypedProp<wz::WzIntProperty>(
-      env, args[0], wz::WzPropertyType::Int, "intSetValue");
-  if (!prop) return nullptr;
-  READ_INT(value, args[1]);
-  prop->SetValue(value);
-  RETURN_UNDEFINED();
-}
-
-FN(LongValue) {
-  GET_ARGS(1);
-  auto* prop = TypedProp<wz::WzLongProperty>(
-      env, args[0], wz::WzPropertyType::Long, "longValue");
-  if (!prop) return nullptr;
-  RETURN_BIGINT(prop->Value());
-}
-
-FN(LongSetValue) {
-  GET_ARGS(2);
-  auto* prop = TypedProp<wz::WzLongProperty>(
-      env, args[0], wz::WzPropertyType::Long, "longSetValue");
-  int64_t value = 0;
-  if (!prop || !ReadInt64(env, args[1], &value)) return nullptr;
-  prop->SetValue(value);
-  RETURN_UNDEFINED();
-}
-
-FN(FloatValue) {
-  GET_ARGS(1);
-  auto* prop = TypedProp<wz::WzFloatProperty>(
-      env, args[0], wz::WzPropertyType::Float, "floatValue");
-  if (!prop) return nullptr;
-  RETURN_DOUBLE(prop->Value());
-}
-
-FN(FloatSetValue) {
-  GET_ARGS(2);
-  auto* prop = TypedProp<wz::WzFloatProperty>(
-      env, args[0], wz::WzPropertyType::Float, "floatSetValue");
-  if (!prop) return nullptr;
-  READ_DOUBLE(value, args[1]);
-  prop->SetValue(static_cast<float>(value));
-  RETURN_UNDEFINED();
-}
-
-FN(DoubleValue) {
-  GET_ARGS(1);
-  auto* prop = TypedProp<wz::WzDoubleProperty>(
-      env, args[0], wz::WzPropertyType::Double, "doubleValue");
-  if (!prop) return nullptr;
-  RETURN_DOUBLE(prop->Value());
-}
-
-FN(DoubleSetValue) {
-  GET_ARGS(2);
-  auto* prop = TypedProp<wz::WzDoubleProperty>(
-      env, args[0], wz::WzPropertyType::Double, "doubleSetValue");
-  if (!prop) return nullptr;
-  READ_DOUBLE(value, args[1]);
-  prop->SetValue(value);
-  RETURN_UNDEFINED();
-}
-
-FN(StringValue) {
-  GET_ARGS(1);
-  auto* prop = TypedProp<wz::WzStringProperty>(
-      env, args[0], wz::WzPropertyType::String, "stringValue");
-  if (!prop) return nullptr;
-  RETURN_STRING(prop->Value());
-}
-
-FN(StringSetValue) {
-  GET_ARGS(2);
-  auto* prop = TypedProp<wz::WzStringProperty>(
-      env, args[0], wz::WzPropertyType::String, "stringSetValue");
-  if (!prop) return nullptr;
-  READ_STRING(value, args[1]);
-  prop->SetValue(value);
-  RETURN_UNDEFINED();
 }
 
 FN(CanvasPng) {
@@ -1466,24 +1446,6 @@ FN(VideoData) {
   return Bytes(env, result.value());
 }
 
-FN(UolValue) {
-  GET_ARGS(1);
-  auto* prop = TypedProp<wz::WzUOLProperty>(
-      env, args[0], wz::WzPropertyType::UOL, "uolValue");
-  if (!prop) return nullptr;
-  RETURN_STRING(prop->Value());
-}
-
-FN(UolSetValue) {
-  GET_ARGS(2);
-  auto* prop = TypedProp<wz::WzUOLProperty>(
-      env, args[0], wz::WzPropertyType::UOL, "uolSetValue");
-  if (!prop) return nullptr;
-  READ_STRING(value, args[1]);
-  prop->SetValue(value);
-  RETURN_UNDEFINED();
-}
-
 FN(UolLinkValue) {
   GET_ARGS(1);
   auto* prop = TypedProp<wz::WzUOLProperty>(
@@ -1543,136 +1505,133 @@ FN(IvForVersion) {
   return Bytes(env, std::vector<uint8_t>(iv.begin(), iv.end()));
 }
 
-napi_value Init(napi_env env, napi_value exports) {
-  EXPORT("openFile", OpenFile);
-  EXPORT("openFileWithIv", OpenFileWithIv);
-  EXPORT("openMemory", OpenMemory);
-  EXPORT("openMemoryWithIv", OpenMemoryWithIv);
-  EXPORT("openBlobSource", OpenBlobSource);
-  EXPORT("openBlobSourceWithIv", OpenBlobSourceWithIv);
-  EXPORT("createFile", CreateFile);
-  EXPORT("parseFile", ParseFile);
-  EXPORT("closeFile", CloseFile);
-  EXPORT("fileSaveToDisk", FileSaveToDisk);
-  EXPORT("fileName", FileName);
-  EXPORT("filePath", FilePath);
-  EXPORT("fileVersion", FileVersion);
-  EXPORT("fileMapleVersion", FileMapleVersion);
-  EXPORT("fileWzDirectory", FileWzDirectory);
-  EXPORT("fileIs64Bit", FileIs64Bit);
-  EXPORT("fileIsUnloaded", FileIsUnloaded);
-  EXPORT("fileVersionHash", FileVersionHash);
-  EXPORT("fileObjectFromPath", FileObjectFromPath);
-  EXPORT("dirName", DirName);
-  EXPORT("dirCountImages", DirCountImages);
-  EXPORT("dirCountDirectories", DirCountDirectories);
-  EXPORT("dirCountImagesTotal", DirCountImagesTotal);
-  EXPORT("dirGetImage", DirGetImage);
-  EXPORT("dirGetImageByName", DirGetImageByName);
-  EXPORT("dirGetDirectory", DirGetDirectory);
-  EXPORT("dirGetDirectoryByName", DirGetDirectoryByName);
-  EXPORT("dirCreateDirectory", DirCreateDirectory);
-  EXPORT("dirCreateImage", DirCreateImage);
-  EXPORT("dirRemoveDirectory", DirRemoveDirectory);
-  EXPORT("dirRemoveImage", DirRemoveImage);
-  EXPORT("dirBlockSize", DirBlockSize);
-  EXPORT("dirChecksum", DirChecksum);
-  EXPORT("dirOffset", DirOffset);
-  EXPORT("imageName", ImageName);
-  EXPORT("imageParsed", ImageParsed);
-  EXPORT("imageChanged", ImageChanged);
-  EXPORT("imageBlockSize", ImageBlockSize);
-  EXPORT("imageChecksum", ImageChecksum);
-  EXPORT("imageOffset", ImageOffset);
-  EXPORT("imageIsLua", ImageIsLua);
-  EXPORT("imageParse", ImageParse);
-  EXPORT("imageCountProperties", ImageCountProperties);
-  EXPORT("imageGetProperty", ImageGetProperty);
-  EXPORT("imageGetFromPath", ImageGetFromPath);
-  EXPORT("imageAddProperty", ImageAddProperty);
-  EXPORT("imageRemoveProperty", ImageRemoveProperty);
-  EXPORT("imageClearProperties", ImageClearProperties);
-  EXPORT("objectType", ObjectType);
-  EXPORT("objectName", ObjectName);
-  EXPORT("objectParent", ObjectParent);
-  EXPORT("objectFullPath", ObjectFullPath);
-  EXPORT("objectWzFileParent", ObjectWzFileParent);
-  EXPORT("objectTopMostDirectory", ObjectTopMostDirectory);
-  EXPORT("objectTopMostImage", ObjectTopMostImage);
-  EXPORT("objectAt", ObjectAt);
-  EXPORT("objectSetName", ObjectSetName);
-  EXPORT("objectRemove", ObjectRemove);
-  EXPORT("propType", PropType);
-  EXPORT("propIsRaw", PropIsRaw);
-  EXPORT("propIsVideo", PropIsVideo);
-  EXPORT("propName", PropName);
-  EXPORT("propCountChildren", PropCountChildren);
-  EXPORT("propGetChild", PropGetChild);
-  EXPORT("propGetChildByName", PropGetChildByName);
-  EXPORT("propGetFromPath", PropGetFromPath);
-  EXPORT("propGetInt", PropGetInt);
-  EXPORT("propGetShort", PropGetShort);
-  EXPORT("propGetLong", PropGetLong);
-  EXPORT("propGetFloat", PropGetFloat);
-  EXPORT("propGetDouble", PropGetDouble);
-  EXPORT("propGetString", PropGetString);
-  EXPORT("propGetBytes", PropGetBytes);
-  EXPORT("propLinked", PropLinked);
-  EXPORT("propertyCreateNull", CreatePropertyNull);
-  EXPORT("propertyCreateShort", CreatePropertyShort);
-  EXPORT("propertyCreateInt", CreatePropertyInt);
-  EXPORT("propertyCreateLong", CreatePropertyLong);
-  EXPORT("propertyCreateFloat", CreatePropertyFloat);
-  EXPORT("propertyCreateDouble", CreatePropertyDouble);
-  EXPORT("propertyCreateString", CreatePropertyString);
-  EXPORT("propertyCreateSub", CreatePropertySub);
-  EXPORT("propertyCreateVector", CreatePropertyVector);
-  EXPORT("propertyCreateUol", CreatePropertyUol);
-  EXPORT("propertyFree", PropertyFree);
-  EXPORT("propertyAddChild", PropertyAddChild);
-  EXPORT("propertyRemoveChild", PropertyRemoveChild);
-  EXPORT("propertyClearChildren", PropertyClearChildren);
-  EXPORT("shortValue", ShortValue);
-  EXPORT("shortSetValue", ShortSetValue);
-  EXPORT("intValue", IntValue);
-  EXPORT("intSetValue", IntSetValue);
-  EXPORT("longValue", LongValue);
-  EXPORT("longSetValue", LongSetValue);
-  EXPORT("floatValue", FloatValue);
-  EXPORT("floatSetValue", FloatSetValue);
-  EXPORT("doubleValue", DoubleValue);
-  EXPORT("doubleSetValue", DoubleSetValue);
-  EXPORT("stringValue", StringValue);
-  EXPORT("stringSetValue", StringSetValue);
-  EXPORT("pngWidth", PngWidth);
-  EXPORT("pngHeight", PngHeight);
-  EXPORT("pngFormat", PngFormat);
-  EXPORT("pngListWzUsed", PngListWzUsed);
-  EXPORT("pngImage", PngImage);
-  EXPORT("pngCompressedBytes", PngCompressedBytes);
-  EXPORT("canvasPng", CanvasPng);
-  EXPORT("canvasContainsInlink", CanvasContainsInlink);
-  EXPORT("canvasContainsOutlink", CanvasContainsOutlink);
-  EXPORT("canvasLinked", CanvasLinked);
-  EXPORT("uolValue", UolValue);
-  EXPORT("uolSetValue", UolSetValue);
-  EXPORT("uolLinkValue", UolLinkValue);
-  EXPORT("vectorX", VectorX);
-  EXPORT("vectorY", VectorY);
-  EXPORT("luaData", LuaData);
-  EXPORT("luaString", LuaString);
-  EXPORT("binaryData", BinaryData);
-  EXPORT("binaryWav", BinaryWav);
-  EXPORT("binaryLength", BinaryLength);
-  EXPORT("binaryFrequency", BinaryFrequency);
-  EXPORT("binaryType", BinaryType);
-  EXPORT("binaryHeaderEncrypted", BinaryHeaderEncrypted);
-  EXPORT("rawData", RawData);
-  EXPORT("rawType", RawType);
-  EXPORT("videoData", VideoData);
-  EXPORT("detectMapleVersion", DetectMapleVersion);
-  EXPORT("ivForVersion", IvForVersion);
+#define WZ_EXPORT_FN(name, fn)                                                 \
+  {name, nullptr, fn, nullptr, nullptr, nullptr, napi_default, nullptr}
+
+NAPI_MODULE_INIT() {
+  const napi_property_descriptor descriptors[] = {
+      WZ_EXPORT_FN("openFile", OpenFile),
+      WZ_EXPORT_FN("openMemory", OpenMemory),
+      WZ_EXPORT_FN("openBlobSource", OpenBlobSource),
+      WZ_EXPORT_FN("createFile", CreateFile),
+      WZ_EXPORT_FN("parseFile", ParseFile),
+      WZ_EXPORT_FN("closeFile", CloseFile),
+      WZ_EXPORT_FN("fileSaveToDisk", FileSaveToDisk),
+      WZ_EXPORT_FN("fileName", FileName),
+      WZ_EXPORT_FN("filePath", FilePath),
+      WZ_EXPORT_FN("fileVersion", FileVersion),
+      WZ_EXPORT_FN("fileMapleVersion", FileMapleVersion),
+      WZ_EXPORT_FN("fileWzDirectory", FileWzDirectory),
+      WZ_EXPORT_FN("fileIs64Bit", FileIs64Bit),
+      WZ_EXPORT_FN("fileIsUnloaded", FileIsUnloaded),
+      WZ_EXPORT_FN("fileVersionHash", FileVersionHash),
+      WZ_EXPORT_FN("fileObjectFromPath", FileObjectFromPath),
+      WZ_EXPORT_FN("dirName", DirName),
+      WZ_EXPORT_FN("dirCountImages", DirCountImages),
+      WZ_EXPORT_FN("dirCountDirectories", DirCountDirectories),
+      WZ_EXPORT_FN("dirCountImagesTotal", DirCountImagesTotal),
+      WZ_EXPORT_FN("dirGetImage", DirGetImage),
+      WZ_EXPORT_FN("dirGetImageByName", DirGetImageByName),
+      WZ_EXPORT_FN("dirGetDirectory", DirGetDirectory),
+      WZ_EXPORT_FN("dirGetDirectoryByName", DirGetDirectoryByName),
+      WZ_EXPORT_FN("dirCreateDirectory", DirCreateDirectory),
+      WZ_EXPORT_FN("dirCreateImage", DirCreateImage),
+      WZ_EXPORT_FN("dirRemoveDirectory", DirRemoveDirectory),
+      WZ_EXPORT_FN("dirRemoveImage", DirRemoveImage),
+      WZ_EXPORT_FN("dirBlockSize", DirBlockSize),
+      WZ_EXPORT_FN("dirChecksum", DirChecksum),
+      WZ_EXPORT_FN("dirOffset", DirOffset),
+      WZ_EXPORT_FN("imageName", ImageName),
+      WZ_EXPORT_FN("imageParsed", ImageParsed),
+      WZ_EXPORT_FN("imageChanged", ImageChanged),
+      WZ_EXPORT_FN("imageBlockSize", ImageBlockSize),
+      WZ_EXPORT_FN("imageChecksum", ImageChecksum),
+      WZ_EXPORT_FN("imageOffset", ImageOffset),
+      WZ_EXPORT_FN("imageIsLua", ImageIsLua),
+      WZ_EXPORT_FN("imageParse", ImageParse),
+      WZ_EXPORT_FN("imageCountProperties", ImageCountProperties),
+      WZ_EXPORT_FN("imageGetProperty", ImageGetProperty),
+      WZ_EXPORT_FN("imageGetFromPath", ImageGetFromPath),
+      WZ_EXPORT_FN("imageAddProperty", ImageAddProperty),
+      WZ_EXPORT_FN("imageRemoveProperty", ImageRemoveProperty),
+      WZ_EXPORT_FN("imageClearProperties", ImageClearProperties),
+      WZ_EXPORT_FN("objectType", ObjectType),
+      WZ_EXPORT_FN("objectName", ObjectName),
+      WZ_EXPORT_FN("objectParent", ObjectParent),
+      WZ_EXPORT_FN("objectFullPath", ObjectFullPath),
+      WZ_EXPORT_FN("objectWzFileParent", ObjectWzFileParent),
+      WZ_EXPORT_FN("objectTopMostDirectory", ObjectTopMostDirectory),
+      WZ_EXPORT_FN("objectTopMostImage", ObjectTopMostImage),
+      WZ_EXPORT_FN("objectAt", ObjectAt),
+      WZ_EXPORT_FN("objectSetName", ObjectSetName),
+      WZ_EXPORT_FN("objectRemove", ObjectRemove),
+      WZ_EXPORT_FN("propType", PropType),
+      WZ_EXPORT_FN("propIsRaw", PropIsRaw),
+      WZ_EXPORT_FN("propIsVideo", PropIsVideo),
+      WZ_EXPORT_FN("propName", PropName),
+      WZ_EXPORT_FN("propCountChildren", PropCountChildren),
+      WZ_EXPORT_FN("propGetChild", PropGetChild),
+      WZ_EXPORT_FN("propGetChildByName", PropGetChildByName),
+      WZ_EXPORT_FN("propGetFromPath", PropGetFromPath),
+      WZ_EXPORT_FN("propGetInt", PropGetInt),
+      WZ_EXPORT_FN("propGetShort", PropGetShort),
+      WZ_EXPORT_FN("propGetLong", PropGetLong),
+      WZ_EXPORT_FN("propGetFloat", PropGetFloat),
+      WZ_EXPORT_FN("propGetDouble", PropGetDouble),
+      WZ_EXPORT_FN("propGetString", PropGetString),
+      WZ_EXPORT_FN("propGetBytes", PropGetBytes),
+      WZ_EXPORT_FN("propLinked", PropLinked),
+      WZ_EXPORT_FN("propertyValue", PropertyValue),
+      WZ_EXPORT_FN("propertySetValue", PropertySetValue),
+      WZ_EXPORT_FN("propertyCreateNull", CreatePropertyNull),
+      WZ_EXPORT_FN("propertyCreateShort", CreatePropertyShort),
+      WZ_EXPORT_FN("propertyCreateInt", CreatePropertyInt),
+      WZ_EXPORT_FN("propertyCreateLong", CreatePropertyLong),
+      WZ_EXPORT_FN("propertyCreateFloat", CreatePropertyFloat),
+      WZ_EXPORT_FN("propertyCreateDouble", CreatePropertyDouble),
+      WZ_EXPORT_FN("propertyCreateString", CreatePropertyString),
+      WZ_EXPORT_FN("propertyCreateSub", CreatePropertySub),
+      WZ_EXPORT_FN("propertyCreateVector", CreatePropertyVector),
+      WZ_EXPORT_FN("propertyCreateUol", CreatePropertyUol),
+      WZ_EXPORT_FN("propertyFree", PropertyFree),
+      WZ_EXPORT_FN("propertyAddChild", PropertyAddChild),
+      WZ_EXPORT_FN("propertyRemoveChild", PropertyRemoveChild),
+      WZ_EXPORT_FN("propertyClearChildren", PropertyClearChildren),
+      WZ_EXPORT_FN("pngWidth", PngWidth),
+      WZ_EXPORT_FN("pngHeight", PngHeight),
+      WZ_EXPORT_FN("pngFormat", PngFormat),
+      WZ_EXPORT_FN("pngListWzUsed", PngListWzUsed),
+      WZ_EXPORT_FN("pngImage", PngImage),
+      WZ_EXPORT_FN("pngCompressedBytes", PngCompressedBytes),
+      WZ_EXPORT_FN("canvasPng", CanvasPng),
+      WZ_EXPORT_FN("canvasContainsInlink", CanvasContainsInlink),
+      WZ_EXPORT_FN("canvasContainsOutlink", CanvasContainsOutlink),
+      WZ_EXPORT_FN("canvasLinked", CanvasLinked),
+      WZ_EXPORT_FN("uolLinkValue", UolLinkValue),
+      WZ_EXPORT_FN("vectorX", VectorX),
+      WZ_EXPORT_FN("vectorY", VectorY),
+      WZ_EXPORT_FN("luaData", LuaData),
+      WZ_EXPORT_FN("luaString", LuaString),
+      WZ_EXPORT_FN("binaryData", BinaryData),
+      WZ_EXPORT_FN("binaryWav", BinaryWav),
+      WZ_EXPORT_FN("binaryLength", BinaryLength),
+      WZ_EXPORT_FN("binaryFrequency", BinaryFrequency),
+      WZ_EXPORT_FN("binaryType", BinaryType),
+      WZ_EXPORT_FN("binaryHeaderEncrypted", BinaryHeaderEncrypted),
+      WZ_EXPORT_FN("rawData", RawData),
+      WZ_EXPORT_FN("rawType", RawType),
+      WZ_EXPORT_FN("videoData", VideoData),
+      WZ_EXPORT_FN("detectMapleVersion", DetectMapleVersion),
+      WZ_EXPORT_FN("ivForVersion", IvForVersion),
+  };
+  NODE_API_CALL(
+      env,
+      napi_define_properties(env,
+                             exports,
+                             sizeof(descriptors) / sizeof(descriptors[0]),
+                             descriptors),
+      "failed to define exports");
   return exports;
 }
 
-NAPI_MODULE(NODE_GYP_MODULE_NAME, Init)
+#undef WZ_EXPORT_FN

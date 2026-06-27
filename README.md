@@ -115,7 +115,8 @@ await init(new URL("./assets/libwz.wasm", import.meta.url));
 Use `getWzBindingType()` to inspect whether the active backend is `"native"` or
 `"wasm"`. If the native addon cannot be loaded, `init()` falls back to Wasm.
 In Node.js, pass a Wasm URL or `{ forceWasm: true }` to force the Wasm backend
-even when the native addon is available.
+even when the native addon is available. Path-based APIs still accept normal
+host filesystem paths; the Wasm runtime maps them internally.
 
 The package publishes one Wasm binary, `dist/libwz.wasm`, and no synchronous or
 main-thread Worker wrapper entry.

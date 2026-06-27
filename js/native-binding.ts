@@ -20,13 +20,27 @@ export interface DetectedMapleVersion {
   version: number;
 }
 
+export type NativePropertyValue = number | bigint | string
+
+export interface NativeOpenFile {
+  (path: string, gameVersion: number, mapleVersion: MapleVersion): NullableNativeHandle;
+  (path: string, iv: ArrayBufferViewLike): NullableNativeHandle;
+}
+
+export interface NativeOpenMemory {
+  (name: string, bytes: Uint8Array, gameVersion: number, mapleVersion: MapleVersion): NullableNativeHandle;
+  (name: string, bytes: Uint8Array, iv: ArrayBufferViewLike): NullableNativeHandle;
+}
+
+export interface NativeOpenBlobSource {
+  (size: number, name: string, gameVersion: number, mapleVersion: MapleVersion, readRange: BlobReadRangeCallback): NullableNativeHandle;
+  (size: number, name: string, iv: ArrayBufferViewLike, readRange: BlobReadRangeCallback): NullableNativeHandle;
+}
+
 export interface NativeBinding {
-  openFile(path: string, gameVersion: number, mapleVersion: MapleVersion): NullableNativeHandle;
-  openFileWithIv(path: string, iv: ArrayBufferViewLike): NullableNativeHandle;
-  openMemory(name: string, bytes: Uint8Array, gameVersion: number, mapleVersion: MapleVersion): NullableNativeHandle;
-  openMemoryWithIv(name: string, bytes: Uint8Array, iv: ArrayBufferViewLike): NullableNativeHandle;
-  openBlobSource?(size: number, name: string, gameVersion: number, mapleVersion: MapleVersion, readRange: BlobReadRangeCallback): NullableNativeHandle;
-  openBlobSourceWithIv?(size: number, name: string, iv: ArrayBufferViewLike, readRange: BlobReadRangeCallback): NullableNativeHandle;
+  openFile: NativeOpenFile;
+  openMemory: NativeOpenMemory;
+  openBlobSource?: NativeOpenBlobSource;
   createFile(gameVersion: number, mapleVersion: MapleVersion): NullableNativeHandle;
   closeFile(ptr: NativeHandle): void;
   parseFile(ptr: NativeHandle): ParseStatus;
@@ -98,6 +112,8 @@ export interface NativeBinding {
   propGetString(ptr: NativeHandle): string;
   propGetBytes(ptr: NativeHandle): Uint8Array;
   propIsVideo(ptr: NativeHandle): boolean;
+  propertyValue(ptr: NativeHandle): NativePropertyValue;
+  propertySetValue(ptr: NativeHandle, value: NativePropertyValue): void;
   propertyCreateNull(name: string): NullableNativeHandle;
   propertyCreateShort(name: string, value: number): NullableNativeHandle;
   propertyCreateInt(name: string, value: number): NullableNativeHandle;
@@ -112,19 +128,6 @@ export interface NativeBinding {
   propertyAddChild(ptr: NativeHandle, child: NativeHandle): void;
   propertyRemoveChild(ptr: NativeHandle, child: NativeHandle): void;
   propertyClearChildren(ptr: NativeHandle): void;
-
-  shortValue(ptr: NativeHandle): number;
-  shortSetValue(ptr: NativeHandle, value: number): void;
-  intValue(ptr: NativeHandle): number;
-  intSetValue(ptr: NativeHandle, value: number): void;
-  longValue(ptr: NativeHandle): bigint;
-  longSetValue(ptr: NativeHandle, value: bigint): void;
-  floatValue(ptr: NativeHandle): number;
-  floatSetValue(ptr: NativeHandle, value: number): void;
-  doubleValue(ptr: NativeHandle): number;
-  doubleSetValue(ptr: NativeHandle, value: number): void;
-  stringValue(ptr: NativeHandle): string;
-  stringSetValue(ptr: NativeHandle, value: string): void;
 
   canvasPng(ptr: NativeHandle): NullableNativeHandle;
   canvasContainsInlink(ptr: NativeHandle): boolean;
@@ -151,8 +154,6 @@ export interface NativeBinding {
   rawData(ptr: NativeHandle): Uint8Array;
   rawType(ptr: NativeHandle): number;
   videoData(ptr: NativeHandle): Uint8Array;
-  uolValue(ptr: NativeHandle): string;
-  uolSetValue(ptr: NativeHandle, value: string): void;
   uolLinkValue(ptr: NativeHandle): NativeObjectInfo | null;
   luaData(ptr: NativeHandle): Uint8Array;
   luaString(ptr: NativeHandle): string;

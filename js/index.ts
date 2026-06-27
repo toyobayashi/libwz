@@ -1,5 +1,5 @@
 import { installNativeBinding } from './native-loader.js'
-import { configureWasmBinding, type NodeFilesystemMount } from './wasm/runtime.js'
+import { configureWasmBinding } from './wasm/runtime.js'
 import { initializeWasm, loadWzModule } from './wasm/loader.js'
 export type { DetectedMapleVersion } from './native-binding.js'
 export {
@@ -38,7 +38,6 @@ export { getWzBindingType } from './binding-state.js'
 
 export interface WzInitOptions {
   forceWasm?: boolean;
-  mount?: NodeFilesystemMount;
 }
 
 export function init (options?: WzInitOptions): Promise<void>
@@ -75,7 +74,7 @@ function parseInitArgs (
   const initOptions = hasOptionsOnly ? wasmUrlOrOptions : options
   const wasmUrl = hasOptionsOnly ? undefined : wasmUrlOrOptions
   return {
-    needsWasm: wasmUrl !== undefined || initOptions.mount !== undefined || initOptions.forceWasm === true,
+    needsWasm: wasmUrl !== undefined || initOptions.forceWasm === true,
     options: initOptions,
     wasmUrl
   }

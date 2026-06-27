@@ -17,14 +17,7 @@ export interface LoadedWzModule {
   };
 }
 
-export interface WasmRuntimeOptions {
-  mount?: NodeFilesystemMount;
-}
-
-export interface NodeFilesystemMount {
-  hostPath: string;
-  wasmPath: string;
-}
+export type WasmRuntimeOptions = unknown
 
 type ArrayBufferViewLike = Uint8Array | Int8Array | Uint8ClampedArray
 
@@ -38,12 +31,11 @@ type FileReaderSyncConstructor = new() => {
 
 export function configureWasmBinding (
   loaded: LoadedWzModule,
-  options: WasmRuntimeOptions
+  _options: WasmRuntimeOptions
 ): void {
-  configureNodeMount(loaded.module, options.mount)
-
   const isNode = isNodeRuntime()
-  const binding = isNode ? normalizeNodePathBinding(loaded.binding) : loaded.binding
+  const pathMapper = isNode ? createNodePathMapper(loaded.module) : undefined
+  const binding = isNode ? normalizeNodePathBinding(loaded.binding, pathMapper) : loaded.binding
   setWzBinding(binding, {
     blobInput: true,
     pathInput: isNode,
@@ -52,25 +44,59 @@ export function configureWasmBinding (
   attachBlobFactories()
 }
 
-function normalizeNodePathBinding (binding: NativeBinding): NativeBinding {
-  return Object.assign(Object.create(binding) as NativeBinding, {
-    openFile (path: string, gameVersion: number, mapleVersion: MapleVersion) {
-      return binding.openFile(toWasmNodePath(path), gameVersion, mapleVersion)
+interface NodePathModule {
+  parse(path: string): { root: string };
+  resolve(path: string): string;
+}
+
+interface NodeProcess {
+  cwd(): string;
+  getBuiltinModule?(id: 'path'): NodePathModule | undefined;
+}
+
+interface NodePathMapper {
+  toWasmPath(path: string): string;
+}
+
+function normalizeNodePathBinding (
+  binding: NativeBinding,
+  pathMapper: NodePathMapper | undefined
+): NativeBinding {
+  return Object.defineProperties(Object.create(binding) as NativeBinding, {
+    openFile: {
+      value (path: string, gameVersionOrIv: number | ArrayBufferViewLike, mapleVersion?: MapleVersion) {
+        const wasmPath = toWasmNodePath(path, pathMapper)
+        if (ArrayBuffer.isView(gameVersionOrIv)) return binding.openFile(wasmPath, gameVersionOrIv)
+        if (mapleVersion === undefined) throw new TypeError('mapleVersion is required')
+        return binding.openFile(wasmPath, gameVersionOrIv, mapleVersion)
+      }
     },
-    openFileWithIv (path: string, iv: ArrayBufferViewLike) {
-      return binding.openFileWithIv(toWasmNodePath(path), iv)
+    fileSaveToDisk: {
+      value (ptr: bigint, path: string) {
+        binding.fileSaveToDisk(ptr, toWasmNodePath(path, pathMapper))
+      }
     },
-    fileSaveToDisk (ptr: bigint, path: string) {
-      binding.fileSaveToDisk(ptr, toWasmNodePath(path))
-    },
-    detectMapleVersion (path: string) {
-      return binding.detectMapleVersion(toWasmNodePath(path))
+    detectMapleVersion: {
+      value (path: string) {
+        return binding.detectMapleVersion(toWasmNodePath(path, pathMapper))
+      }
     }
   })
 }
 
-function toWasmNodePath (path: string): string {
-  return path.replaceAll('\\', '/')
+function toWasmNodePath (
+  path: string,
+  pathMapper: NodePathMapper | undefined
+): string {
+  return pathMapper?.toWasmPath(path) ?? normalizePath(path)
+}
+
+function normalizePath (path: string): string {
+  const normalizedPath = path.replaceAll('\\', '/')
+  if (normalizedPath.length > 1 && normalizedPath.endsWith('/')) {
+    return normalizedPath.replace(/\/+$/u, '')
+  }
+  return normalizedPath
 }
 
 function attachBlobFactories (): void {
@@ -159,15 +185,33 @@ function getFileReaderSyncConstructor (): FileReaderSyncConstructor | undefined 
   }).FileReaderSync
 }
 
-function configureNodeMount (
-  module: LoadedWzModule['module'],
-  mount: NodeFilesystemMount | undefined
-): void {
-  if (mount === undefined || module.FS === undefined || module.NODEFS === undefined) {
-    return
+function createNodePathMapper (module: LoadedWzModule['module']): NodePathMapper | undefined {
+  if (module.FS === undefined || module.NODEFS === undefined) {
+    return undefined
   }
-  module.FS.mkdirTree(mount.wasmPath)
-  module.FS.mount(module.NODEFS, { root: mount.hostPath }, mount.wasmPath)
+  const nodePath = getNodePathModule()
+  if (nodePath === undefined) return undefined
+
+  const mountedRoots = new Map<string, string>()
+  const mountRoot = '/mnt'
+  return {
+    toWasmPath (path: string): string {
+      const hostPath = normalizePath(nodePath.resolve(path))
+      const hostRoot = normalizePath(nodePath.parse(hostPath).root)
+      let wasmRoot = mountedRoots.get(hostRoot)
+      if (wasmRoot === undefined) {
+        wasmRoot = hostRoot === '/'
+          ? mountRoot
+          : `${mountRoot}/${hostRoot.replaceAll(':', '').replace(/^\/+|\/+$/gu, '')}`
+        module.FS?.mkdirTree(wasmRoot)
+        module.FS?.mount(module.NODEFS, { root: hostRoot }, wasmRoot)
+        mountedRoots.set(hostRoot, wasmRoot)
+      }
+      if (hostPath === hostRoot) return wasmRoot
+      const suffix = hostPath.slice(hostRoot.length).replace(/^\/+/u, '')
+      return suffix.length === 0 ? wasmRoot : `${wasmRoot}/${suffix}`
+    }
+  }
 }
 
 function isNodeRuntime (): boolean {
@@ -175,4 +219,12 @@ function isNodeRuntime (): boolean {
     process?: { versions?: { node?: string } };
   }).process
   return typeof maybeProcess?.versions?.node === 'string'
+}
+
+function getNodePathModule (): NodePathModule | undefined {
+  const maybeProcess = (globalThis as { process?: NodeProcess }).process
+  if (typeof maybeProcess?.getBuiltinModule === 'function') {
+    return maybeProcess.getBuiltinModule('path')
+  }
+  return undefined
 }

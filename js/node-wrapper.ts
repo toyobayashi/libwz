@@ -320,7 +320,7 @@ export class WzFile extends WzObject {
   ): WzFile {
     let ptr: NullableNativeHandle
     if (ArrayBuffer.isView(gameVersionOrMapleVersionOrIv)) {
-      ptr = native.openMemoryWithIv(name, bytes, gameVersionOrMapleVersionOrIv)
+      ptr = native.openMemory(name, bytes, gameVersionOrMapleVersionOrIv)
     } else {
       const gameVersion = mapleVersion === undefined ? -1 : gameVersionOrMapleVersionOrIv
       const version = mapleVersion === undefined
@@ -345,18 +345,15 @@ export class WzFile extends WzObject {
     if (!capabilities.blobInput) {
       throw new Error('Blob-backed WZ input is not supported in this runtime')
     }
+    if (native.openBlobSource === undefined) {
+      throw new Error('Blob-backed WZ input is not supported by this binding')
+    }
 
     let ptr: NullableNativeHandle
     if (ArrayBuffer.isView(gameVersionOrMapleVersionOrIv)) {
       const callback = mapleVersionOrReadRange as BlobReadRangeCallback
-      if (native.openBlobSourceWithIv === undefined) {
-        throw new Error('Blob-backed WZ input with IV is not supported by this binding')
-      }
-      ptr = native.openBlobSourceWithIv(size, name, gameVersionOrMapleVersionOrIv, callback)
+      ptr = native.openBlobSource(size, name, gameVersionOrMapleVersionOrIv, callback)
     } else {
-      if (native.openBlobSource === undefined) {
-        throw new Error('Blob-backed WZ input is not supported by this binding')
-      }
       const mapleVersion = typeof mapleVersionOrReadRange === 'function'
         ? undefined
         : mapleVersionOrReadRange
@@ -403,7 +400,7 @@ export class WzFile extends WzObject {
 
     let ptr: NullableNativeHandle
     if (ArrayBuffer.isView(gameVersionOrMapleVersion)) {
-      ptr = native.openFileWithIv(pathOrPtr, gameVersionOrMapleVersion)
+      ptr = native.openFile(pathOrPtr, gameVersionOrMapleVersion)
     } else {
       const gameVersion = mapleVersion === undefined ? -1 : gameVersionOrMapleVersion as number
       const version = mapleVersion === undefined
@@ -728,61 +725,61 @@ export class WzNullProperty extends WzImageProperty {}
 
 export class WzShortProperty extends WzImageProperty {
   getValue (): number {
-    return native.shortValue(this.nativePtr())
+    return native.propertyValue(this.nativePtr()) as number
   }
 
   setValue (value: number): void {
-    native.shortSetValue(this.nativePtr(), value)
+    native.propertySetValue(this.nativePtr(), value)
   }
 }
 
 export class WzIntProperty extends WzImageProperty {
   getValue (): number {
-    return native.intValue(this.nativePtr())
+    return native.propertyValue(this.nativePtr()) as number
   }
 
   setValue (value: number): void {
-    native.intSetValue(this.nativePtr(), value)
+    native.propertySetValue(this.nativePtr(), value)
   }
 }
 
 export class WzLongProperty extends WzImageProperty {
   getValue (): bigint {
-    return native.longValue(this.nativePtr())
+    return native.propertyValue(this.nativePtr()) as bigint
   }
 
   setValue (value: bigint): void {
-    native.longSetValue(this.nativePtr(), value)
+    native.propertySetValue(this.nativePtr(), value)
   }
 }
 
 export class WzFloatProperty extends WzImageProperty {
   getValue (): number {
-    return native.floatValue(this.nativePtr())
+    return native.propertyValue(this.nativePtr()) as number
   }
 
   setValue (value: number): void {
-    native.floatSetValue(this.nativePtr(), value)
+    native.propertySetValue(this.nativePtr(), value)
   }
 }
 
 export class WzDoubleProperty extends WzImageProperty {
   getValue (): number {
-    return native.doubleValue(this.nativePtr())
+    return native.propertyValue(this.nativePtr()) as number
   }
 
   setValue (value: number): void {
-    native.doubleSetValue(this.nativePtr(), value)
+    native.propertySetValue(this.nativePtr(), value)
   }
 }
 
 export class WzStringProperty extends WzImageProperty {
   getValue (): string {
-    return native.stringValue(this.nativePtr())
+    return native.propertyValue(this.nativePtr()) as string
   }
 
   setValue (value: string): void {
-    native.stringSetValue(this.nativePtr(), value)
+    native.propertySetValue(this.nativePtr(), value)
   }
 }
 
@@ -890,11 +887,11 @@ export class WzVideoProperty extends WzImageProperty {
 
 export class WzUOLProperty extends WzImageProperty {
   getValue (): string {
-    return native.uolValue(this.nativePtr())
+    return native.propertyValue(this.nativePtr()) as string
   }
 
   setValue (value: string): void {
-    native.uolSetValue(this.nativePtr(), value)
+    native.propertySetValue(this.nativePtr(), value)
   }
 
   getLinkValue (): WzObject | null {

@@ -46,16 +46,8 @@ test('root API can switch from native to wasm binding', async () => {
 })
 
 test('wasm API opens path input in Node.js after async init', async () => {
-  await wz.init(new URL('../../dist/libwz.wasm', import.meta.url), {
-    mount: {
-      hostPath: root,
-      wasmPath: '/repo'
-    }
-  })
-  using file = new wz.WzFile(
-    `/repo/${path.relative(root, sample)}`,
-    wz.MapleVersion.GMS
-  )
+  await wz.init(new URL('../../dist/libwz.wasm', import.meta.url))
+  using file = new wz.WzFile(sample, wz.MapleVersion.GMS)
   assert.equal(file.parseWzFile(), wz.ParseStatus.SUCCESS)
   assert.equal(file.getWzDirectory()?.getName(), 'TamingMob_GMS_87.wz')
 })
