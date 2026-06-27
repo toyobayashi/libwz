@@ -310,7 +310,6 @@ wz_error_code wz_double_set_value(wz_property prop, double value);
 // WzStringProperty
 wz_error_code wz_string_get_value(wz_property prop, const char** out_value);
 wz_error_code wz_string_set_value(wz_property prop, const char* value);
-wz_error_code wz_string_save_to_file(wz_property prop, const char* file_path);
 
 // ==================== WzPngProperty ====================
 
@@ -369,7 +368,6 @@ wz_error_code wz_lua_get_data(wz_property lua_prop,
                               size_t buffer_size,
                               size_t* out_size);
 wz_error_code wz_lua_get_string(wz_property lua_prop, const char** out_value);
-wz_error_code wz_lua_save_to_file(wz_property lua_prop, const char* file_path);
 
 // ==================== WzBinaryProperty (Sound) ====================
 
@@ -398,8 +396,6 @@ wz_error_code wz_rawdata_get_data(wz_property raw_prop,
                                   size_t buffer_size,
                                   size_t* out_size);
 wz_error_code wz_rawdata_get_type(wz_property raw_prop, int* out_type);
-wz_error_code wz_rawdata_save_to_file(wz_property raw_prop,
-                                      const char* file_path);
 
 // ==================== WzVideoProperty ====================
 
@@ -407,8 +403,6 @@ wz_error_code wz_video_get_data(wz_property video_prop,
                                 uint8_t* buffer,
                                 size_t buffer_size,
                                 size_t* out_size);
-wz_error_code wz_video_save_to_file(wz_property video_prop,
-                                    const char* file_path);
 
 // ==================== Utility ====================
 

@@ -8,7 +8,7 @@ import type {
 
 export type NativeHandle = bigint
 export type NullableNativeHandle = NativeHandle | null
-export type ArrayBufferViewLike = Uint8Array | Int8Array | Uint8ClampedArray
+export type NativeIv = Uint8Array
 
 export interface NativeObjectInfo {
   type: ObjectType;
@@ -24,17 +24,17 @@ export type NativePropertyValue = number | bigint | string
 
 export interface NativeOpenFile {
   (path: string, gameVersion: number, mapleVersion: MapleVersion): NullableNativeHandle;
-  (path: string, iv: ArrayBufferViewLike): NullableNativeHandle;
+  (path: string, iv: NativeIv): NullableNativeHandle;
 }
 
 export interface NativeOpenMemory {
   (name: string, bytes: Uint8Array, gameVersion: number, mapleVersion: MapleVersion): NullableNativeHandle;
-  (name: string, bytes: Uint8Array, iv: ArrayBufferViewLike): NullableNativeHandle;
+  (name: string, bytes: Uint8Array, iv: NativeIv): NullableNativeHandle;
 }
 
 export interface NativeOpenBlobSource {
   (size: number, name: string, gameVersion: number, mapleVersion: MapleVersion, readRange: BlobReadRangeCallback): NullableNativeHandle;
-  (size: number, name: string, iv: ArrayBufferViewLike, readRange: BlobReadRangeCallback): NullableNativeHandle;
+  (size: number, name: string, iv: NativeIv, readRange: BlobReadRangeCallback): NullableNativeHandle;
 }
 
 export interface NativeBinding {
@@ -133,6 +133,7 @@ export interface NativeBinding {
   canvasContainsInlink(ptr: NativeHandle): boolean;
   canvasContainsOutlink(ptr: NativeHandle): boolean;
   canvasLinked(ptr: NativeHandle): NullableNativeHandle;
+  canvasSaveToFile(ptr: NativeHandle, path: string): boolean;
 
   pngWidth(ptr: NativeHandle): number;
   pngHeight(ptr: NativeHandle): number;
@@ -140,6 +141,7 @@ export interface NativeBinding {
   pngListWzUsed(ptr: NativeHandle): boolean;
   pngImage(ptr: NativeHandle): Uint8Array;
   pngCompressedBytes(ptr: NativeHandle): Uint8Array;
+  pngSaveToFile(ptr: NativeHandle, path: string): boolean;
 
   vectorX(ptr: NativeHandle): number;
   vectorY(ptr: NativeHandle): number;
@@ -150,6 +152,7 @@ export interface NativeBinding {
   binaryFrequency(ptr: NativeHandle): number;
   binaryType(ptr: NativeHandle): BinaryType;
   binaryHeaderEncrypted(ptr: NativeHandle): boolean;
+  binarySaveToFile(ptr: NativeHandle, path: string): boolean;
 
   rawData(ptr: NativeHandle): Uint8Array;
   rawType(ptr: NativeHandle): number;

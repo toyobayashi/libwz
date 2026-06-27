@@ -89,8 +89,14 @@ JNIEXPORT jlong JNICALL JNI_FUNC(WzFile, nativeOpenWithIv)(JNIEnv* env,
                                                            jclass,
                                                            jstring filePath,
                                                            jbyteArray iv) {
+  if (!iv || env->GetArrayLength(iv) != 4) {
+    jclass exClass = env->FindClass("java/lang/IllegalArgumentException");
+    if (exClass) env->ThrowNew(exClass, "iv must be exactly 4 bytes");
+    return 0;
+  }
   JniUtfString path(env, filePath);
   jbyte* ivBytes = env->GetByteArrayElements(iv, nullptr);
+  if (!ivBytes) return 0;
   wz_file f = nullptr;
   wz_error_code err =
       wz_open_file_with_iv(path, reinterpret_cast<uint8_t*>(ivBytes), &f);
@@ -1052,15 +1058,6 @@ JNIEXPORT void JNICALL JNI_FUNC(WzStringProperty, nativeSetValue)(
   WZ_API_CALL(env, wz_string_set_value(reinterpret_cast<wz_property>(ptr), v));
 }
 
-JNIEXPORT jboolean JNICALL JNI_FUNC(WzStringProperty, nativeSaveToFile)(
-    JNIEnv* env, jclass, jlong ptr, jstring path) {
-  JniUtfString p(env, path);
-  wz_error_code err =
-      wz_string_save_to_file(reinterpret_cast<wz_property>(ptr), p);
-  WZ_API_CALL_RETURN(env, err, JNI_FALSE)
-  return JNI_TRUE;
-}
-
 // ==================== WzPngProperty ====================
 
 JNIEXPORT jint JNICALL JNI_FUNC(WzPngProperty,
@@ -1308,15 +1305,6 @@ JNIEXPORT jstring JNICALL JNI_FUNC(WzLuaProperty, nativeGetString)(JNIEnv* env,
   return result;
 }
 
-JNIEXPORT jboolean JNICALL JNI_FUNC(WzLuaProperty, nativeSaveToFile)(
-    JNIEnv* env, jclass, jlong ptr, jstring filePath) {
-  JniUtfString path(env, filePath);
-  wz_error_code err =
-      wz_lua_save_to_file(reinterpret_cast<wz_property>(ptr), path);
-  WZ_API_CALL_RETURN(env, err, JNI_FALSE)
-  return JNI_TRUE;
-}
-
 // ==================== WzBinaryProperty ====================
 
 JNIEXPORT jbyteArray JNICALL
@@ -1438,15 +1426,6 @@ JNIEXPORT jint JNICALL JNI_FUNC(WzRawDataProperty,
   return result;
 }
 
-JNIEXPORT jboolean JNICALL JNI_FUNC(WzRawDataProperty, nativeSaveToFile)(
-    JNIEnv* env, jclass, jlong ptr, jstring filePath) {
-  JniUtfString path(env, filePath);
-  wz_error_code err =
-      wz_rawdata_save_to_file(reinterpret_cast<wz_property>(ptr), path);
-  WZ_API_CALL_RETURN(env, err, JNI_FALSE)
-  return JNI_TRUE;
-}
-
 // ==================== WzVideoProperty ====================
 
 JNIEXPORT jbyteArray JNICALL
@@ -1463,15 +1442,6 @@ JNI_FUNC(WzVideoProperty, nativeGetBytes)(JNIEnv* env, jclass, jlong ptr) {
         arr, 0, static_cast<jsize>(size), reinterpret_cast<jbyte*>(buf.data()));
   }
   return arr;
-}
-
-JNIEXPORT jboolean JNICALL JNI_FUNC(WzVideoProperty, nativeSaveToFile)(
-    JNIEnv* env, jclass, jlong ptr, jstring filePath) {
-  JniUtfString path(env, filePath);
-  wz_error_code err =
-      wz_video_save_to_file(reinterpret_cast<wz_property>(ptr), path);
-  WZ_API_CALL_RETURN(env, err, JNI_FALSE)
-  return JNI_TRUE;
 }
 
 // ==================== Utility ====================

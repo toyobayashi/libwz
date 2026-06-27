@@ -1,9 +1,9 @@
 import type {
-  ArrayBufferViewLike,
   BlobReadRangeCallback,
   DetectedMapleVersion,
   NativeBinding,
   NativeHandle,
+  NativeIv,
   NativeObjectInfo,
   NullableNativeHandle
 } from './native-binding.js'
@@ -311,11 +311,11 @@ export class WzFile extends WzObject {
 
   static fromBytes (name: string, bytes: Uint8Array, mapleVersion: MapleVersion): WzFile
   static fromBytes (name: string, bytes: Uint8Array, gameVersion: number, mapleVersion: MapleVersion): WzFile
-  static fromBytes (name: string, bytes: Uint8Array, iv: ArrayBufferViewLike): WzFile
+  static fromBytes (name: string, bytes: Uint8Array, iv: NativeIv): WzFile
   static fromBytes (
     name: string,
     bytes: Uint8Array,
-    gameVersionOrMapleVersionOrIv: number | ArrayBufferViewLike,
+    gameVersionOrMapleVersionOrIv: number | NativeIv,
     mapleVersion?: MapleVersion
   ): WzFile {
     let ptr: NullableNativeHandle
@@ -334,11 +334,11 @@ export class WzFile extends WzObject {
 
   static fromBlobSource (name: string, size: number, mapleVersion: MapleVersion, readRange: BlobReadRangeCallback): WzFile
   static fromBlobSource (name: string, size: number, gameVersion: number, mapleVersion: MapleVersion, readRange: BlobReadRangeCallback): WzFile
-  static fromBlobSource (name: string, size: number, iv: ArrayBufferViewLike, readRange: BlobReadRangeCallback): WzFile
+  static fromBlobSource (name: string, size: number, iv: NativeIv, readRange: BlobReadRangeCallback): WzFile
   static fromBlobSource (
     name: string,
     size: number,
-    gameVersionOrMapleVersionOrIv: number | ArrayBufferViewLike,
+    gameVersionOrMapleVersionOrIv: number | NativeIv,
     mapleVersionOrReadRange: MapleVersion | BlobReadRangeCallback,
     readRange?: BlobReadRangeCallback
   ): WzFile {
@@ -374,8 +374,8 @@ export class WzFile extends WzObject {
     throw new Error('Blob-backed WZ input is not configured for this runtime')
   }
 
-  static fromBlobWithIv (name: string, blob: BlobLike, iv: ArrayBufferViewLike): WzFile
-  static fromBlobWithIv (_name?: string, _blob?: BlobLike, _iv?: ArrayBufferViewLike): WzFile {
+  static fromBlobWithIv (name: string, blob: BlobLike, iv: NativeIv): WzFile
+  static fromBlobWithIv (_name?: string, _blob?: BlobLike, _iv?: NativeIv): WzFile {
     throw new Error('Blob-backed WZ input is not configured for this runtime')
   }
 
@@ -387,8 +387,8 @@ export class WzFile extends WzObject {
 
   constructor (path: string, mapleVersion?: MapleVersion)
   constructor (path: string, gameVersion: number, mapleVersion: MapleVersion)
-  constructor (path: string, iv: ArrayBufferViewLike)
-  constructor (pathOrPtr: string | NativeHandle, gameVersionOrMapleVersion: number | ArrayBufferViewLike | boolean = MapleVersion.GMS, mapleVersion?: MapleVersion) {
+  constructor (path: string, iv: NativeIv)
+  constructor (pathOrPtr: string | NativeHandle, gameVersionOrMapleVersion: number | NativeIv | boolean = MapleVersion.GMS, mapleVersion?: MapleVersion) {
     if (typeof pathOrPtr === 'bigint') {
       super(pathOrPtr, gameVersionOrMapleVersion === true)
       return
@@ -803,6 +803,10 @@ export class WzCanvasProperty extends WzImageProperty {
     const ptr = native.canvasLinked(this.nativePtr())
     return ptr === null ? null : wrapProperty(ptr)
   }
+
+  saveToFile (path: string): boolean {
+    return native.canvasSaveToFile(this.nativePtr(), path)
+  }
 }
 
 export class WzPngProperty extends WzImageProperty {
@@ -828,6 +832,10 @@ export class WzPngProperty extends WzImageProperty {
 
   getCompressedBytes (): Uint8Array {
     return native.pngCompressedBytes(this.nativePtr())
+  }
+
+  saveToFile (path: string): boolean {
+    return native.pngSaveToFile(this.nativePtr(), path)
   }
 }
 
@@ -866,6 +874,10 @@ export class WzBinaryProperty extends WzImageProperty {
 
   isHeaderEncrypted (): boolean {
     return native.binaryHeaderEncrypted(this.nativePtr())
+  }
+
+  saveToFile (path: string): boolean {
+    return native.binarySaveToFile(this.nativePtr(), path)
   }
 }
 

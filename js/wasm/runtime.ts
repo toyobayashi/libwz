@@ -1,5 +1,5 @@
 import { setWzBinding } from '../binding-state.js'
-import type { BlobReadRangeCallback, NativeBinding } from '../native-binding.js'
+import type { BlobReadRangeCallback, NativeBinding, NativeIv } from '../native-binding.js'
 import {
   WzFile,
   type MapleVersion
@@ -18,8 +18,6 @@ export interface LoadedWzModule {
 }
 
 export type WasmRuntimeOptions = unknown
-
-type ArrayBufferViewLike = Uint8Array | Int8Array | Uint8ClampedArray
 
 type BlobLike = Blob & {
   slice(start?: number, end?: number): Blob;
@@ -58,13 +56,15 @@ interface NodePathMapper {
   toWasmPath(path: string): string;
 }
 
+const nodeMountedRoots = new WeakMap<LoadedWzModule['module'], Map<string, string>>()
+
 function normalizeNodePathBinding (
   binding: NativeBinding,
   pathMapper: NodePathMapper | undefined
 ): NativeBinding {
   return Object.defineProperties(Object.create(binding) as NativeBinding, {
     openFile: {
-      value (path: string, gameVersionOrIv: number | ArrayBufferViewLike, mapleVersion?: MapleVersion) {
+      value (path: string, gameVersionOrIv: number | NativeIv, mapleVersion?: MapleVersion) {
         const wasmPath = toWasmNodePath(path, pathMapper)
         if (ArrayBuffer.isView(gameVersionOrIv)) return binding.openFile(wasmPath, gameVersionOrIv)
         if (mapleVersion === undefined) throw new TypeError('mapleVersion is required')
@@ -74,6 +74,21 @@ function normalizeNodePathBinding (
     fileSaveToDisk: {
       value (ptr: bigint, path: string) {
         binding.fileSaveToDisk(ptr, toWasmNodePath(path, pathMapper))
+      }
+    },
+    canvasSaveToFile: {
+      value (ptr: bigint, path: string) {
+        return binding.canvasSaveToFile(ptr, toWasmNodePath(path, pathMapper))
+      }
+    },
+    pngSaveToFile: {
+      value (ptr: bigint, path: string) {
+        return binding.pngSaveToFile(ptr, toWasmNodePath(path, pathMapper))
+      }
+    },
+    binarySaveToFile: {
+      value (ptr: bigint, path: string) {
+        return binding.binarySaveToFile(ptr, toWasmNodePath(path, pathMapper))
       }
     },
     detectMapleVersion: {
@@ -115,7 +130,7 @@ function attachBlobFactories (): void {
   WzFile.fromBlobWithIv = (
     name: string,
     blob: BlobLike,
-    iv: ArrayBufferViewLike
+    iv: NativeIv
   ): WzFile => openBlobSource(name, blob, iv)
 
   WzFile.fromFile = (
@@ -130,7 +145,7 @@ function attachBlobFactories (): void {
 function openBlobSource (
   name: string,
   blob: BlobLike,
-  gameVersionOrMapleVersionOrIv: number | ArrayBufferViewLike,
+  gameVersionOrMapleVersionOrIv: number | NativeIv,
   mapleVersion?: MapleVersion
 ): WzFile {
   const readRange = createBlobReadRange(blob)
@@ -192,7 +207,11 @@ function createNodePathMapper (module: LoadedWzModule['module']): NodePathMapper
   const nodePath = getNodePathModule()
   if (nodePath === undefined) return undefined
 
-  const mountedRoots = new Map<string, string>()
+  let mountedRoots = nodeMountedRoots.get(module)
+  if (mountedRoots === undefined) {
+    mountedRoots = new Map<string, string>()
+    nodeMountedRoots.set(module, mountedRoots)
+  }
   const mountRoot = '/mnt'
   return {
     toWasmPath (path: string): string {

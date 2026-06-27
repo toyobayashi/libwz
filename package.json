@@ -23,7 +23,7 @@
     "test:wasm": "npm run build:wasm && node tests/wasm/esm-import.test.mjs && node tests/wasm/direct.test.mjs && node tests/wasm/parity.test.mjs",
     "types": "npm run build:ts",
     "prepack": "npm run build:ts && npm run build:wasm",
-    "test": "npm run build:ts && node --test tests/*.test.mjs"
+    "test": "npm run build:ts && npm run build:native && node --test tests/*.test.mjs"
   },
   "exports": {
     ".": {

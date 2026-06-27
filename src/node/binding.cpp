@@ -236,8 +236,12 @@ inline bool ReadIv(napi_env env,
   size_t length = 0;
   *out = {0, 0, 0, 0};
   if (!ReadBytesView(env, value, &data, &length)) return false;
+  if (length != out->size()) {
+    (void)napi_throw_range_error(env, nullptr, "iv must be exactly 4 bytes");
+    return false;
+  }
   if (data) {
-    std::memcpy(out->data(), data, length < out->size() ? length : out->size());
+    std::memcpy(out->data(), data, out->size());
   }
   return true;
 }
@@ -1307,6 +1311,17 @@ FN(CanvasLinked) {
   return NullableHandle(env, result.value());
 }
 
+FN(CanvasSaveToFile) {
+  GET_ARGS(2);
+  auto* prop = TypedProp<wz::WzCanvasProperty>(
+      env, args[0], wz::WzPropertyType::Canvas, "canvasSaveToFile");
+  if (!prop) return nullptr;
+  READ_STRING(path, args[1]);
+  auto result = prop->SaveToFile(path);
+  if (!CheckResult(env, result)) return nullptr;
+  RETURN_BOOL(true);
+}
+
 FN(PngWidth) {
   GET_ARGS(1);
   READ_HANDLE(wz::WzPngProperty*, png, args[0]);
@@ -1345,6 +1360,15 @@ FN(PngCompressedBytes) {
   auto result = png->GetCompressedBytes(false);
   if (!CheckResult(env, result)) return nullptr;
   return Bytes(env, result.value());
+}
+
+FN(PngSaveToFile) {
+  GET_ARGS(2);
+  READ_HANDLE(wz::WzPngProperty*, png, args[0]);
+  READ_STRING(path, args[1]);
+  auto result = png->SaveToFile(path);
+  if (!CheckResult(env, result)) return nullptr;
+  RETURN_BOOL(true);
 }
 
 FN(VectorX) {
@@ -1413,6 +1437,17 @@ FN(BinaryHeaderEncrypted) {
       env, args[0], wz::WzPropertyType::Sound, "binaryHeaderEncrypted");
   if (!prop) return nullptr;
   RETURN_BOOL(prop->HeaderEncrypted());
+}
+
+FN(BinarySaveToFile) {
+  GET_ARGS(2);
+  auto* prop = TypedProp<wz::WzBinaryProperty>(
+      env, args[0], wz::WzPropertyType::Sound, "binarySaveToFile");
+  if (!prop) return nullptr;
+  READ_STRING(path, args[1]);
+  auto result = prop->SaveToFile(path);
+  if (!CheckResult(env, result)) return nullptr;
+  RETURN_BOOL(true);
 }
 
 FN(RawData) {
@@ -1603,10 +1638,12 @@ NAPI_MODULE_INIT() {
       WZ_EXPORT_FN("pngListWzUsed", PngListWzUsed),
       WZ_EXPORT_FN("pngImage", PngImage),
       WZ_EXPORT_FN("pngCompressedBytes", PngCompressedBytes),
+      WZ_EXPORT_FN("pngSaveToFile", PngSaveToFile),
       WZ_EXPORT_FN("canvasPng", CanvasPng),
       WZ_EXPORT_FN("canvasContainsInlink", CanvasContainsInlink),
       WZ_EXPORT_FN("canvasContainsOutlink", CanvasContainsOutlink),
       WZ_EXPORT_FN("canvasLinked", CanvasLinked),
+      WZ_EXPORT_FN("canvasSaveToFile", CanvasSaveToFile),
       WZ_EXPORT_FN("uolLinkValue", UolLinkValue),
       WZ_EXPORT_FN("vectorX", VectorX),
       WZ_EXPORT_FN("vectorY", VectorY),
@@ -1618,6 +1655,7 @@ NAPI_MODULE_INIT() {
       WZ_EXPORT_FN("binaryFrequency", BinaryFrequency),
       WZ_EXPORT_FN("binaryType", BinaryType),
       WZ_EXPORT_FN("binaryHeaderEncrypted", BinaryHeaderEncrypted),
+      WZ_EXPORT_FN("binarySaveToFile", BinarySaveToFile),
       WZ_EXPORT_FN("rawData", RawData),
       WZ_EXPORT_FN("rawType", RawType),
       WZ_EXPORT_FN("videoData", VideoData),

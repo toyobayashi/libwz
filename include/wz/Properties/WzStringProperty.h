@@ -24,7 +24,6 @@ class WzStringProperty : public WzImageProperty {
   int32_t GetInt() const override;
   int16_t GetShort() const override;
   int64_t GetLong() const override;
-  Result<void> SaveToFile(const std::string& filePath);
 
  private:
   std::string value_;

@@ -365,7 +365,7 @@ Result<std::vector<uint8_t>> WzPngProperty::GetImage(bool saveInMemory) {
 }
 
 Result<void> WzPngProperty::SaveToFile(const std::string& filePath) {
-  auto result = GetImage(true);
+  auto result = GetImage(false);
   if (!result.has_value()) return std::unexpected(result.error());
   auto& bgra = result.value();
   if (bgra.empty())
@@ -391,8 +391,9 @@ Result<void> WzPngProperty::SaveToFile(const std::string& filePath) {
   z_stream zs = {};
   if (deflateInit2(
           &zs, Z_BEST_COMPRESSION, Z_DEFLATED, 15, 8, Z_DEFAULT_STRATEGY) !=
-      Z_OK)
+      Z_OK) {
     return std::unexpected(Error::DataError("deflateInit2 failed"));
+  }
 
   zs.next_in = rawData.data();
   zs.avail_in = static_cast<uInt>(rawData.size());

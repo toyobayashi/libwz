@@ -156,20 +156,6 @@ TEST(WzStringPropertyTest, NumericParsingMatchesMapleLibTryParse) {
   EXPECT_EQ(wz::WzStringProperty("n", "9223372036854775808").GetLong(), 0);
 }
 
-TEST(WzStringPropertyTest, SaveToFileAllowsPathWithoutParentDirectory) {
-  const std::string path = "libwz_string_save_no_parent.txt";
-  wz::WzStringProperty prop("text", "hello");
-
-  auto result = prop.SaveToFile(path);
-
-  if (!result.has_value()) {
-    ADD_FAILURE() << result.error().message();
-  }
-  EXPECT_TRUE(result.has_value());
-  EXPECT_TRUE(std::filesystem::exists(path));
-  std::filesystem::remove(path);
-}
-
 TEST(WzUOLPropertyTest, LeadingParentSegmentMatchesMapleLibResolution) {
   wz::WzImage image("Test.img");
   auto target = std::make_unique<wz::WzStringProperty>("target", "hit");

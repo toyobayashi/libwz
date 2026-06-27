@@ -27,6 +27,8 @@ const commonWzDir = path.join(
   'Common'
 )
 
+const customWz = path.join(__dirname, 'Custom.wz')
+
 const legacyWzFiles = [
   ['TamingMob_000_KMS_359.wz', wz.MapleVersion.BMS],
   ['TamingMob_000_GMS_237.wz', wz.MapleVersion.BMS],
@@ -45,6 +47,28 @@ const legacyWzFiles = [
   ['TamingMob_TMS_113.wz', wz.MapleVersion.EMS],
   ['TMS_113_Item.wz', wz.MapleVersion.EMS]
 ]
+
+function findFirstCanvas (props) {
+  for (const prop of props) {
+    if (prop instanceof wz.WzCanvasProperty) return prop
+    const found = findFirstCanvas(prop.wzProperties())
+    if (found !== null) return found
+  }
+  return null
+}
+
+function findFirstCanvasInDirectory (directory) {
+  for (const image of directory.wzImages()) {
+    image.parseImage()
+    const canvas = findFirstCanvas(image.wzProperties())
+    if (canvas !== null) return canvas
+  }
+  for (const child of directory.wzDirectories()) {
+    const canvas = findFirstCanvasInDirectory(child)
+    if (canvas !== null) return canvas
+  }
+  return null
+}
 
 test('exports Java-parallel enums and classes', () => {
   assert.equal(wz.MapleVersion.GMS, 0)
@@ -97,6 +121,18 @@ test('opens a WZ file from owned bytes', () => {
   }
 })
 
+test('IV inputs must be exactly four bytes', () => {
+  const bytes = new Uint8Array(fs.readFileSync(sampleWz))
+  assert.throws(
+    () => new wz.WzFile(sampleWz, new Uint8Array([1, 2, 3])),
+    /iv must be exactly 4 bytes/i
+  )
+  assert.throws(
+    () => wz.WzFile.fromBytes('TamingMob_GMS_87.wz', bytes, new Uint8Array(5)),
+    /iv must be exactly 4 bytes/i
+  )
+})
+
 test('property factory returns concrete property classes', () => {
   const file = new wz.WzFile(sampleWz, wz.MapleVersion.GMS)
   try {
@@ -110,6 +146,35 @@ test('property factory returns concrete property classes', () => {
     assert.notEqual(props[0].constructor, wz.WzImageProperty)
   } finally {
     file.close()
+  }
+})
+
+test('property saveToFile APIs match the supported export surface', () => {
+  assert.equal(Object.hasOwn(wz.WzStringProperty.prototype, 'saveToFile'), false)
+  assert.equal(Object.hasOwn(wz.WzPngProperty.prototype, 'saveToFile'), true)
+  assert.equal(Object.hasOwn(wz.WzCanvasProperty.prototype, 'saveToFile'), true)
+  assert.equal(Object.hasOwn(wz.WzLuaProperty.prototype, 'saveToFile'), false)
+  assert.equal(Object.hasOwn(wz.WzBinaryProperty.prototype, 'saveToFile'), true)
+  assert.equal(Object.hasOwn(wz.WzRawDataProperty.prototype, 'saveToFile'), false)
+  assert.equal(Object.hasOwn(wz.WzVideoProperty.prototype, 'saveToFile'), false)
+})
+
+test('canvas saveToFile exports a PNG image', () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'libwz-canvas-save-'))
+  const outPath = path.join(tmpDir, 'canvas.png')
+  const file = new wz.WzFile(customWz, wz.MapleVersion.GMS)
+  try {
+    assert.equal(file.parseWzFile(), wz.ParseStatus.SUCCESS)
+    const canvas = findFirstCanvasInDirectory(file.getWzDirectory())
+    assert.ok(canvas instanceof wz.WzCanvasProperty)
+    assert.equal(canvas.saveToFile(outPath), true)
+    assert.deepEqual(
+      [...fs.readFileSync(outPath).subarray(0, 8)],
+      [137, 80, 78, 71, 13, 10, 26, 10]
+    )
+  } finally {
+    file.close()
+    fs.rmSync(tmpDir, { recursive: true, force: true })
   }
 })
 

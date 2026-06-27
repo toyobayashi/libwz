@@ -22,7 +22,6 @@ class WzLuaProperty : public WzImageProperty {
   }
   std::string GetString() const override;
   std::vector<uint8_t> EncodeDecode(const std::vector<uint8_t>& input) const;
-  Result<void> SaveToFile(const std::string& filePath);
 
  private:
   std::vector<uint8_t> encryptedBytes_;

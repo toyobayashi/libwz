@@ -1417,18 +1417,6 @@ wz_error_code wz_string_set_value(wz_property prop, const char* value) {
   return wz_clear_last_error();
 }
 
-wz_error_code wz_string_save_to_file(wz_property prop, const char* file_path) {
-  if (!prop) return set_error_null("wz_string_save_to_file");
-  if (!file_path) {
-    return set_error_invalid_arg("wz_string_save_to_file", "file_path");
-  }
-  if (unwrap_prop(prop)->PropertyType() != wz::WzPropertyType::String) {
-    return set_error_wrong_type("wz_string_save_to_file");
-  }
-  return result_void(static_cast<wz::WzStringProperty*>(unwrap_prop(prop))
-                         ->SaveToFile(file_path));
-}
-
 wz_error_code wz_png_width(wz_png_property png, int* out_width) {
   if (auto ec = init_out("wz_png_width", out_width); ec != WZ_ERROR_NONE) {
     return ec;
@@ -1724,18 +1712,6 @@ wz_error_code wz_lua_get_string(wz_property lua_prop, const char** out_value) {
   return wz_clear_last_error();
 }
 
-wz_error_code wz_lua_save_to_file(wz_property lua_prop, const char* file_path) {
-  auto* p = unwrap_prop(lua_prop);
-  if (!p) return set_error_null("wz_lua_save_to_file");
-  if (!file_path) {
-    return set_error_invalid_arg("wz_lua_save_to_file", "file_path");
-  }
-  if (p->PropertyType() != wz::WzPropertyType::Lua) {
-    return set_error_wrong_type("wz_lua_save_to_file");
-  }
-  return result_void(static_cast<wz::WzLuaProperty*>(p)->SaveToFile(file_path));
-}
-
 wz_error_code wz_binary_get_data(wz_property binary_prop,
                                  uint8_t* buffer,
                                  size_t buffer_size,
@@ -1902,20 +1878,6 @@ wz_error_code wz_rawdata_get_type(wz_property raw_prop, int* out_type) {
   return wz_clear_last_error();
 }
 
-wz_error_code wz_rawdata_save_to_file(wz_property raw_prop,
-                                      const char* file_path) {
-  auto* p = unwrap_prop(raw_prop);
-  if (!p) return set_error_null("wz_rawdata_save_to_file");
-  if (!file_path) {
-    return set_error_invalid_arg("wz_rawdata_save_to_file", "file_path");
-  }
-  if (!p->IsRawDataProperty()) {
-    return set_error_wrong_type("wz_rawdata_save_to_file");
-  }
-  return result_void(
-      static_cast<wz::WzRawDataProperty*>(p)->SaveToFile(file_path));
-}
-
 wz_error_code wz_video_get_data(wz_property video_prop,
                                 uint8_t* buffer,
                                 size_t buffer_size,
@@ -1939,20 +1901,6 @@ wz_error_code wz_video_get_data(wz_property video_prop,
     std::memcpy(buffer, data.data(), data.size());
   }
   return wz_clear_last_error();
-}
-
-wz_error_code wz_video_save_to_file(wz_property video_prop,
-                                    const char* file_path) {
-  auto* p = unwrap_prop(video_prop);
-  if (!p) return set_error_null("wz_video_save_to_file");
-  if (!file_path) {
-    return set_error_invalid_arg("wz_video_save_to_file", "file_path");
-  }
-  if (!p->IsVideoProperty()) {
-    return set_error_wrong_type("wz_video_save_to_file");
-  }
-  return result_void(
-      static_cast<wz::WzVideoProperty*>(p)->SaveToFile(file_path));
 }
 
 wz_error_code wz_get_error_description(wz_parse_status status,
