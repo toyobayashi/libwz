@@ -231,18 +231,16 @@ Result<std::vector<uint8_t>> WzPngProperty::GetCompressedBytesForExtraction(
   // Re-compress to standard zlib
   auto& rawImg = raw.value();
   uLongf destLen = compressBound(static_cast<uLong>(rawImg.size()));
-  std::vector<uint8_t> compressed(destLen + 2);
-  compressed[0] = 0x78;
-  compressed[1] = 0x9C;
+  std::vector<uint8_t> compressed(destLen);
 
-  if (compress2(compressed.data() + 2,
+  if (compress2(compressed.data(),
                 &destLen,
                 rawImg.data(),
                 static_cast<uLong>(rawImg.size()),
                 Z_DEFAULT_COMPRESSION) != Z_OK)
     return rawData;
 
-  compressed.resize(destLen + 2);
+  compressed.resize(destLen);
   return compressed;
 }
 
