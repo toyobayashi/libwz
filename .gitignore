@@ -4,6 +4,13 @@ dist
 tmp
 index.js
 index.d.ts
+src/native-binding.js
+src/node-wrapper.js
+js/native-binding.js
+js/binding-state.js
+js/node-wrapper.js
+js/*.d.ts
+js/wasm/*.d.ts
 java/src/main/resources/native/**/*.so
 java/src/main/resources/native/**/*.dll
 java/src/main/resources/native/**/*.dylib

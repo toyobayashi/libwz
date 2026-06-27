@@ -85,6 +85,13 @@ typedef struct wz_last_error_info {
   const char* message;
 } wz_last_error_info;
 
+typedef int (*wz_blob_read_callback)(void* userdata,
+                                     uint64_t offset,
+                                     uint8_t* destination,
+                                     size_t length,
+                                     size_t* out_bytes_read);
+typedef void (*wz_blob_release_callback)(void* userdata);
+
 wz_error_code wz_get_last_error_info(const wz_last_error_info** info);
 
 // ==================== WzFile ====================
@@ -93,12 +100,40 @@ wz_error_code wz_open_file(const char* file_path,
                            short game_version,
                            wz_maple_version version,
                            wz_file* out_file);
+wz_error_code wz_open_memory(const char* file_name,
+                             const uint8_t* data,
+                             size_t data_size,
+                             short game_version,
+                             wz_maple_version version,
+                             wz_file* out_file);
+wz_error_code wz_open_blob_source_with_callback(
+    void* userdata,
+    wz_blob_read_callback read_callback,
+    wz_blob_release_callback release_callback,
+    uint64_t size,
+    const char* file_name,
+    short game_version,
+    wz_maple_version version,
+    wz_file* out_file);
 wz_error_code wz_create_file(short game_version,
                              wz_maple_version version,
                              wz_file* out_file);
 wz_error_code wz_open_file_with_iv(const char* file_path,
                                    const uint8_t iv[4],
                                    wz_file* out_file);
+wz_error_code wz_open_memory_with_iv(const char* file_name,
+                                     const uint8_t* data,
+                                     size_t data_size,
+                                     const uint8_t iv[4],
+                                     wz_file* out_file);
+wz_error_code wz_open_blob_source_with_callback_and_iv(
+    void* userdata,
+    wz_blob_read_callback read_callback,
+    wz_blob_release_callback release_callback,
+    uint64_t size,
+    const char* file_name,
+    const uint8_t iv[4],
+    wz_file* out_file);
 wz_error_code wz_parse(wz_file file, wz_parse_status* out_status);
 wz_error_code wz_close_file(wz_file file);
 wz_error_code wz_file_save_to_disk(wz_file file, const char* file_path);
@@ -275,7 +310,6 @@ wz_error_code wz_double_set_value(wz_property prop, double value);
 // WzStringProperty
 wz_error_code wz_string_get_value(wz_property prop, const char** out_value);
 wz_error_code wz_string_set_value(wz_property prop, const char* value);
-wz_error_code wz_string_save_to_file(wz_property prop, const char* file_path);
 
 // ==================== WzPngProperty ====================
 
@@ -334,7 +368,6 @@ wz_error_code wz_lua_get_data(wz_property lua_prop,
                               size_t buffer_size,
                               size_t* out_size);
 wz_error_code wz_lua_get_string(wz_property lua_prop, const char** out_value);
-wz_error_code wz_lua_save_to_file(wz_property lua_prop, const char* file_path);
 
 // ==================== WzBinaryProperty (Sound) ====================
 
@@ -363,8 +396,6 @@ wz_error_code wz_rawdata_get_data(wz_property raw_prop,
                                   size_t buffer_size,
                                   size_t* out_size);
 wz_error_code wz_rawdata_get_type(wz_property raw_prop, int* out_type);
-wz_error_code wz_rawdata_save_to_file(wz_property raw_prop,
-                                      const char* file_path);
 
 // ==================== WzVideoProperty ====================
 
@@ -372,8 +403,6 @@ wz_error_code wz_video_get_data(wz_property video_prop,
                                 uint8_t* buffer,
                                 size_t buffer_size,
                                 size_t* out_size);
-wz_error_code wz_video_save_to_file(wz_property video_prop,
-                                    const char* file_path);
 
 // ==================== Utility ====================
 

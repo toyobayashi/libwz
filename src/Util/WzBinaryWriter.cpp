@@ -83,11 +83,11 @@ uint32_t RotateLeft32(uint32_t value, uint8_t count) {
 
 }  // namespace
 
-WzBinaryWriter::WzBinaryWriter(std::ostream& output,
+WzBinaryWriter::WzBinaryWriter(WzStream& output,
                                const std::array<uint8_t, 4>& WzIv)
     : output_(&output), wzKey_(WzKeyGenerator::GenerateWzKey(WzIv)) {}
 
-WzBinaryWriter::WzBinaryWriter(std::ostream& output,
+WzBinaryWriter::WzBinaryWriter(WzStream& output,
                                const std::array<uint8_t, 4>& WzIv,
                                uint32_t hash)
     : output_(&output),
@@ -116,11 +116,15 @@ WzBinaryWriter& WzBinaryWriter::operator=(WzBinaryWriter&& other) noexcept {
 }
 
 int64_t WzBinaryWriter::Position() {
-  return static_cast<int64_t>(output_->tellp());
+  return output_ ? output_->Position() : -1;
 }
 
 void WzBinaryWriter::ClearStringCache() {
   stringCache_.clear();
+}
+
+bool WzBinaryWriter::WriteRawByte(uint8_t value) {
+  return output_ && output_->WriteByte(value);
 }
 
 template <typename T>
@@ -132,12 +136,11 @@ void WzBinaryWriter::WriteLittleEndian(T value) {
     std::swap(bytes[i], bytes[sizeof(T) - 1 - i]);
   }
 #endif
-  output_->write(reinterpret_cast<const char*>(bytes),
-                 static_cast<std::streamsize>(sizeof(T)));
+  BaseStream().Write(bytes, sizeof(T));
 }
 
 void WzBinaryWriter::WriteByte(uint8_t value) {
-  output_->put(static_cast<char>(value));
+  WriteRawByte(value);
 }
 
 void WzBinaryWriter::WriteSByte(int8_t value) {
@@ -230,7 +233,7 @@ void WzBinaryWriter::WriteUnicodeString(const std::u16string& value) {
 }
 
 void WzBinaryWriter::WriteNullTerminatedString(const std::string& value) {
-  output_->write(value.data(), static_cast<std::streamsize>(value.size()));
+  BaseStream().Write(value.data(), value.size());
   WriteByte(0);
 }
 

@@ -52,7 +52,8 @@
       "includePath": [
         "${includePath}",
         "${env:HOME}/Library/Java/JavaVirtualMachines/jbr-21.0.6/Contents/Home/include",
-        "${env:HOME}/Library/Java/JavaVirtualMachines/jbr-21.0.6/Contents/Home/include/darwin"
+        "${env:HOME}/Library/Java/JavaVirtualMachines/jbr-21.0.6/Contents/Home/include/darwin",
+        "${env:HOME}/Library/Caches/node-gyp/24.12.0/include/node"
       ],
       "defines": ["${defines}"],
       "macFrameworkPath": ["/System/Library/Frameworks", "/Library/Frameworks"],

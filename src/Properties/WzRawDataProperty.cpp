@@ -1,11 +1,8 @@
 #include "wz/Properties/WzRawDataProperty.h"
 #include <algorithm>
-#include <filesystem>
-#include <fstream>
 #include <mutex>
 #include "wz/Util/WzBinaryReader.h"
 #include "wz/Util/WzBinaryWriter.h"
-#include "wz/Util/WzPath.h"
 #include "wz/WzImage.h"
 
 namespace wz {
@@ -38,8 +35,9 @@ Result<void> WzRawDataProperty::WriteValue(WzBinaryWriter* writer) const {
     }
   }
   writer->WriteCompressedInt(static_cast<int32_t>(data.value().size()));
-  writer->BaseStream().write(reinterpret_cast<const char*>(data.value().data()),
-                             static_cast<std::streamsize>(data.value().size()));
+  if (!writer->BaseStream().Write(data.value().data(), data.value().size())) {
+    return std::unexpected(Error::IoError("Failed to write raw data property"));
+  }
   return {};
 }
 
@@ -109,24 +107,6 @@ Result<std::vector<uint8_t>> WzRawDataProperty::GetBytes(bool saveInMemory) {
   auto result = bytes_;
   bytes_.clear();
   return result;
-}
-
-Result<void> WzRawDataProperty::SaveToFile(const std::string& filePath) {
-  auto result = GetBytes(false);
-  if (!result.has_value()) return std::unexpected(result.error());
-  auto& bytes = result.value();
-  auto outPath = wz::to_path(filePath);
-  auto parentPath = outPath.parent_path();
-  std::error_code ec;
-  if (!parentPath.empty()) {
-    std::filesystem::create_directories(parentPath, ec);
-    if (ec) return std::unexpected(Error::IoError(ec.message()));
-  }
-  std::ofstream out(outPath, std::ios::binary);
-  if (!out)
-    return std::unexpected(Error::IoError("Failed to open file for writing"));
-  out.write(reinterpret_cast<const char*>(bytes.data()), bytes.size());
-  return {};
 }
 
 }  // namespace wz

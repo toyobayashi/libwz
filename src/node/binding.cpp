@@ -1,1252 +1,1722 @@
-#include <napi.h>
+#include <node_api.h>
+
+#include <array>
 #include <cstdint>
 #include <cstring>
+#include <memory>
+#include <span>
 #include <string>
 #include <vector>
-#include "wz/wz_api.h"
 
-namespace {
+#ifdef __EMSCRIPTEN__
+#include <emnapi.h>
+#endif
 
-template <typename T>
-inline T FromHandle(const Napi::Value& value) {
-  bool lossless = false;
-  uint64_t raw = value.As<Napi::BigInt>().Uint64Value(&lossless);
-  return reinterpret_cast<T>(static_cast<uintptr_t>(raw));
+#include "wz/Properties/WzBinaryProperty.h"
+#include "wz/Properties/WzCanvasProperty.h"
+#include "wz/Properties/WzConvexProperty.h"
+#include "wz/Properties/WzDoubleProperty.h"
+#include "wz/Properties/WzFloatProperty.h"
+#include "wz/Properties/WzIntProperty.h"
+#include "wz/Properties/WzLongProperty.h"
+#include "wz/Properties/WzLuaProperty.h"
+#include "wz/Properties/WzNullProperty.h"
+#include "wz/Properties/WzPngProperty.h"
+#include "wz/Properties/WzRawDataProperty.h"
+#include "wz/Properties/WzShortProperty.h"
+#include "wz/Properties/WzStringProperty.h"
+#include "wz/Properties/WzSubProperty.h"
+#include "wz/Properties/WzUOLProperty.h"
+#include "wz/Properties/WzVectorProperty.h"
+#include "wz/Properties/WzVideoProperty.h"
+#include "wz/Result.h"
+#include "wz/Util/WzBlobDataSource.h"
+#include "wz/Util/WzDataSource.h"
+#include "wz/Util/WzTool.h"
+#include "wz/WzDirectory.h"
+#include "wz/WzFile.h"
+#include "wz/WzImage.h"
+#include "wz/WzObject.h"
+#include "wz/WzPropertyCollection.h"
+
+void ThrowNodeApiError(napi_env env, const char* message) {
+  const napi_extended_error_info* error = nullptr;
+  (void)napi_get_last_error_info(env, &error);
+  const char* detail =
+      error && error->error_message ? error->error_message : message;
+  (void)napi_throw_error(env, nullptr, detail);
 }
 
-template <typename T>
-inline Napi::BigInt ToHandle(Napi::Env env, T ptr) {
-  return Napi::BigInt::New(
-      env, static_cast<uint64_t>(reinterpret_cast<uintptr_t>(ptr)));
-}
-
-inline void ThrowIfError(Napi::Env env) {
-  const wz_last_error_info* info = nullptr;
-  wz_get_last_error_info(&info);
-  const char* msg = info ? info->message : nullptr;
-  Napi::Error::New(env, msg ? msg : "libwz error").ThrowAsJavaScriptException();
-}
-
-#define WZ_NODE_API_CALL(env, expr)                                            \
+#define NODE_API_CALL(env, expr, message)                                      \
   do {                                                                         \
-    wz_error_code wz_api_err = (expr);                                         \
-    if (wz_api_err != WZ_ERROR_NONE) {                                         \
-      ThrowIfError((env));                                                     \
-      return Napi::Value();                                                    \
+    napi_status node_api_status = (expr);                                      \
+    if (node_api_status != napi_ok) {                                          \
+      ThrowNodeApiError((env), (message));                                     \
+      return nullptr;                                                          \
     }                                                                          \
   } while (false)
 
-bool ReadInt64BigInt(Napi::Env env, const Napi::Value& value, int64_t* out) {
+#define NODE_API_THROW(env, message)                                           \
+  do {                                                                         \
+    (void)napi_throw_error((env), nullptr, (message));                         \
+    return nullptr;                                                            \
+  } while (false)
+
+template <typename T>
+inline bool ReadHandle(napi_env env, napi_value value, T* out) {
   bool lossless = false;
-  *out = value.As<Napi::BigInt>().Int64Value(&lossless);
+  uint64_t raw = 0;
+  napi_status status =
+      napi_get_value_bigint_uint64(env, value, &raw, &lossless);
+  if (status != napi_ok) {
+    (void)napi_throw_error(env, nullptr, "expected native handle bigint");
+    return false;
+  }
   if (!lossless) {
-    Napi::RangeError::New(env, "bigint value is outside int64 range")
-        .ThrowAsJavaScriptException();
+    (void)napi_throw_range_error(
+        env, nullptr, "native handle bigint is outside uint64 range");
+    return false;
+  }
+  *out = reinterpret_cast<T>(static_cast<uintptr_t>(raw));
+  return true;
+}
+
+template <typename T>
+inline napi_value ToHandle(napi_env env, T ptr) {
+  napi_value value = nullptr;
+  NODE_API_CALL(
+      env,
+      napi_create_bigint_uint64(
+          env, static_cast<uint64_t>(reinterpret_cast<uintptr_t>(ptr)), &value),
+      "failed to create native handle");
+  return value;
+}
+
+template <typename T>
+inline bool CheckResult(napi_env env, const wz::Result<T>& result) {
+  if (result.has_value()) return true;
+  (void)napi_throw_error(env, nullptr, result.error().message().c_str());
+  return false;
+}
+
+inline bool CheckResult(napi_env env, const wz::Result<void>& result) {
+  if (result.has_value()) return true;
+  (void)napi_throw_error(env, nullptr, result.error().message().c_str());
+  return false;
+}
+
+inline bool CheckNotNull(napi_env env, const void* ptr, const char* name) {
+  if (ptr) return true;
+  const std::string message = std::string(name) + ": null handle";
+  (void)napi_throw_error(env, nullptr, message.c_str());
+  return false;
+}
+
+inline bool CheckPropertyType(napi_env env,
+                              wz::WzImageProperty* prop,
+                              wz::WzPropertyType type,
+                              const char* name) {
+  if (!CheckNotNull(env, prop, name)) return false;
+  if (prop->PropertyType() == type) return true;
+  const std::string message = std::string(name) + ": wrong property type";
+  (void)napi_throw_error(env, nullptr, message.c_str());
+  return false;
+}
+
+inline bool ReadString(napi_env env, napi_value value, std::string* out) {
+  size_t length = 0;
+  napi_status status =
+      napi_get_value_string_utf8(env, value, nullptr, 0, &length);
+  if (status != napi_ok) {
+    (void)napi_throw_error(env, nullptr, "expected string");
+    return false;
+  }
+  std::string result(length + 1, '\0');
+  size_t copied = 0;
+  status = napi_get_value_string_utf8(
+      env, value, result.data(), length + 1, &copied);
+  if (status != napi_ok) {
+    (void)napi_throw_error(env, nullptr, "failed to read string");
+    return false;
+  }
+  result.resize(copied);
+  *out = std::move(result);
+  return true;
+}
+
+inline bool ReadInt(napi_env env, napi_value value, int32_t* out) {
+  napi_status status = napi_get_value_int32(env, value, out);
+  if (status == napi_ok) return true;
+  (void)napi_throw_error(env, nullptr, "expected int32");
+  return false;
+}
+
+inline bool ReadDouble(napi_env env, napi_value value, double* out) {
+  napi_status status = napi_get_value_double(env, value, out);
+  if (status == napi_ok) return true;
+  (void)napi_throw_error(env, nullptr, "expected number");
+  return false;
+}
+
+inline bool ReadBool(napi_env env, napi_value value, bool* out) {
+  napi_status status = napi_get_value_bool(env, value, out);
+  if (status == napi_ok) return true;
+  (void)napi_throw_error(env, nullptr, "expected boolean");
+  return false;
+}
+
+inline bool ReadInt64(napi_env env, napi_value value, int64_t* out) {
+  bool lossless = false;
+  napi_status status = napi_get_value_bigint_int64(env, value, out, &lossless);
+  if (status != napi_ok) {
+    (void)napi_throw_error(env, nullptr, "expected int64 bigint");
+    return false;
+  }
+  if (!lossless) {
+    (void)napi_throw_range_error(
+        env, nullptr, "bigint value is outside int64 range");
     return false;
   }
   return true;
 }
 
-Napi::Value NullableString(Napi::Env env, const char* s) {
-  if (!s) return env.Null();
-  return Napi::String::New(env, s);
+inline bool ReadBytesView(napi_env env,
+                          napi_value value,
+                          uint8_t** data,
+                          size_t* length,
+                          napi_value* array_buffer,
+                          size_t* byte_offset) {
+  napi_typedarray_type type;
+  napi_status status = napi_get_typedarray_info(env,
+                                                value,
+                                                &type,
+                                                length,
+                                                reinterpret_cast<void**>(data),
+                                                array_buffer,
+                                                byte_offset);
+  if (status != napi_ok) {
+    (void)napi_throw_error(env, nullptr, "expected Uint8Array");
+    return false;
+  }
+  if (type == napi_uint8_array) return true;
+  (void)napi_throw_error(env, nullptr, "expected Uint8Array");
+  return false;
 }
 
-Napi::Value NullableObject(Napi::Env env, wz_object obj) {
-  if (!obj) return env.Null();
-  Napi::Object result = Napi::Object::New(env);
-  wz_object_type type = WZ_OBJECT_FILE;
-  WZ_NODE_API_CALL(env, wz_get_object_type(obj, &type));
-  result.Set("type", static_cast<int>(type));
-  result.Set("ptr", ToHandle(env, obj));
+inline bool ReadBytesView(napi_env env,
+                          napi_value value,
+                          uint8_t** data,
+                          size_t* length) {
+  napi_value array_buffer = nullptr;
+  size_t byte_offset = 0;
+  return ReadBytesView(env, value, data, length, &array_buffer, &byte_offset);
+}
+
+inline bool IsBytesView(napi_env env, napi_value value, bool* out) {
+  napi_status status = napi_is_typedarray(env, value, out);
+  if (status != napi_ok) {
+    ThrowNodeApiError(env, "failed to inspect typed array");
+    return false;
+  }
+  return true;
+}
+
+inline bool ReadIv(napi_env env,
+                   napi_value value,
+                   std::array<uint8_t, 4>* out) {
+  uint8_t* data = nullptr;
+  size_t length = 0;
+  *out = {0, 0, 0, 0};
+  if (!ReadBytesView(env, value, &data, &length)) return false;
+  if (length != out->size()) {
+    (void)napi_throw_range_error(env, nullptr, "iv must be exactly 4 bytes");
+    return false;
+  }
+  if (data) {
+    std::memcpy(out->data(), data, out->size());
+  }
+  return true;
+}
+
+#ifdef __EMSCRIPTEN__
+inline bool SyncMemory(napi_env env,
+                       bool js_to_wasm,
+                       napi_value value,
+                       size_t byte_offset,
+                       size_t length) {
+  napi_value raw = value;
+  napi_status status =
+      emnapi_sync_memory(env, js_to_wasm, &raw, byte_offset, length);
+  if (status == napi_ok) return true;
+  (void)napi_throw_error(env, nullptr, "emnapi_sync_memory failed");
+  return false;
+}
+#else
+inline bool SyncMemory(napi_env, bool, napi_value, size_t, size_t) {
+  return true;
+}
+#endif
+
+#ifdef __EMSCRIPTEN__
+inline bool CreateDestinationView(napi_env env,
+                                  std::span<uint8_t> destination,
+                                  napi_value* result) {
+  napi_status status = emnapi_create_memory_view(env,
+                                                 emnapi_uint8_array,
+                                                 destination.data(),
+                                                 destination.size(),
+                                                 nullptr,
+                                                 nullptr,
+                                                 result);
+  if (status == napi_ok) return true;
+  (void)napi_throw_error(env, nullptr, "failed to create Blob read buffer");
+  return false;
+}
+#endif
+
+inline napi_value Bytes(napi_env env, const std::vector<uint8_t>& data) {
+  napi_value array_buffer = nullptr;
+  void* raw = nullptr;
+  NODE_API_CALL(env,
+                napi_create_arraybuffer(env, data.size(), &raw, &array_buffer),
+                "failed to create ArrayBuffer");
+  if (!data.empty()) {
+    std::memcpy(raw, data.data(), data.size());
+  }
+  if (!SyncMemory(env, false, array_buffer, 0, data.size())) return nullptr;
+  napi_value result = nullptr;
+  NODE_API_CALL(
+      env,
+      napi_create_typedarray(
+          env, napi_uint8_array, data.size(), array_buffer, 0, &result),
+      "failed to create Uint8Array");
   return result;
 }
 
-template <typename SizeFn>
-Napi::Value ReadBytes(const Napi::CallbackInfo& info, SizeFn fn) {
-  Napi::Env env = info.Env();
-  wz_property prop = FromHandle<wz_property>(info[0]);
-  size_t size = 0;
-  WZ_NODE_API_CALL(env, fn(prop, nullptr, 0, &size));
-  Napi::ArrayBuffer storage = Napi::ArrayBuffer::New(env, size);
-  auto bytes = static_cast<uint8_t*>(storage.Data());
-  if (size > 0) {
-    WZ_NODE_API_CALL(env, fn(prop, bytes, size, &size));
-  }
-  return Napi::Uint8Array::New(env, size, storage, 0);
-}
-
-template <typename SizeFn>
-Napi::Value ReadPngBytes(const Napi::CallbackInfo& info, SizeFn fn) {
-  Napi::Env env = info.Env();
-  wz_png_property png = FromHandle<wz_png_property>(info[0]);
-  size_t size = 0;
-  WZ_NODE_API_CALL(env, fn(png, nullptr, 0, &size));
-  Napi::ArrayBuffer storage = Napi::ArrayBuffer::New(env, size);
-  auto bytes = static_cast<uint8_t*>(storage.Data());
-  if (size > 0) {
-    WZ_NODE_API_CALL(env, fn(png, bytes, size, &size));
-  }
-  return Napi::Uint8Array::New(env, size, storage, 0);
-}
-
-Napi::Value OpenFile(const Napi::CallbackInfo& info) {
-  Napi::Env env = info.Env();
-  std::string path = info[0].As<Napi::String>().Utf8Value();
-  int gameVersion = info[1].As<Napi::Number>().Int32Value();
-  int version = info[2].As<Napi::Number>().Int32Value();
-  wz_file file = nullptr;
-  WZ_NODE_API_CALL(env,
-                   wz_open_file(path.c_str(),
-                                static_cast<short>(gameVersion),
-                                static_cast<wz_maple_version>(version),
-                                &file));
-  return file ? ToHandle(env, file) : env.Null();
-}
-
-Napi::Value OpenFileWithIv(const Napi::CallbackInfo& info) {
-  Napi::Env env = info.Env();
-  std::string path = info[0].As<Napi::String>().Utf8Value();
-  Napi::Uint8Array iv = info[1].As<Napi::Uint8Array>();
-  uint8_t bytes[4] = {0, 0, 0, 0};
-  std::memcpy(bytes, iv.Data(), iv.ByteLength() < 4 ? iv.ByteLength() : 4);
-  wz_file file = nullptr;
-  WZ_NODE_API_CALL(env, wz_open_file_with_iv(path.c_str(), bytes, &file));
-  return file ? ToHandle(env, file) : env.Null();
-}
-
-Napi::Value CreateFile(const Napi::CallbackInfo& info) {
-  Napi::Env env = info.Env();
-  int gameVersion = info[0].As<Napi::Number>().Int32Value();
-  int version = info[1].As<Napi::Number>().Int32Value();
-  wz_file file = nullptr;
-  WZ_NODE_API_CALL(env,
-                   wz_create_file(static_cast<short>(gameVersion),
-                                  static_cast<wz_maple_version>(version),
-                                  &file));
-  return file ? ToHandle(env, file) : env.Null();
-}
-
-Napi::Value ParseFile(const Napi::CallbackInfo& info) {
-  Napi::Env env = info.Env();
-  wz_parse_status status = WZ_PARSE_FAILED_UNKNOWN;
-  WZ_NODE_API_CALL(env, wz_parse(FromHandle<wz_file>(info[0]), &status));
-  return Napi::Number::New(env, static_cast<int>(status));
-}
-
-Napi::Value CloseFile(const Napi::CallbackInfo& info) {
-  wz_close_file(FromHandle<wz_file>(info[0]));
-  return info.Env().Undefined();
-}
-
-Napi::Value FileSaveToDisk(const Napi::CallbackInfo& info) {
-  Napi::Env env = info.Env();
-  std::string path = info[1].As<Napi::String>().Utf8Value();
-  WZ_NODE_API_CALL(
-      env, wz_file_save_to_disk(FromHandle<wz_file>(info[0]), path.c_str()));
-  return env.Undefined();
-}
-
-Napi::Value FileName(const Napi::CallbackInfo& info) {
-  Napi::Env env = info.Env();
-  const char* name = nullptr;
-  WZ_NODE_API_CALL(env, wz_file_name(FromHandle<wz_file>(info[0]), &name));
-  return NullableString(env, name);
-}
-
-Napi::Value FilePath(const Napi::CallbackInfo& info) {
-  Napi::Env env = info.Env();
-  const char* path = nullptr;
-  WZ_NODE_API_CALL(env, wz_file_path(FromHandle<wz_file>(info[0]), &path));
-  return NullableString(env, path);
-}
-
-Napi::Value FileVersion(const Napi::CallbackInfo& info) {
-  Napi::Env env = info.Env();
-  short v = 0;
-  WZ_NODE_API_CALL(env, wz_file_version(FromHandle<wz_file>(info[0]), &v));
-  return Napi::Number::New(env, v);
-}
-
-Napi::Value FileMapleVersion(const Napi::CallbackInfo& info) {
-  Napi::Env env = info.Env();
-  wz_file file = FromHandle<wz_file>(info[0]);
-  wz_maple_version v = WZ_UNKNOWN;
-  WZ_NODE_API_CALL(env, wz_file_maple_version(file, &v));
-  return Napi::Number::New(env, static_cast<int>(v));
-}
-
-Napi::Value FileWzDirectory(const Napi::CallbackInfo& info) {
-  Napi::Env env = info.Env();
-  wz_file file = FromHandle<wz_file>(info[0]);
-  wz_dir dir = nullptr;
-  WZ_NODE_API_CALL(env, wz_file_get_wz_directory(file, &dir));
-  return dir ? ToHandle(env, dir) : env.Null();
-}
-
-Napi::Value FileBool(const Napi::CallbackInfo& info,
-                     wz_error_code (*fn)(wz_file, int*)) {
-  Napi::Env env = info.Env();
-  int result = 0;
-  WZ_NODE_API_CALL(env, fn(FromHandle<wz_file>(info[0]), &result));
-  return Napi::Boolean::New(env, result != 0);
-}
-
-Napi::Value FileVersionHash(const Napi::CallbackInfo& info) {
-  Napi::Env env = info.Env();
-  uint32_t v = 0;
-  WZ_NODE_API_CALL(env, wz_file_version_hash(FromHandle<wz_file>(info[0]), &v));
-  return Napi::Number::New(env, v);
-}
-
-Napi::Value FileObjectFromPath(const Napi::CallbackInfo& info) {
-  std::string path = info[1].As<Napi::String>().Utf8Value();
-  bool check = info[2].As<Napi::Boolean>().Value();
-  Napi::Env env = info.Env();
-  wz_file file = FromHandle<wz_file>(info[0]);
-  wz_object obj = nullptr;
-  WZ_NODE_API_CALL(
-      env,
-      wz_file_get_object_from_path(file, path.c_str(), check ? 1 : 0, &obj));
-  return NullableObject(env, obj);
-}
-
-Napi::Value DirName(const Napi::CallbackInfo& info) {
-  Napi::Env env = info.Env();
-  const char* name = nullptr;
-  WZ_NODE_API_CALL(env, wz_dir_name(FromHandle<wz_dir>(info[0]), &name));
-  return NullableString(env, name);
-}
-
-Napi::Value DirCountImages(const Napi::CallbackInfo& info) {
-  Napi::Env env = info.Env();
-  int v = 0;
-  WZ_NODE_API_CALL(env, wz_dir_count_images(FromHandle<wz_dir>(info[0]), &v));
-  return Napi::Number::New(env, v);
-}
-
-Napi::Value DirCountDirectories(const Napi::CallbackInfo& info) {
-  Napi::Env env = info.Env();
-  wz_dir dir = FromHandle<wz_dir>(info[0]);
-  int v = 0;
-  WZ_NODE_API_CALL(env, wz_dir_count_directories(dir, &v));
-  return Napi::Number::New(env, v);
-}
-
-Napi::Value DirCountImagesTotal(const Napi::CallbackInfo& info) {
-  Napi::Env env = info.Env();
-  wz_dir dir = FromHandle<wz_dir>(info[0]);
-  int v = 0;
-  WZ_NODE_API_CALL(env, wz_dir_count_images_total(dir, &v));
-  return Napi::Number::New(env, v);
-}
-
-Napi::Value DirGetImage(const Napi::CallbackInfo& info) {
-  Napi::Env env = info.Env();
-  wz_dir dir = FromHandle<wz_dir>(info[0]);
-  int index = info[1].As<Napi::Number>().Int32Value();
-  wz_image image = nullptr;
-  WZ_NODE_API_CALL(env, wz_dir_get_image(dir, index, &image));
-  return image ? ToHandle(env, image) : env.Null();
-}
-
-Napi::Value DirGetImageByName(const Napi::CallbackInfo& info) {
-  Napi::Env env = info.Env();
-  std::string name = info[1].As<Napi::String>().Utf8Value();
-  wz_image image = nullptr;
-  WZ_NODE_API_CALL(env,
-                   wz_dir_get_image_by_name(
-                       FromHandle<wz_dir>(info[0]), name.c_str(), &image));
-  return image ? ToHandle(env, image) : env.Null();
-}
-
-Napi::Value DirGetDirectory(const Napi::CallbackInfo& info) {
-  Napi::Env env = info.Env();
-  wz_dir parent = FromHandle<wz_dir>(info[0]);
-  int index = info[1].As<Napi::Number>().Int32Value();
-  wz_dir dir = nullptr;
-  WZ_NODE_API_CALL(env, wz_dir_get_directory(parent, index, &dir));
-  return dir ? ToHandle(env, dir) : env.Null();
-}
-
-Napi::Value DirGetDirectoryByName(const Napi::CallbackInfo& info) {
-  Napi::Env env = info.Env();
-  std::string name = info[1].As<Napi::String>().Utf8Value();
-  wz_dir dir = nullptr;
-  WZ_NODE_API_CALL(env,
-                   wz_dir_get_directory_by_name(
-                       FromHandle<wz_dir>(info[0]), name.c_str(), &dir));
-  return dir ? ToHandle(env, dir) : env.Null();
-}
-
-Napi::Value DirCreateDirectory(const Napi::CallbackInfo& info) {
-  Napi::Env env = info.Env();
-  std::string name = info[1].As<Napi::String>().Utf8Value();
-  wz_dir dir = nullptr;
-  WZ_NODE_API_CALL(
-      env,
-      wz_dir_create_directory(FromHandle<wz_dir>(info[0]), name.c_str(), &dir));
-  return dir ? ToHandle(env, dir) : env.Null();
-}
-
-Napi::Value DirCreateImage(const Napi::CallbackInfo& info) {
-  Napi::Env env = info.Env();
-  std::string name = info[1].As<Napi::String>().Utf8Value();
-  wz_image image = nullptr;
-  WZ_NODE_API_CALL(
-      env,
-      wz_dir_create_image(FromHandle<wz_dir>(info[0]), name.c_str(), &image));
-  return image ? ToHandle(env, image) : env.Null();
-}
-
-Napi::Value DirRemoveDirectory(const Napi::CallbackInfo& info) {
-  Napi::Env env = info.Env();
-  WZ_NODE_API_CALL(env,
-                   wz_dir_remove_directory(FromHandle<wz_dir>(info[0]),
-                                           FromHandle<wz_dir>(info[1])));
-  return env.Undefined();
-}
-
-Napi::Value DirRemoveImage(const Napi::CallbackInfo& info) {
-  Napi::Env env = info.Env();
-  WZ_NODE_API_CALL(env,
-                   wz_dir_remove_image(FromHandle<wz_dir>(info[0]),
-                                       FromHandle<wz_image>(info[1])));
-  return env.Undefined();
-}
-
-Napi::Value DirInt64(const Napi::CallbackInfo& info,
-                     wz_error_code (*fn)(wz_dir, int64_t*)) {
-  Napi::Env env = info.Env();
-  int64_t v = 0;
-  WZ_NODE_API_CALL(env, fn(FromHandle<wz_dir>(info[0]), &v));
-  return Napi::BigInt::New(env, v);
-}
-
-Napi::Value DirInt(const Napi::CallbackInfo& info,
-                   wz_error_code (*fn)(wz_dir, int*)) {
-  Napi::Env env = info.Env();
-  int v = 0;
-  WZ_NODE_API_CALL(env, fn(FromHandle<wz_dir>(info[0]), &v));
-  return Napi::Number::New(env, v);
-}
-
-Napi::Value ImageName(const Napi::CallbackInfo& info) {
-  Napi::Env env = info.Env();
-  const char* name = nullptr;
-  WZ_NODE_API_CALL(env, wz_image_name(FromHandle<wz_image>(info[0]), &name));
-  return NullableString(env, name);
-}
-
-Napi::Value ImageBool(const Napi::CallbackInfo& info,
-                      wz_error_code (*fn)(wz_image, int*)) {
-  Napi::Env env = info.Env();
-  int result = 0;
-  WZ_NODE_API_CALL(env, fn(FromHandle<wz_image>(info[0]), &result));
-  return Napi::Boolean::New(env, result != 0);
-}
-
-Napi::Value ImageInt(const Napi::CallbackInfo& info,
-                     wz_error_code (*fn)(wz_image, int*)) {
-  Napi::Env env = info.Env();
-  int v = 0;
-  WZ_NODE_API_CALL(env, fn(FromHandle<wz_image>(info[0]), &v));
-  return Napi::Number::New(env, v);
-}
-
-Napi::Value ImageOffset(const Napi::CallbackInfo& info) {
-  Napi::Env env = info.Env();
-  int64_t v = 0;
-  WZ_NODE_API_CALL(env, wz_image_offset(FromHandle<wz_image>(info[0]), &v));
-  return Napi::BigInt::New(env, v);
-}
-
-Napi::Value ImageParse(const Napi::CallbackInfo& info) {
-  Napi::Env env = info.Env();
-  int parsed = 0;
-  WZ_NODE_API_CALL(env, wz_image_parse(FromHandle<wz_image>(info[0]), &parsed));
-  return env.Undefined();
-}
-
-Napi::Value ImageCountProperties(const Napi::CallbackInfo& info) {
-  Napi::Env env = info.Env();
-  wz_image image = FromHandle<wz_image>(info[0]);
-  int v = 0;
-  WZ_NODE_API_CALL(env, wz_image_count_properties(image, &v));
-  return Napi::Number::New(env, v);
-}
-
-Napi::Value ImageGetProperty(const Napi::CallbackInfo& info) {
-  Napi::Env env = info.Env();
-  wz_image image = FromHandle<wz_image>(info[0]);
-  int index = info[1].As<Napi::Number>().Int32Value();
-  wz_property prop = nullptr;
-  WZ_NODE_API_CALL(env, wz_image_get_property(image, index, &prop));
-  return prop ? ToHandle(env, prop) : env.Null();
-}
-
-Napi::Value ImageGetFromPath(const Napi::CallbackInfo& info) {
-  Napi::Env env = info.Env();
-  std::string path = info[1].As<Napi::String>().Utf8Value();
-  wz_property prop = nullptr;
-  WZ_NODE_API_CALL(env,
-                   wz_image_get_from_path(
-                       FromHandle<wz_image>(info[0]), path.c_str(), &prop));
-  return prop ? ToHandle(env, prop) : env.Null();
-}
-
-Napi::Value ObjectType(const Napi::CallbackInfo& info) {
-  Napi::Env env = info.Env();
-  wz_object obj = FromHandle<wz_object>(info[0]);
-  wz_object_type type = WZ_OBJECT_FILE;
-  WZ_NODE_API_CALL(env, wz_get_object_type(obj, &type));
-  return Napi::Number::New(env, static_cast<int>(type));
-}
-
-Napi::Value ObjectName(const Napi::CallbackInfo& info) {
-  Napi::Env env = info.Env();
-  const char* name = nullptr;
-  WZ_NODE_API_CALL(env, wz_object_name(FromHandle<wz_object>(info[0]), &name));
-  return NullableString(env, name);
-}
-
-Napi::Value ObjectParent(const Napi::CallbackInfo& info) {
-  Napi::Env env = info.Env();
-  wz_object obj = FromHandle<wz_object>(info[0]);
-  wz_object parent = nullptr;
-  WZ_NODE_API_CALL(env, wz_object_get_parent(obj, &parent));
-  return NullableObject(env, parent);
-}
-
-Napi::Value ObjectFullPath(const Napi::CallbackInfo& info) {
-  Napi::Env env = info.Env();
-  wz_object obj = FromHandle<wz_object>(info[0]);
-  const char* path = nullptr;
-  WZ_NODE_API_CALL(env, wz_object_full_path(obj, &path));
-  return NullableString(env, path);
-}
-
-Napi::Value ObjectWzFileParent(const Napi::CallbackInfo& info) {
-  Napi::Env env = info.Env();
-  wz_object obj = FromHandle<wz_object>(info[0]);
-  wz_file file = nullptr;
-  WZ_NODE_API_CALL(env, wz_object_get_wz_file_parent(obj, &file));
-  return file ? ToHandle(env, file) : env.Null();
-}
-
-Napi::Value ObjectTopMostDirectory(const Napi::CallbackInfo& info) {
-  Napi::Env env = info.Env();
-  wz_object obj = nullptr;
-  WZ_NODE_API_CALL(env,
-                   wz_object_get_top_most_wz_directory(
-                       FromHandle<wz_object>(info[0]), &obj));
-  return NullableObject(env, obj);
-}
-
-Napi::Value ObjectTopMostImage(const Napi::CallbackInfo& info) {
-  Napi::Env env = info.Env();
-  wz_object obj = nullptr;
-  WZ_NODE_API_CALL(
-      env,
-      wz_object_get_top_most_wz_image(FromHandle<wz_object>(info[0]), &obj));
-  return NullableObject(env, obj);
-}
-
-Napi::Value ObjectAt(const Napi::CallbackInfo& info) {
-  std::string name = info[1].As<Napi::String>().Utf8Value();
-  Napi::Env env = info.Env();
-  wz_object parent = FromHandle<wz_object>(info[0]);
-  wz_object obj = nullptr;
-  WZ_NODE_API_CALL(env, wz_object_at(parent, name.c_str(), &obj));
-  return NullableObject(env, obj);
-}
-
-Napi::Value ObjectSetName(const Napi::CallbackInfo& info) {
-  Napi::Env env = info.Env();
-  std::string name = info[1].As<Napi::String>().Utf8Value();
-  WZ_NODE_API_CALL(
-      env, wz_object_set_name(FromHandle<wz_object>(info[0]), name.c_str()));
-  return env.Undefined();
-}
-
-Napi::Value ObjectRemove(const Napi::CallbackInfo& info) {
-  Napi::Env env = info.Env();
-  WZ_NODE_API_CALL(env, wz_object_remove(FromHandle<wz_object>(info[0])));
-  return env.Undefined();
-}
-
-Napi::Value PropType(const Napi::CallbackInfo& info) {
-  Napi::Env env = info.Env();
-  wz_property prop = FromHandle<wz_property>(info[0]);
-  wz_property_type type = WZ_PROP_NULL;
-  WZ_NODE_API_CALL(env, wz_property_get_type(prop, &type));
-  return Napi::Number::New(env, static_cast<int>(type));
-}
-
-Napi::Value PropIsRaw(const Napi::CallbackInfo& info) {
-  Napi::Env env = info.Env();
-  wz_property prop = FromHandle<wz_property>(info[0]);
-  int is_raw = 0;
-  WZ_NODE_API_CALL(env, wz_property_is_raw_data(prop, &is_raw));
-  bool result = is_raw != 0;
-  return Napi::Boolean::New(env, result);
-}
-
-Napi::Value PropIsVideo(const Napi::CallbackInfo& info) {
-  Napi::Env env = info.Env();
-  wz_property prop = FromHandle<wz_property>(info[0]);
-  int is_video = 0;
-  WZ_NODE_API_CALL(env, wz_property_is_video(prop, &is_video));
-  bool result = is_video != 0;
-  return Napi::Boolean::New(env, result);
-}
-
-Napi::Value PropName(const Napi::CallbackInfo& info) {
-  Napi::Env env = info.Env();
-  wz_property prop = FromHandle<wz_property>(info[0]);
-  const char* name = nullptr;
-  WZ_NODE_API_CALL(env, wz_property_name(prop, &name));
-  return NullableString(env, name);
-}
-
-Napi::Value PropCountChildren(const Napi::CallbackInfo& info) {
-  Napi::Env env = info.Env();
-  wz_property prop = FromHandle<wz_property>(info[0]);
-  int v = 0;
-  WZ_NODE_API_CALL(env, wz_property_count_children(prop, &v));
-  return Napi::Number::New(env, v);
-}
-
-Napi::Value PropGetChild(const Napi::CallbackInfo& info) {
-  Napi::Env env = info.Env();
-  wz_property parent = FromHandle<wz_property>(info[0]);
-  int index = info[1].As<Napi::Number>().Int32Value();
-  wz_property prop = nullptr;
-  WZ_NODE_API_CALL(env, wz_property_get_child(parent, index, &prop));
-  return prop ? ToHandle(env, prop) : env.Null();
-}
-
-Napi::Value PropGetChildByName(const Napi::CallbackInfo& info) {
-  Napi::Env env = info.Env();
-  std::string name = info[1].As<Napi::String>().Utf8Value();
-  wz_property prop = nullptr;
-  WZ_NODE_API_CALL(env,
-                   wz_property_get_child_by_name(
-                       FromHandle<wz_property>(info[0]), name.c_str(), &prop));
-  return prop ? ToHandle(env, prop) : env.Null();
-}
-
-Napi::Value PropGetFromPath(const Napi::CallbackInfo& info) {
-  Napi::Env env = info.Env();
-  std::string path = info[1].As<Napi::String>().Utf8Value();
-  wz_property prop = nullptr;
-  WZ_NODE_API_CALL(env,
-                   wz_property_get_from_path(
-                       FromHandle<wz_property>(info[0]), path.c_str(), &prop));
-  return prop ? ToHandle(env, prop) : env.Null();
-}
-
-Napi::Value PropertyFree(const Napi::CallbackInfo& info) {
-  Napi::Env env = info.Env();
-  WZ_NODE_API_CALL(env, wz_property_free(FromHandle<wz_property>(info[0])));
-  return env.Undefined();
-}
-
-Napi::Value ImageAddProperty(const Napi::CallbackInfo& info) {
-  Napi::Env env = info.Env();
-  WZ_NODE_API_CALL(env,
-                   wz_image_add_property(FromHandle<wz_image>(info[0]),
-                                         FromHandle<wz_property>(info[1])));
-  return env.Undefined();
-}
-
-Napi::Value PropertyAddChild(const Napi::CallbackInfo& info) {
-  Napi::Env env = info.Env();
-  WZ_NODE_API_CALL(env,
-                   wz_property_add_child(FromHandle<wz_property>(info[0]),
-                                         FromHandle<wz_property>(info[1])));
-  return env.Undefined();
-}
-
-Napi::Value ImageRemoveProperty(const Napi::CallbackInfo& info) {
-  Napi::Env env = info.Env();
-  WZ_NODE_API_CALL(env,
-                   wz_image_remove_property(FromHandle<wz_image>(info[0]),
-                                            FromHandle<wz_property>(info[1])));
-  return env.Undefined();
-}
-
-Napi::Value PropertyRemoveChild(const Napi::CallbackInfo& info) {
-  Napi::Env env = info.Env();
-  WZ_NODE_API_CALL(env,
-                   wz_property_remove_child(FromHandle<wz_property>(info[0]),
-                                            FromHandle<wz_property>(info[1])));
-  return env.Undefined();
-}
-
-Napi::Value ImageClearProperties(const Napi::CallbackInfo& info) {
-  Napi::Env env = info.Env();
-  WZ_NODE_API_CALL(env,
-                   wz_image_clear_properties(FromHandle<wz_image>(info[0])));
-  return env.Undefined();
-}
-
-Napi::Value PropertyClearChildren(const Napi::CallbackInfo& info) {
-  Napi::Env env = info.Env();
-  WZ_NODE_API_CALL(
-      env, wz_property_clear_children(FromHandle<wz_property>(info[0])));
-  return env.Undefined();
-}
-
-Napi::Value PropGetInt(const Napi::CallbackInfo& info) {
-  Napi::Env env = info.Env();
-  wz_property prop = FromHandle<wz_property>(info[0]);
-  int32_t v = 0;
-  WZ_NODE_API_CALL(env, wz_property_get_int(prop, &v));
-  return Napi::Number::New(env, v);
-}
-
-Napi::Value PropGetShort(const Napi::CallbackInfo& info) {
-  Napi::Env env = info.Env();
-  wz_property prop = FromHandle<wz_property>(info[0]);
-  int16_t v = 0;
-  WZ_NODE_API_CALL(env, wz_property_get_short(prop, &v));
-  return Napi::Number::New(env, v);
-}
-
-Napi::Value PropGetLong(const Napi::CallbackInfo& info) {
-  Napi::Env env = info.Env();
-  wz_property prop = FromHandle<wz_property>(info[0]);
-  int64_t v = 0;
-  WZ_NODE_API_CALL(env, wz_property_get_long(prop, &v));
-  return Napi::BigInt::New(env, v);
-}
-
-Napi::Value PropGetFloat(const Napi::CallbackInfo& info) {
-  Napi::Env env = info.Env();
-  wz_property prop = FromHandle<wz_property>(info[0]);
-  float v = 0.0f;
-  WZ_NODE_API_CALL(env, wz_property_get_float(prop, &v));
-  return Napi::Number::New(env, v);
-}
-
-Napi::Value PropGetDouble(const Napi::CallbackInfo& info) {
-  Napi::Env env = info.Env();
-  wz_property prop = FromHandle<wz_property>(info[0]);
-  double v = 0.0;
-  WZ_NODE_API_CALL(env, wz_property_get_double(prop, &v));
-  return Napi::Number::New(env, v);
-}
-
-Napi::Value PropGetString(const Napi::CallbackInfo& info) {
-  Napi::Env env = info.Env();
-  wz_property prop = FromHandle<wz_property>(info[0]);
-  const char* value = nullptr;
-  WZ_NODE_API_CALL(env, wz_property_get_string(prop, &value));
-  return NullableString(env, value);
-}
-
-Napi::Value CreatePropertyNull(const Napi::CallbackInfo& info) {
-  Napi::Env env = info.Env();
-  std::string name = info[0].As<Napi::String>().Utf8Value();
-  wz_property prop = nullptr;
-  WZ_NODE_API_CALL(env, wz_property_create_null(name.c_str(), &prop));
-  return prop ? ToHandle(env, prop) : env.Null();
-}
-
-Napi::Value CreatePropertyShort(const Napi::CallbackInfo& info) {
-  Napi::Env env = info.Env();
-  std::string name = info[0].As<Napi::String>().Utf8Value();
-  int value = info[1].As<Napi::Number>().Int32Value();
-  wz_property prop = nullptr;
-  WZ_NODE_API_CALL(env,
-                   wz_property_create_short(
-                       name.c_str(), static_cast<int16_t>(value), &prop));
-  return prop ? ToHandle(env, prop) : env.Null();
-}
-
-Napi::Value CreatePropertyInt(const Napi::CallbackInfo& info) {
-  Napi::Env env = info.Env();
-  std::string name = info[0].As<Napi::String>().Utf8Value();
-  int value = info[1].As<Napi::Number>().Int32Value();
-  wz_property prop = nullptr;
-  WZ_NODE_API_CALL(env, wz_property_create_int(name.c_str(), value, &prop));
-  return prop ? ToHandle(env, prop) : env.Null();
-}
-
-Napi::Value CreatePropertyLong(const Napi::CallbackInfo& info) {
-  Napi::Env env = info.Env();
-  std::string name = info[0].As<Napi::String>().Utf8Value();
-  int64_t value = 0;
-  if (!ReadInt64BigInt(env, info[1], &value)) return Napi::Value();
-  wz_property prop = nullptr;
-  WZ_NODE_API_CALL(env, wz_property_create_long(name.c_str(), value, &prop));
-  return prop ? ToHandle(env, prop) : env.Null();
-}
-
-Napi::Value CreatePropertyFloat(const Napi::CallbackInfo& info) {
-  Napi::Env env = info.Env();
-  std::string name = info[0].As<Napi::String>().Utf8Value();
-  double value = info[1].As<Napi::Number>().DoubleValue();
-  wz_property prop = nullptr;
-  WZ_NODE_API_CALL(
-      env,
-      wz_property_create_float(name.c_str(), static_cast<float>(value), &prop));
-  return prop ? ToHandle(env, prop) : env.Null();
-}
-
-Napi::Value CreatePropertyDouble(const Napi::CallbackInfo& info) {
-  Napi::Env env = info.Env();
-  std::string name = info[0].As<Napi::String>().Utf8Value();
-  double value = info[1].As<Napi::Number>().DoubleValue();
-  wz_property prop = nullptr;
-  WZ_NODE_API_CALL(env, wz_property_create_double(name.c_str(), value, &prop));
-  return prop ? ToHandle(env, prop) : env.Null();
-}
-
-Napi::Value CreatePropertyString(const Napi::CallbackInfo& info) {
-  Napi::Env env = info.Env();
-  std::string name = info[0].As<Napi::String>().Utf8Value();
-  std::string value = info[1].As<Napi::String>().Utf8Value();
-  wz_property prop = nullptr;
-  WZ_NODE_API_CALL(
-      env, wz_property_create_string(name.c_str(), value.c_str(), &prop));
-  return prop ? ToHandle(env, prop) : env.Null();
-}
-
-Napi::Value CreatePropertySub(const Napi::CallbackInfo& info) {
-  Napi::Env env = info.Env();
-  std::string name = info[0].As<Napi::String>().Utf8Value();
-  wz_property prop = nullptr;
-  WZ_NODE_API_CALL(env, wz_property_create_sub(name.c_str(), &prop));
-  return prop ? ToHandle(env, prop) : env.Null();
-}
-
-Napi::Value CreatePropertyVector(const Napi::CallbackInfo& info) {
-  Napi::Env env = info.Env();
-  std::string name = info[0].As<Napi::String>().Utf8Value();
-  int x = info[1].As<Napi::Number>().Int32Value();
-  int y = info[2].As<Napi::Number>().Int32Value();
-  wz_property prop = nullptr;
-  WZ_NODE_API_CALL(env, wz_property_create_vector(name.c_str(), x, y, &prop));
-  return prop ? ToHandle(env, prop) : env.Null();
-}
-
-Napi::Value CreatePropertyUol(const Napi::CallbackInfo& info) {
-  Napi::Env env = info.Env();
-  std::string name = info[0].As<Napi::String>().Utf8Value();
-  std::string value = info[1].As<Napi::String>().Utf8Value();
-  wz_property prop = nullptr;
-  WZ_NODE_API_CALL(env,
-                   wz_property_create_uol(name.c_str(), value.c_str(), &prop));
-  return prop ? ToHandle(env, prop) : env.Null();
-}
-
-Napi::Value PropGetBytes(const Napi::CallbackInfo& info) {
-  return ReadBytes(info, wz_property_get_bytes);
-}
-
-Napi::Value PropLinked(const Napi::CallbackInfo& info) {
-  Napi::Env env = info.Env();
-  wz_property prop = nullptr;
-  WZ_NODE_API_CALL(env,
-                   wz_property_get_linked_wz_image_property(
-                       FromHandle<wz_property>(info[0]), &prop));
-  return prop ? ToHandle(env, prop) : env.Null();
-}
-
-Napi::Value ScalarValue(const Napi::CallbackInfo& info,
-                        wz_error_code (*fn)(wz_property, int32_t*)) {
-  Napi::Env env = info.Env();
-  int32_t v = 0;
-  WZ_NODE_API_CALL(env, fn(FromHandle<wz_property>(info[0]), &v));
-  return Napi::Number::New(env, v);
-}
-
-Napi::Value LongValue(const Napi::CallbackInfo& info) {
-  Napi::Env env = info.Env();
-  wz_property prop = FromHandle<wz_property>(info[0]);
-  int64_t v = 0;
-  WZ_NODE_API_CALL(env, wz_long_get_value(prop, &v));
-  return Napi::BigInt::New(env, v);
-}
-
-Napi::Value FloatValue(const Napi::CallbackInfo& info) {
-  Napi::Env env = info.Env();
-  wz_property prop = FromHandle<wz_property>(info[0]);
-  float v = 0.0f;
-  WZ_NODE_API_CALL(env, wz_float_get_value(prop, &v));
-  return Napi::Number::New(env, v);
-}
-
-Napi::Value DoubleValue(const Napi::CallbackInfo& info) {
-  Napi::Env env = info.Env();
-  wz_property prop = FromHandle<wz_property>(info[0]);
-  double v = 0.0;
-  WZ_NODE_API_CALL(env, wz_double_get_value(prop, &v));
-  return Napi::Number::New(env, v);
-}
-
-Napi::Value StringValue(const Napi::CallbackInfo& info) {
-  Napi::Env env = info.Env();
-  wz_property prop = FromHandle<wz_property>(info[0]);
-  const char* value = nullptr;
-  WZ_NODE_API_CALL(env, wz_string_get_value(prop, &value));
-  return NullableString(env, value);
-}
-
-Napi::Value SetIntValue(const Napi::CallbackInfo& info) {
-  Napi::Env env = info.Env();
-  wz_property prop = FromHandle<wz_property>(info[0]);
-  int value = info[1].As<Napi::Number>().Int32Value();
-  WZ_NODE_API_CALL(env, wz_int_set_value(prop, value));
-  return env.Undefined();
-}
-
-Napi::Value SetShortValue(const Napi::CallbackInfo& info) {
-  Napi::Env env = info.Env();
-  wz_property prop = FromHandle<wz_property>(info[0]);
-  int value = info[1].As<Napi::Number>().Int32Value();
-  WZ_NODE_API_CALL(env, wz_short_set_value(prop, static_cast<int16_t>(value)));
-  return env.Undefined();
-}
-
-Napi::Value SetLongValue(const Napi::CallbackInfo& info) {
-  Napi::Env env = info.Env();
-  wz_property prop = FromHandle<wz_property>(info[0]);
-  int64_t value = 0;
-  if (!ReadInt64BigInt(env, info[1], &value)) return Napi::Value();
-  WZ_NODE_API_CALL(env, wz_long_set_value(prop, value));
-  return env.Undefined();
-}
-
-Napi::Value SetFloatValue(const Napi::CallbackInfo& info) {
-  Napi::Env env = info.Env();
-  wz_property prop = FromHandle<wz_property>(info[0]);
-  double value = info[1].As<Napi::Number>().DoubleValue();
-  WZ_NODE_API_CALL(env, wz_float_set_value(prop, static_cast<float>(value)));
-  return env.Undefined();
-}
-
-Napi::Value SetDoubleValue(const Napi::CallbackInfo& info) {
-  Napi::Env env = info.Env();
-  wz_property prop = FromHandle<wz_property>(info[0]);
-  double value = info[1].As<Napi::Number>().DoubleValue();
-  WZ_NODE_API_CALL(env, wz_double_set_value(prop, value));
-  return env.Undefined();
-}
-
-Napi::Value SetStringValue(const Napi::CallbackInfo& info) {
-  Napi::Env env = info.Env();
-  wz_property prop = FromHandle<wz_property>(info[0]);
-  std::string value = info[1].As<Napi::String>().Utf8Value();
-  WZ_NODE_API_CALL(env, wz_string_set_value(prop, value.c_str()));
-  return env.Undefined();
-}
-
-Napi::Value PngWidth(const Napi::CallbackInfo& info) {
-  Napi::Env env = info.Env();
-  wz_png_property png = FromHandle<wz_png_property>(info[0]);
-  int v = 0;
-  WZ_NODE_API_CALL(env, wz_png_width(png, &v));
-  return Napi::Number::New(env, v);
-}
-
-Napi::Value PngHeight(const Napi::CallbackInfo& info) {
-  Napi::Env env = info.Env();
-  wz_png_property png = FromHandle<wz_png_property>(info[0]);
-  int v = 0;
-  WZ_NODE_API_CALL(env, wz_png_height(png, &v));
-  return Napi::Number::New(env, v);
-}
-
-Napi::Value PngFormat(const Napi::CallbackInfo& info) {
-  Napi::Env env = info.Env();
-  wz_png_property png = FromHandle<wz_png_property>(info[0]);
-  int v = 0;
-  WZ_NODE_API_CALL(env, wz_png_format(png, &v));
-  return Napi::Number::New(env, v);
-}
-
-Napi::Value PngListWzUsed(const Napi::CallbackInfo& info) {
-  Napi::Env env = info.Env();
-  wz_png_property png = FromHandle<wz_png_property>(info[0]);
-  int is_used = 0;
-  WZ_NODE_API_CALL(env, wz_png_is_list_wz_used(png, &is_used));
-  bool v = is_used != 0;
-  return Napi::Boolean::New(env, v);
-}
-
-Napi::Value CanvasPng(const Napi::CallbackInfo& info) {
-  Napi::Env env = info.Env();
-  wz_property prop = FromHandle<wz_property>(info[0]);
-  wz_png_property png = nullptr;
-  WZ_NODE_API_CALL(env, wz_canvas_get_png(prop, &png));
-  return png ? ToHandle(env, png) : env.Null();
-}
-
-Napi::Value CanvasBool(const Napi::CallbackInfo& info,
-                       wz_error_code (*fn)(wz_property, int*)) {
-  Napi::Env env = info.Env();
-  int v = 0;
-  WZ_NODE_API_CALL(env, fn(FromHandle<wz_property>(info[0]), &v));
-  return Napi::Boolean::New(env, v != 0);
-}
-
-Napi::Value CanvasLinked(const Napi::CallbackInfo& info) {
-  Napi::Env env = info.Env();
-  wz_property prop = nullptr;
-  WZ_NODE_API_CALL(env,
-                   wz_canvas_get_linked_wz_image_property(
-                       FromHandle<wz_property>(info[0]), &prop));
-  return prop ? ToHandle(env, prop) : env.Null();
-}
-
-Napi::Value UolValue(const Napi::CallbackInfo& info) {
-  Napi::Env env = info.Env();
-  wz_property prop = FromHandle<wz_property>(info[0]);
-  const char* value = nullptr;
-  WZ_NODE_API_CALL(env, wz_uol_get_value(prop, &value));
-  return NullableString(env, value);
-}
-
-Napi::Value SetUolValue(const Napi::CallbackInfo& info) {
-  Napi::Env env = info.Env();
-  wz_property prop = FromHandle<wz_property>(info[0]);
-  std::string value = info[1].As<Napi::String>().Utf8Value();
-  WZ_NODE_API_CALL(env, wz_uol_set_value(prop, value.c_str()));
-  return env.Undefined();
-}
-
-Napi::Value UolLinkValue(const Napi::CallbackInfo& info) {
-  Napi::Env env = info.Env();
-  wz_property prop = FromHandle<wz_property>(info[0]);
-  wz_object obj = nullptr;
-  WZ_NODE_API_CALL(env, wz_uol_get_link_value(prop, &obj));
-  return NullableObject(env, obj);
-}
-
-Napi::Value VectorX(const Napi::CallbackInfo& info) {
-  Napi::Env env = info.Env();
-  int32_t v = 0;
-  WZ_NODE_API_CALL(env, wz_vector_get_x(FromHandle<wz_property>(info[0]), &v));
-  return Napi::Number::New(env, v);
-}
-
-Napi::Value VectorY(const Napi::CallbackInfo& info) {
-  Napi::Env env = info.Env();
-  int32_t v = 0;
-  WZ_NODE_API_CALL(env, wz_vector_get_y(FromHandle<wz_property>(info[0]), &v));
-  return Napi::Number::New(env, v);
-}
-
-Napi::Value LuaData(const Napi::CallbackInfo& info) {
-  return ReadBytes(info, wz_lua_get_data);
-}
-
-Napi::Value LuaString(const Napi::CallbackInfo& info) {
-  Napi::Env env = info.Env();
-  wz_property prop = FromHandle<wz_property>(info[0]);
-  const char* value = nullptr;
-  WZ_NODE_API_CALL(env, wz_lua_get_string(prop, &value));
-  return NullableString(env, value);
-}
-
-Napi::Value BinaryData(const Napi::CallbackInfo& info) {
-  return ReadBytes(info, wz_binary_get_data);
-}
-
-Napi::Value BinaryWav(const Napi::CallbackInfo& info) {
-  return ReadBytes(info, wz_binary_get_wav_playback);
-}
-
-Napi::Value BinaryInt(const Napi::CallbackInfo& info,
-                      wz_error_code (*fn)(wz_property, int*)) {
-  Napi::Env env = info.Env();
-  int v = 0;
-  WZ_NODE_API_CALL(env, fn(FromHandle<wz_property>(info[0]), &v));
-  return Napi::Number::New(env, v);
-}
-
-Napi::Value BinaryBool(const Napi::CallbackInfo& info) {
-  Napi::Env env = info.Env();
-  int is_encrypted = 0;
-  WZ_NODE_API_CALL(env,
-                   wz_binary_is_header_encrypted(
-                       FromHandle<wz_property>(info[0]), &is_encrypted));
-  bool v = is_encrypted != 0;
-  return Napi::Boolean::New(env, v);
-}
-
-Napi::Value BinaryType(const Napi::CallbackInfo& info) {
-  Napi::Env env = info.Env();
-  wz_property prop = FromHandle<wz_property>(info[0]);
-  wz_binary_type v = WZ_BINARY_RAW;
-  WZ_NODE_API_CALL(env, wz_binary_get_type(prop, &v));
-  return Napi::Number::New(env, static_cast<int>(v));
-}
-
-Napi::Value RawData(const Napi::CallbackInfo& info) {
-  return ReadBytes(info, wz_rawdata_get_data);
-}
-
-Napi::Value RawType(const Napi::CallbackInfo& info) {
-  Napi::Env env = info.Env();
-  wz_property prop = FromHandle<wz_property>(info[0]);
-  int v = 0;
-  WZ_NODE_API_CALL(env, wz_rawdata_get_type(prop, &v));
-  return Napi::Number::New(env, v);
-}
-
-Napi::Value VideoData(const Napi::CallbackInfo& info) {
-  return ReadBytes(info, wz_video_get_data);
-}
-
-Napi::Value ToolDetectMapleVersion(const Napi::CallbackInfo& info) {
-  Napi::Env env = info.Env();
-  std::string path = info[0].As<Napi::String>().Utf8Value();
-  short outVersion = 0;
-  wz_maple_version version = WZ_UNKNOWN;
-  WZ_NODE_API_CALL(
-      env, wz_detect_maple_version(path.c_str(), &version, &outVersion));
-  Napi::Object result = Napi::Object::New(env);
-  result.Set("mapleVersion", static_cast<int>(version));
-  result.Set("version", outVersion);
+inline napi_value NullableHandle(napi_env env, void* ptr) {
+  if (ptr) return ToHandle(env, ptr);
+  napi_value result = nullptr;
+  NODE_API_CALL(env, napi_get_null(env, &result), "failed to get null");
   return result;
 }
 
-Napi::Value ToolIvForVersion(const Napi::CallbackInfo& info) {
-  Napi::Env env = info.Env();
-  int version = info[0].As<Napi::Number>().Int32Value();
-  const uint8_t* iv = nullptr;
-  WZ_NODE_API_CALL(
-      env, wz_get_iv_for_version(static_cast<wz_maple_version>(version), &iv));
-  Napi::ArrayBuffer storage = Napi::ArrayBuffer::New(env, 4);
-  auto bytes = static_cast<uint8_t*>(storage.Data());
-  if (iv) std::memcpy(bytes, iv, 4);
-  return Napi::Uint8Array::New(env, 4, storage, 0);
+inline napi_value NullableObject(napi_env env, wz::WzObject* obj) {
+  if (!obj) {
+    napi_value null_value = nullptr;
+    NODE_API_CALL(env, napi_get_null(env, &null_value), "failed to get null");
+    return null_value;
+  }
+  napi_value result = nullptr;
+  NODE_API_CALL(
+      env, napi_create_object(env, &result), "failed to create object");
+  napi_value type = nullptr;
+  NODE_API_CALL(
+      env,
+      napi_create_int32(env, static_cast<int>(obj->ObjectType()), &type),
+      "failed to create object type value");
+  NODE_API_CALL(env,
+                napi_set_named_property(env, result, "type", type),
+                "failed to set object type");
+  napi_value ptr = ToHandle(env, obj);
+  if (ptr == nullptr) return nullptr;
+  NODE_API_CALL(env,
+                napi_set_named_property(env, result, "ptr", ptr),
+                "failed to set object pointer");
+  return result;
 }
 
-Napi::Object Init(Napi::Env env, Napi::Object exports) {
-  exports.Set("openFile", Napi::Function::New(env, OpenFile));
-  exports.Set("openFileWithIv", Napi::Function::New(env, OpenFileWithIv));
-  exports.Set("createFile", Napi::Function::New(env, CreateFile));
-  exports.Set("parseFile", Napi::Function::New(env, ParseFile));
-  exports.Set("closeFile", Napi::Function::New(env, CloseFile));
-  exports.Set("fileSaveToDisk", Napi::Function::New(env, FileSaveToDisk));
-  exports.Set("fileName", Napi::Function::New(env, FileName));
-  exports.Set("filePath", Napi::Function::New(env, FilePath));
-  exports.Set("fileVersion", Napi::Function::New(env, FileVersion));
-  exports.Set("fileMapleVersion", Napi::Function::New(env, FileMapleVersion));
-  exports.Set("fileWzDirectory", Napi::Function::New(env, FileWzDirectory));
-  exports.Set("fileIs64Bit",
-              Napi::Function::New(env, [](const Napi::CallbackInfo& i) {
-                return FileBool(i, wz_file_is_64bit);
-              }));
-  exports.Set("fileIsUnloaded",
-              Napi::Function::New(env, [](const Napi::CallbackInfo& i) {
-                return FileBool(i, wz_file_is_unloaded);
-              }));
-  exports.Set("fileVersionHash", Napi::Function::New(env, FileVersionHash));
-  exports.Set("fileObjectFromPath",
-              Napi::Function::New(env, FileObjectFromPath));
+bool IsMutablePropertyContainer(wz::WzImageProperty* prop) {
+  if (!prop) return false;
+  switch (prop->PropertyType()) {
+    case wz::WzPropertyType::SubProperty:
+    case wz::WzPropertyType::Canvas:
+    case wz::WzPropertyType::Convex:
+    case wz::WzPropertyType::Raw:
+      return prop->WzProperties() != nullptr;
+    default:
+      return false;
+  }
+}
 
-  exports.Set("dirName", Napi::Function::New(env, DirName));
-  exports.Set("dirCountImages", Napi::Function::New(env, DirCountImages));
-  exports.Set("dirCountDirectories",
-              Napi::Function::New(env, DirCountDirectories));
-  exports.Set("dirCountImagesTotal",
-              Napi::Function::New(env, DirCountImagesTotal));
-  exports.Set("dirGetImage", Napi::Function::New(env, DirGetImage));
-  exports.Set("dirGetImageByName", Napi::Function::New(env, DirGetImageByName));
-  exports.Set("dirGetDirectory", Napi::Function::New(env, DirGetDirectory));
-  exports.Set("dirGetDirectoryByName",
-              Napi::Function::New(env, DirGetDirectoryByName));
-  exports.Set("dirCreateDirectory",
-              Napi::Function::New(env, DirCreateDirectory));
-  exports.Set("dirCreateImage", Napi::Function::New(env, DirCreateImage));
-  exports.Set("dirRemoveDirectory",
-              Napi::Function::New(env, DirRemoveDirectory));
-  exports.Set("dirRemoveImage", Napi::Function::New(env, DirRemoveImage));
-  exports.Set("dirBlockSize",
-              Napi::Function::New(env, [](const Napi::CallbackInfo& i) {
-                return DirInt(i, wz_dir_block_size);
-              }));
-  exports.Set("dirChecksum",
-              Napi::Function::New(env, [](const Napi::CallbackInfo& i) {
-                return DirInt(i, wz_dir_checksum);
-              }));
-  exports.Set("dirOffset",
-              Napi::Function::New(env, [](const Napi::CallbackInfo& i) {
-                return DirInt64(i, wz_dir_offset);
-              }));
+struct BlobReadCallbackState {
+  napi_env env;
+  napi_ref callback;
+};
 
-  exports.Set("imageName", Napi::Function::New(env, ImageName));
-  exports.Set("imageParsed",
-              Napi::Function::New(env, [](const Napi::CallbackInfo& i) {
-                return ImageBool(i, wz_image_is_parsed);
-              }));
-  exports.Set("imageChanged",
-              Napi::Function::New(env, [](const Napi::CallbackInfo& i) {
-                return ImageBool(i, wz_image_is_changed);
-              }));
-  exports.Set("imageBlockSize",
-              Napi::Function::New(env, [](const Napi::CallbackInfo& i) {
-                return ImageInt(i, wz_image_block_size);
-              }));
-  exports.Set("imageChecksum",
-              Napi::Function::New(env, [](const Napi::CallbackInfo& i) {
-                return ImageInt(i, wz_image_checksum);
-              }));
-  exports.Set("imageOffset", Napi::Function::New(env, ImageOffset));
-  exports.Set("imageIsLua",
-              Napi::Function::New(env, [](const Napi::CallbackInfo& i) {
-                return ImageBool(i, wz_image_is_lua_wz_image);
-              }));
-  exports.Set("imageParse", Napi::Function::New(env, ImageParse));
-  exports.Set("imageCountProperties",
-              Napi::Function::New(env, ImageCountProperties));
-  exports.Set("imageGetProperty", Napi::Function::New(env, ImageGetProperty));
-  exports.Set("imageGetFromPath", Napi::Function::New(env, ImageGetFromPath));
-  exports.Set("imageAddProperty", Napi::Function::New(env, ImageAddProperty));
-  exports.Set("imageRemoveProperty",
-              Napi::Function::New(env, ImageRemoveProperty));
-  exports.Set("imageClearProperties",
-              Napi::Function::New(env, ImageClearProperties));
+struct BlobReadCallbackStateDeleter {
+  void operator()(BlobReadCallbackState* ptr) const {
+    if (!ptr) return;
+    napi_status status = napi_delete_reference(ptr->env, ptr->callback);
+    if (status != napi_ok) {
+      (void)napi_throw_error(
+          ptr->env, nullptr, "failed to release Blob read callback");
+    }
+    delete ptr;
+  }
+};
 
-  exports.Set("objectType", Napi::Function::New(env, ObjectType));
-  exports.Set("objectName", Napi::Function::New(env, ObjectName));
-  exports.Set("objectParent", Napi::Function::New(env, ObjectParent));
-  exports.Set("objectFullPath", Napi::Function::New(env, ObjectFullPath));
-  exports.Set("objectWzFileParent",
-              Napi::Function::New(env, ObjectWzFileParent));
-  exports.Set("objectTopMostDirectory",
-              Napi::Function::New(env, ObjectTopMostDirectory));
-  exports.Set("objectTopMostImage",
-              Napi::Function::New(env, ObjectTopMostImage));
-  exports.Set("objectAt", Napi::Function::New(env, ObjectAt));
-  exports.Set("objectSetName", Napi::Function::New(env, ObjectSetName));
-  exports.Set("objectRemove", Napi::Function::New(env, ObjectRemove));
+wz::Result<size_t> BlobReadRange(BlobReadCallbackState* state,
+                                 uint64_t offset,
+                                 std::span<uint8_t> destination) {
+  napi_value callback = nullptr;
+  napi_value global = nullptr;
+  napi_status status =
+      napi_get_reference_value(state->env, state->callback, &callback);
+  if (status != napi_ok) {
+    (void)napi_throw_error(state->env, nullptr, "Blob read callback failed");
+    return std::unexpected(wz::Error::IoError("Blob read callback failed"));
+  }
+  status = napi_get_global(state->env, &global);
+  if (status != napi_ok) {
+    (void)napi_throw_error(state->env, nullptr, "Blob read callback failed");
+    return std::unexpected(wz::Error::IoError("Blob read callback failed"));
+  }
 
-  exports.Set("propType", Napi::Function::New(env, PropType));
-  exports.Set("propIsRaw", Napi::Function::New(env, PropIsRaw));
-  exports.Set("propIsVideo", Napi::Function::New(env, PropIsVideo));
-  exports.Set("propName", Napi::Function::New(env, PropName));
-  exports.Set("propCountChildren", Napi::Function::New(env, PropCountChildren));
-  exports.Set("propGetChild", Napi::Function::New(env, PropGetChild));
-  exports.Set("propGetChildByName",
-              Napi::Function::New(env, PropGetChildByName));
-  exports.Set("propGetFromPath", Napi::Function::New(env, PropGetFromPath));
-  exports.Set("propGetInt", Napi::Function::New(env, PropGetInt));
-  exports.Set("propGetShort", Napi::Function::New(env, PropGetShort));
-  exports.Set("propGetLong", Napi::Function::New(env, PropGetLong));
-  exports.Set("propGetFloat", Napi::Function::New(env, PropGetFloat));
-  exports.Set("propGetDouble", Napi::Function::New(env, PropGetDouble));
-  exports.Set("propGetString", Napi::Function::New(env, PropGetString));
-  exports.Set("propGetBytes", Napi::Function::New(env, PropGetBytes));
-  exports.Set("propLinked", Napi::Function::New(env, PropLinked));
-  exports.Set("propertyCreateNull",
-              Napi::Function::New(env, CreatePropertyNull));
-  exports.Set("propertyCreateShort",
-              Napi::Function::New(env, CreatePropertyShort));
-  exports.Set("propertyCreateInt", Napi::Function::New(env, CreatePropertyInt));
-  exports.Set("propertyCreateLong",
-              Napi::Function::New(env, CreatePropertyLong));
-  exports.Set("propertyCreateFloat",
-              Napi::Function::New(env, CreatePropertyFloat));
-  exports.Set("propertyCreateDouble",
-              Napi::Function::New(env, CreatePropertyDouble));
-  exports.Set("propertyCreateString",
-              Napi::Function::New(env, CreatePropertyString));
-  exports.Set("propertyCreateSub", Napi::Function::New(env, CreatePropertySub));
-  exports.Set("propertyCreateVector",
-              Napi::Function::New(env, CreatePropertyVector));
-  exports.Set("propertyCreateUol", Napi::Function::New(env, CreatePropertyUol));
-  exports.Set("propertyFree", Napi::Function::New(env, PropertyFree));
-  exports.Set("propertyAddChild", Napi::Function::New(env, PropertyAddChild));
-  exports.Set("propertyRemoveChild",
-              Napi::Function::New(env, PropertyRemoveChild));
-  exports.Set("propertyClearChildren",
-              Napi::Function::New(env, PropertyClearChildren));
+  napi_value argv[3] = {};
+  status =
+      napi_create_double(state->env, static_cast<double>(offset), &argv[0]);
+  if (status != napi_ok) {
+    (void)napi_throw_error(state->env, nullptr, "Blob read callback failed");
+    return std::unexpected(wz::Error::IoError("Blob read callback failed"));
+  }
+  status = napi_create_double(
+      state->env, static_cast<double>(destination.size()), &argv[1]);
+  if (status != napi_ok) {
+    (void)napi_throw_error(state->env, nullptr, "Blob read callback failed");
+    return std::unexpected(wz::Error::IoError("Blob read callback failed"));
+  }
+#ifdef __EMSCRIPTEN__
+  if (!CreateDestinationView(state->env, destination, &argv[2])) {
+    return std::unexpected(
+        wz::Error::IoError("failed to create Blob read buffer"));
+  }
+#endif
 
-  exports.Set("intValue",
-              Napi::Function::New(env, [](const Napi::CallbackInfo& i) {
-                return ScalarValue(i, wz_int_get_value);
-              }));
-  exports.Set("intSetValue", Napi::Function::New(env, SetIntValue));
-  exports.Set(
-      "shortValue",
-      Napi::Function::New(env, [](const Napi::CallbackInfo& i) -> Napi::Value {
-        Napi::Env env = i.Env();
-        int16_t raw = 0;
-        wz_property prop = FromHandle<wz_property>(i[0]);
-        WZ_NODE_API_CALL(env, wz_short_get_value(prop, &raw));
-        int32_t v = static_cast<int32_t>(raw);
-        return Napi::Number::New(env, v);
-      }));
-  exports.Set("shortSetValue", Napi::Function::New(env, SetShortValue));
-  exports.Set("longValue", Napi::Function::New(env, LongValue));
-  exports.Set("longSetValue", Napi::Function::New(env, SetLongValue));
-  exports.Set("floatValue", Napi::Function::New(env, FloatValue));
-  exports.Set("floatSetValue", Napi::Function::New(env, SetFloatValue));
-  exports.Set("doubleValue", Napi::Function::New(env, DoubleValue));
-  exports.Set("doubleSetValue", Napi::Function::New(env, SetDoubleValue));
-  exports.Set("stringValue", Napi::Function::New(env, StringValue));
-  exports.Set("stringSetValue", Napi::Function::New(env, SetStringValue));
+  napi_value result = nullptr;
+  status = napi_call_function(state->env,
+                              global,
+                              callback,
+#ifdef __EMSCRIPTEN__
+                              3,
+#else
+                              2,
+#endif
+                              argv,
+                              &result);
+  if (status != napi_ok) {
+    (void)napi_throw_error(state->env, nullptr, "Blob read callback failed");
+    return std::unexpected(wz::Error::IoError("Blob read callback failed"));
+  }
 
-  exports.Set("pngWidth", Napi::Function::New(env, PngWidth));
-  exports.Set("pngHeight", Napi::Function::New(env, PngHeight));
-  exports.Set("pngFormat", Napi::Function::New(env, PngFormat));
-  exports.Set("pngListWzUsed", Napi::Function::New(env, PngListWzUsed));
-  exports.Set("pngImage",
-              Napi::Function::New(env, [](const Napi::CallbackInfo& i) {
-                return ReadPngBytes(i, wz_png_get_image);
-              }));
-  exports.Set("pngCompressedBytes",
-              Napi::Function::New(env, [](const Napi::CallbackInfo& i) {
-                return ReadPngBytes(i, wz_png_get_compressed_bytes);
-              }));
+#ifdef __EMSCRIPTEN__
+  napi_valuetype value_type = napi_undefined;
+  status = napi_typeof(state->env, result, &value_type);
+  if (status != napi_ok) {
+    (void)napi_throw_error(state->env, nullptr, "Blob read callback failed");
+    return std::unexpected(wz::Error::IoError("Blob read callback failed"));
+  }
+  if (value_type == napi_undefined || value_type == napi_null) {
+    return destination.size();
+  }
+  (void)napi_throw_error(
+      state->env, nullptr, "Blob read callback must write to destination");
+  return std::unexpected(
+      wz::Error::IoError("Blob read callback must write to destination"));
+#else
 
-  exports.Set("canvasPng", Napi::Function::New(env, CanvasPng));
-  exports.Set("canvasContainsInlink",
-              Napi::Function::New(env, [](const Napi::CallbackInfo& i) {
-                return CanvasBool(i, wz_canvas_contains_inlink);
-              }));
-  exports.Set("canvasContainsOutlink",
-              Napi::Function::New(env, [](const Napi::CallbackInfo& i) {
-                return CanvasBool(i, wz_canvas_contains_outlink);
-              }));
-  exports.Set("canvasLinked", Napi::Function::New(env, CanvasLinked));
+  uint8_t* data = nullptr;
+  size_t length = 0;
+  napi_value array_buffer = nullptr;
+  size_t byte_offset = 0;
+  if (!ReadBytesView(
+          state->env, result, &data, &length, &array_buffer, &byte_offset) ||
+      length != destination.size()) {
+    return std::unexpected(
+        wz::Error::IoError("Blob read callback returned invalid data"));
+  }
+  if (!SyncMemory(state->env, true, array_buffer, byte_offset, length)) {
+    return std::unexpected(
+        wz::Error::IoError("Blob read callback memory sync failed"));
+  }
+  if (length > 0) std::memcpy(destination.data(), data, length);
+  return length;
+#endif
+}
 
-  exports.Set("uolValue", Napi::Function::New(env, UolValue));
-  exports.Set("uolSetValue", Napi::Function::New(env, SetUolValue));
-  exports.Set("uolLinkValue", Napi::Function::New(env, UolLinkValue));
-  exports.Set("vectorX", Napi::Function::New(env, VectorX));
-  exports.Set("vectorY", Napi::Function::New(env, VectorY));
-  exports.Set("luaData", Napi::Function::New(env, LuaData));
-  exports.Set("luaString", Napi::Function::New(env, LuaString));
-  exports.Set("binaryData", Napi::Function::New(env, BinaryData));
-  exports.Set("binaryWav", Napi::Function::New(env, BinaryWav));
-  exports.Set("binaryLength",
-              Napi::Function::New(env, [](const Napi::CallbackInfo& i) {
-                return BinaryInt(i, wz_binary_get_length);
-              }));
-  exports.Set("binaryFrequency",
-              Napi::Function::New(env, [](const Napi::CallbackInfo& i) {
-                return BinaryInt(i, wz_binary_get_frequency);
-              }));
-  exports.Set("binaryType", Napi::Function::New(env, BinaryType));
-  exports.Set("binaryHeaderEncrypted", Napi::Function::New(env, BinaryBool));
-  exports.Set("rawData", Napi::Function::New(env, RawData));
-  exports.Set("rawType", Napi::Function::New(env, RawType));
-  exports.Set("videoData", Napi::Function::New(env, VideoData));
-  exports.Set("detectMapleVersion",
-              Napi::Function::New(env, ToolDetectMapleVersion));
-  exports.Set("ivForVersion", Napi::Function::New(env, ToolIvForVersion));
+class BlobReadCallback {
+ public:
+  explicit BlobReadCallback(std::shared_ptr<BlobReadCallbackState> state)
+      : state_(std::move(state)) {}
 
+  wz::Result<size_t> operator()(uint64_t offset,
+                                std::span<uint8_t> destination) const {
+    return BlobReadRange(state_.get(), offset, destination);
+  }
+
+ private:
+  std::shared_ptr<BlobReadCallbackState> state_;
+};
+
+std::shared_ptr<wz::WzBlobDataSource> MakeBlobSource(napi_env env,
+                                                     uint64_t size,
+                                                     napi_value callback) {
+  auto* state = new BlobReadCallbackState{env, nullptr};
+  napi_status status =
+      napi_create_reference(env, callback, 1, &state->callback);
+  if (status != napi_ok) {
+    (void)napi_throw_error(env, nullptr, "failed to retain Blob read callback");
+    delete state;
+    return nullptr;
+  }
+  auto owner = std::shared_ptr<BlobReadCallbackState>(
+      state, BlobReadCallbackStateDeleter());
+  return std::make_shared<wz::WzBlobDataSource>(size, BlobReadCallback(owner));
+}
+
+#define FN(name) napi_value name(napi_env env, napi_callback_info info)
+#define GET_ARGS(n)                                                            \
+  napi_value args[n] = {};                                                     \
+  size_t argc = n;                                                             \
+  NODE_API_CALL(env,                                                           \
+                napi_get_cb_info(env, info, &argc, args, nullptr, nullptr),    \
+                "failed to read callback arguments")
+#define GET_ARGS_MAX(n)                                                        \
+  napi_value args[n] = {};                                                     \
+  size_t argc = n;                                                             \
+  NODE_API_CALL(env,                                                           \
+                napi_get_cb_info(env, info, &argc, args, nullptr, nullptr),    \
+                "failed to read callback arguments")
+#define READ_HANDLE(type, name, value)                                         \
+  type name = nullptr;                                                         \
+  if (!ReadHandle<type>(env, value, &name)) return nullptr
+#define READ_STRING(name, value)                                               \
+  std::string name;                                                            \
+  if (!ReadString(env, value, &name)) return nullptr
+#define READ_INT(name, value)                                                  \
+  int32_t name = 0;                                                            \
+  if (!ReadInt(env, value, &name)) return nullptr
+#define READ_DOUBLE(name, value)                                               \
+  double name = 0;                                                             \
+  if (!ReadDouble(env, value, &name)) return nullptr
+#define READ_BOOL(name, value)                                                 \
+  bool name = false;                                                           \
+  if (!ReadBool(env, value, &name)) return nullptr
+#define READ_IV(name, value)                                                   \
+  std::array<uint8_t, 4> name = {0, 0, 0, 0};                                  \
+  if (!ReadIv(env, value, &name)) return nullptr
+#define RETURN_NULL()                                                          \
+  do {                                                                         \
+    napi_value node_api_result = nullptr;                                      \
+    NODE_API_CALL(                                                             \
+        env, napi_get_null(env, &node_api_result), "failed to get null");      \
+    return node_api_result;                                                    \
+  } while (false)
+#define RETURN_UNDEFINED()                                                     \
+  do {                                                                         \
+    napi_value node_api_result = nullptr;                                      \
+    NODE_API_CALL(env,                                                         \
+                  napi_get_undefined(env, &node_api_result),                   \
+                  "failed to get undefined");                                  \
+    return node_api_result;                                                    \
+  } while (false)
+#define RETURN_BOOL(value)                                                     \
+  do {                                                                         \
+    napi_value node_api_result = nullptr;                                      \
+    NODE_API_CALL(env,                                                         \
+                  napi_get_boolean(env, (value), &node_api_result),            \
+                  "failed to create boolean");                                 \
+    return node_api_result;                                                    \
+  } while (false)
+#define RETURN_INT(value)                                                      \
+  do {                                                                         \
+    napi_value node_api_result = nullptr;                                      \
+    NODE_API_CALL(env,                                                         \
+                  napi_create_int32(env, (value), &node_api_result),           \
+                  "failed to create int32");                                   \
+    return node_api_result;                                                    \
+  } while (false)
+#define RETURN_UINT32(value)                                                   \
+  do {                                                                         \
+    napi_value node_api_result = nullptr;                                      \
+    NODE_API_CALL(env,                                                         \
+                  napi_create_uint32(env, (value), &node_api_result),          \
+                  "failed to create uint32");                                  \
+    return node_api_result;                                                    \
+  } while (false)
+#define RETURN_DOUBLE(value)                                                   \
+  do {                                                                         \
+    napi_value node_api_result = nullptr;                                      \
+    NODE_API_CALL(env,                                                         \
+                  napi_create_double(env, (value), &node_api_result),          \
+                  "failed to create number");                                  \
+    return node_api_result;                                                    \
+  } while (false)
+#define RETURN_BIGINT(value)                                                   \
+  do {                                                                         \
+    napi_value node_api_result = nullptr;                                      \
+    NODE_API_CALL(env,                                                         \
+                  napi_create_bigint_int64(env, (value), &node_api_result),    \
+                  "failed to create bigint");                                  \
+    return node_api_result;                                                    \
+  } while (false)
+#define RETURN_STRING(value)                                                   \
+  do {                                                                         \
+    const std::string& node_api_string = (value);                              \
+    napi_value node_api_result = nullptr;                                      \
+    NODE_API_CALL(env,                                                         \
+                  napi_create_string_utf8(env,                                 \
+                                          node_api_string.c_str(),             \
+                                          node_api_string.size(),              \
+                                          &node_api_result),                   \
+                  "failed to create string");                                  \
+    return node_api_result;                                                    \
+  } while (false)
+
+FN(OpenFile) {
+  GET_ARGS_MAX(3);
+  READ_STRING(path, args[0]);
+  if (argc == 2) {
+    bool is_iv = false;
+    if (!IsBytesView(env, args[1], &is_iv)) return nullptr;
+    if (is_iv) {
+      READ_IV(iv, args[1]);
+      return ToHandle(env, new wz::WzFile(path, iv));
+    }
+  }
+  READ_INT(game_version, args[1]);
+  READ_INT(version, args[2]);
+  return ToHandle(env,
+                  new wz::WzFile(path,
+                                 static_cast<short>(game_version),
+                                 static_cast<wz::WzMapleVersion>(version)));
+}
+
+FN(OpenMemory) {
+  GET_ARGS_MAX(4);
+  READ_STRING(name, args[0]);
+  uint8_t* data = nullptr;
+  size_t size = 0;
+  if (!ReadBytesView(env, args[1], &data, &size)) return nullptr;
+  std::vector<uint8_t> bytes(data, data + size);
+  auto source = std::make_shared<wz::WzMemoryDataSource>(std::move(bytes));
+  if (argc == 3) {
+    bool is_iv = false;
+    if (!IsBytesView(env, args[2], &is_iv)) return nullptr;
+    if (is_iv) {
+      READ_IV(iv, args[2]);
+      return ToHandle(env, new wz::WzFile(name, source, iv));
+    }
+  }
+  READ_INT(game_version, args[2]);
+  READ_INT(version, args[3]);
+  return ToHandle(env,
+                  new wz::WzFile(name,
+                                 source,
+                                 static_cast<short>(game_version),
+                                 static_cast<wz::WzMapleVersion>(version)));
+}
+
+FN(OpenBlobSource) {
+  GET_ARGS_MAX(5);
+  READ_DOUBLE(size, args[0]);
+  READ_STRING(name, args[1]);
+  if (argc == 4) {
+    bool is_iv = false;
+    if (!IsBytesView(env, args[2], &is_iv)) return nullptr;
+    if (is_iv) {
+      READ_IV(iv, args[2]);
+      auto source = MakeBlobSource(env, size, args[3]);
+      if (!source) return nullptr;
+      return ToHandle(env, new wz::WzFile(name, source, iv));
+    }
+  }
+  READ_INT(game_version, args[2]);
+  READ_INT(version, args[3]);
+  auto source = MakeBlobSource(env, size, args[4]);
+  if (!source) return nullptr;
+  return ToHandle(env,
+                  new wz::WzFile(name,
+                                 source,
+                                 static_cast<short>(game_version),
+                                 static_cast<wz::WzMapleVersion>(version)));
+}
+
+FN(CreateFile) {
+  GET_ARGS(2);
+  READ_INT(game_version, args[0]);
+  READ_INT(version, args[1]);
+  return ToHandle(env,
+                  new wz::WzFile(static_cast<short>(game_version),
+                                 static_cast<wz::WzMapleVersion>(version)));
+}
+
+FN(CloseFile) {
+  GET_ARGS(1);
+  READ_HANDLE(wz::WzFile*, file, args[0]);
+  delete file;
+  RETURN_UNDEFINED();
+}
+
+FN(ParseFile) {
+  GET_ARGS(1);
+  READ_HANDLE(wz::WzFile*, file, args[0]);
+  if (!CheckNotNull(env, file, "parseFile")) return nullptr;
+  auto status = file->ParseWzFile();
+  if (status != wz::WzFileParseStatus::Success) {
+    const auto message = wz::GetErrorDescription(status);
+    NODE_API_THROW(env, message.c_str());
+  }
+  RETURN_INT(static_cast<int>(status));
+}
+
+FN(FileSaveToDisk) {
+  GET_ARGS(2);
+  READ_HANDLE(wz::WzFile*, file, args[0]);
+  READ_STRING(path, args[1]);
+  auto result = file->SaveToDisk(path);
+  if (!CheckResult(env, result)) return nullptr;
+  RETURN_UNDEFINED();
+}
+
+FN(FileName) {
+  GET_ARGS(1);
+  READ_HANDLE(wz::WzFile*, file, args[0]);
+  RETURN_STRING(file->Name());
+}
+
+FN(FilePath) {
+  GET_ARGS(1);
+  READ_HANDLE(wz::WzFile*, file, args[0]);
+  RETURN_STRING(file->FilePath());
+}
+
+FN(FileVersion) {
+  GET_ARGS(1);
+  READ_HANDLE(wz::WzFile*, file, args[0]);
+  RETURN_INT(file->Version());
+}
+
+FN(FileMapleVersion) {
+  GET_ARGS(1);
+  READ_HANDLE(wz::WzFile*, file, args[0]);
+  RETURN_INT(static_cast<int>(file->MapleVersion()));
+}
+
+FN(FileWzDirectory) {
+  GET_ARGS(1);
+  READ_HANDLE(wz::WzFile*, file, args[0]);
+  return NullableHandle(env, file->GetWzDirectory());
+}
+
+FN(FileIs64Bit) {
+  GET_ARGS(1);
+  READ_HANDLE(wz::WzFile*, file, args[0]);
+  RETURN_BOOL(file->Is64BitWzFile());
+}
+
+FN(FileIsUnloaded) {
+  GET_ARGS(1);
+  READ_HANDLE(wz::WzFile*, file, args[0]);
+  RETURN_BOOL(file->IsUnloaded());
+}
+
+FN(FileVersionHash) {
+  GET_ARGS(1);
+  READ_HANDLE(wz::WzFile*, file, args[0]);
+  RETURN_UINT32(file->VersionHash());
+}
+
+FN(FileObjectFromPath) {
+  GET_ARGS(3);
+  READ_HANDLE(wz::WzFile*, file, args[0]);
+  READ_STRING(path, args[1]);
+  READ_BOOL(check_first_directory_name, args[2]);
+  auto* obj = file->GetObjectFromPath(path, check_first_directory_name);
+  return NullableObject(env, obj);
+}
+
+FN(DirName) {
+  GET_ARGS(1);
+  READ_HANDLE(wz::WzDirectory*, dir, args[0]);
+  RETURN_STRING(dir->Name());
+}
+
+FN(DirCountImages) {
+  GET_ARGS(1);
+  READ_HANDLE(wz::WzDirectory*, dir, args[0]);
+  RETURN_INT(static_cast<int>(dir->WzImages().size()));
+}
+
+FN(DirCountDirectories) {
+  GET_ARGS(1);
+  READ_HANDLE(wz::WzDirectory*, dir, args[0]);
+  RETURN_INT(static_cast<int>(dir->WzDirectories().size()));
+}
+
+FN(DirCountImagesTotal) {
+  GET_ARGS(1);
+  READ_HANDLE(wz::WzDirectory*, dir, args[0]);
+  RETURN_INT(dir->CountImages());
+}
+
+FN(DirGetImage) {
+  GET_ARGS(2);
+  READ_HANDLE(wz::WzDirectory*, dir, args[0]);
+  READ_INT(index, args[1]);
+  auto images = dir->WzImages();
+  if (index < 0 || index >= static_cast<int>(images.size())) RETURN_NULL();
+  return NullableHandle(env, images[static_cast<size_t>(index)]);
+}
+
+FN(DirGetImageByName) {
+  GET_ARGS(2);
+  READ_HANDLE(wz::WzDirectory*, dir, args[0]);
+  READ_STRING(name, args[1]);
+  return NullableHandle(env, dir->GetImageByName(name));
+}
+
+FN(DirGetDirectory) {
+  GET_ARGS(2);
+  READ_HANDLE(wz::WzDirectory*, dir, args[0]);
+  READ_INT(index, args[1]);
+  auto dirs = dir->WzDirectories();
+  if (index < 0 || index >= static_cast<int>(dirs.size())) RETURN_NULL();
+  return NullableHandle(env, dirs[static_cast<size_t>(index)]);
+}
+
+FN(DirGetDirectoryByName) {
+  GET_ARGS(2);
+  READ_HANDLE(wz::WzDirectory*, dir, args[0]);
+  READ_STRING(name, args[1]);
+  return NullableHandle(env, dir->GetDirectoryByName(name));
+}
+
+FN(DirCreateDirectory) {
+  GET_ARGS(2);
+  READ_HANDLE(wz::WzDirectory*, dir, args[0]);
+  READ_STRING(name, args[1]);
+  auto result = dir->CreateDirectory(name);
+  if (!CheckResult(env, result)) return nullptr;
+  return ToHandle(env, result.value());
+}
+
+FN(DirCreateImage) {
+  GET_ARGS(2);
+  READ_HANDLE(wz::WzDirectory*, dir, args[0]);
+  READ_STRING(name, args[1]);
+  auto result = dir->CreateImage(name);
+  if (!CheckResult(env, result)) return nullptr;
+  return ToHandle(env, result.value());
+}
+
+FN(DirRemoveDirectory) {
+  GET_ARGS(2);
+  READ_HANDLE(wz::WzDirectory*, dir, args[0]);
+  READ_HANDLE(wz::WzDirectory*, child, args[1]);
+  auto result = dir->TryRemoveDirectory(child);
+  if (!CheckResult(env, result)) return nullptr;
+  RETURN_UNDEFINED();
+}
+
+FN(DirRemoveImage) {
+  GET_ARGS(2);
+  READ_HANDLE(wz::WzDirectory*, dir, args[0]);
+  READ_HANDLE(wz::WzImage*, image, args[1]);
+  auto result = dir->TryRemoveImage(image);
+  if (!CheckResult(env, result)) return nullptr;
+  RETURN_UNDEFINED();
+}
+
+FN(DirBlockSize) {
+  GET_ARGS(1);
+  READ_HANDLE(wz::WzDirectory*, dir, args[0]);
+  RETURN_INT(dir->BlockSize());
+}
+
+FN(DirChecksum) {
+  GET_ARGS(1);
+  READ_HANDLE(wz::WzDirectory*, dir, args[0]);
+  RETURN_INT(dir->Checksum());
+}
+
+FN(DirOffset) {
+  GET_ARGS(1);
+  READ_HANDLE(wz::WzDirectory*, dir, args[0]);
+  RETURN_BIGINT(dir->Offset());
+}
+
+FN(ImageName) {
+  GET_ARGS(1);
+  READ_HANDLE(wz::WzImage*, image, args[0]);
+  RETURN_STRING(image->Name());
+}
+
+FN(ImageParsed) {
+  GET_ARGS(1);
+  READ_HANDLE(wz::WzImage*, image, args[0]);
+  RETURN_BOOL(image->Parsed());
+}
+
+FN(ImageChanged) {
+  GET_ARGS(1);
+  READ_HANDLE(wz::WzImage*, image, args[0]);
+  RETURN_BOOL(image->Changed());
+}
+
+FN(ImageBlockSize) {
+  GET_ARGS(1);
+  READ_HANDLE(wz::WzImage*, image, args[0]);
+  RETURN_INT(image->BlockSize());
+}
+
+FN(ImageChecksum) {
+  GET_ARGS(1);
+  READ_HANDLE(wz::WzImage*, image, args[0]);
+  RETURN_INT(image->Checksum());
+}
+
+FN(ImageOffset) {
+  GET_ARGS(1);
+  READ_HANDLE(wz::WzImage*, image, args[0]);
+  RETURN_BIGINT(image->Offset());
+}
+
+FN(ImageIsLua) {
+  GET_ARGS(1);
+  READ_HANDLE(wz::WzImage*, image, args[0]);
+  RETURN_BOOL(image->IsLuaWzImage());
+}
+
+FN(ImageParse) {
+  GET_ARGS(1);
+  READ_HANDLE(wz::WzImage*, image, args[0]);
+  auto result = image->ParseImage();
+  if (!CheckResult(env, result)) return nullptr;
+  RETURN_UNDEFINED();
+}
+
+FN(ImageCountProperties) {
+  GET_ARGS(1);
+  READ_HANDLE(wz::WzImage*, image, args[0]);
+  RETURN_INT(static_cast<int>(image->WzProperties()->size()));
+}
+
+FN(ImageGetProperty) {
+  GET_ARGS(2);
+  READ_HANDLE(wz::WzImage*, image, args[0]);
+  READ_INT(index, args[1]);
+  auto* props = image->WzProperties();
+  if (index < 0 || index >= static_cast<int>(props->size())) RETURN_NULL();
+  return ToHandle(env, (*props)[static_cast<size_t>(index)]);
+}
+
+FN(ImageGetFromPath) {
+  GET_ARGS(2);
+  READ_HANDLE(wz::WzImage*, image, args[0]);
+  READ_STRING(path, args[1]);
+  return NullableHandle(env, image->GetFromPath(path));
+}
+
+FN(ImageAddProperty) {
+  GET_ARGS(2);
+  READ_HANDLE(wz::WzImage*, image, args[0]);
+  READ_HANDLE(wz::WzImageProperty*, prop, args[1]);
+  auto result = image->TryAddProperty(prop);
+  if (!CheckResult(env, result)) return nullptr;
+  RETURN_UNDEFINED();
+}
+
+FN(ImageRemoveProperty) {
+  GET_ARGS(2);
+  READ_HANDLE(wz::WzImage*, image, args[0]);
+  READ_HANDLE(wz::WzImageProperty*, prop, args[1]);
+  auto result = image->TryRemoveProperty(prop);
+  if (!CheckResult(env, result)) return nullptr;
+  RETURN_UNDEFINED();
+}
+
+FN(ImageClearProperties) {
+  GET_ARGS(1);
+  READ_HANDLE(wz::WzImage*, image, args[0]);
+  image->ClearProperties();
+  RETURN_UNDEFINED();
+}
+
+FN(ObjectType) {
+  GET_ARGS(1);
+  READ_HANDLE(wz::WzObject*, obj, args[0]);
+  RETURN_INT(static_cast<int>(obj->ObjectType()));
+}
+
+FN(ObjectName) {
+  GET_ARGS(1);
+  READ_HANDLE(wz::WzObject*, obj, args[0]);
+  RETURN_STRING(obj->Name());
+}
+
+FN(ObjectParent) {
+  GET_ARGS(1);
+  READ_HANDLE(wz::WzObject*, obj, args[0]);
+  return NullableObject(env, obj->Parent());
+}
+
+FN(ObjectFullPath) {
+  GET_ARGS(1);
+  READ_HANDLE(wz::WzObject*, obj, args[0]);
+  RETURN_STRING(obj->FullPath());
+}
+
+FN(ObjectWzFileParent) {
+  GET_ARGS(1);
+  READ_HANDLE(wz::WzObject*, obj, args[0]);
+  return NullableHandle(env, obj->WzFileParent());
+}
+
+FN(ObjectTopMostDirectory) {
+  GET_ARGS(1);
+  READ_HANDLE(wz::WzObject*, obj, args[0]);
+  return NullableObject(env, obj->GetTopMostWzDirectory());
+}
+
+FN(ObjectTopMostImage) {
+  GET_ARGS(1);
+  READ_HANDLE(wz::WzObject*, obj, args[0]);
+  return NullableObject(env, obj->GetTopMostWzImage());
+}
+
+FN(ObjectAt) {
+  GET_ARGS(2);
+  READ_HANDLE(wz::WzObject*, obj, args[0]);
+  READ_STRING(name, args[1]);
+  if (obj->ObjectType() == wz::WzObjectType::Image) {
+    auto result = static_cast<wz::WzImage*>(obj)->GetPropertyByName(name);
+    if (!CheckResult(env, result)) return nullptr;
+    return NullableObject(env, result.value());
+  }
+  return NullableObject(env, (*obj)[name]);
+}
+
+FN(ObjectSetName) {
+  GET_ARGS(2);
+  READ_HANDLE(wz::WzObject*, obj, args[0]);
+  READ_STRING(name, args[1]);
+  auto result = obj->Rename(name);
+  if (!CheckResult(env, result)) return nullptr;
+  RETURN_UNDEFINED();
+}
+
+FN(ObjectRemove) {
+  GET_ARGS(1);
+  READ_HANDLE(wz::WzObject*, obj, args[0]);
+  auto result = obj->TryRemove();
+  if (!CheckResult(env, result)) return nullptr;
+  RETURN_UNDEFINED();
+}
+
+FN(PropType) {
+  GET_ARGS(1);
+  READ_HANDLE(wz::WzImageProperty*, prop, args[0]);
+  RETURN_INT(static_cast<int>(prop->PropertyType()));
+}
+
+FN(PropIsRaw) {
+  GET_ARGS(1);
+  READ_HANDLE(wz::WzImageProperty*, prop, args[0]);
+  RETURN_BOOL(prop->IsRawDataProperty());
+}
+
+FN(PropIsVideo) {
+  GET_ARGS(1);
+  READ_HANDLE(wz::WzImageProperty*, prop, args[0]);
+  RETURN_BOOL(prop->IsVideoProperty());
+}
+
+FN(PropName) {
+  GET_ARGS(1);
+  READ_HANDLE(wz::WzImageProperty*, prop, args[0]);
+  RETURN_STRING(prop->Name());
+}
+
+FN(PropCountChildren) {
+  GET_ARGS(1);
+  READ_HANDLE(wz::WzImageProperty*, prop, args[0]);
+  auto* props = prop->WzProperties();
+  RETURN_INT(props ? static_cast<int>(props->size()) : 0);
+}
+
+FN(PropGetChild) {
+  GET_ARGS(2);
+  READ_HANDLE(wz::WzImageProperty*, prop, args[0]);
+  READ_INT(index, args[1]);
+  auto* props = prop->WzProperties();
+  if (!props) RETURN_NULL();
+  if (index < 0 || index >= static_cast<int>(props->size())) RETURN_NULL();
+  return ToHandle(env, (*props)[static_cast<size_t>(index)]);
+}
+
+FN(PropGetChildByName) {
+  GET_ARGS(2);
+  READ_HANDLE(wz::WzImageProperty*, prop, args[0]);
+  READ_STRING(name, args[1]);
+  auto* props = prop->WzProperties();
+  if (!props) RETURN_NULL();
+  for (auto* child : *props) {
+    if (child && child->Name() == name) return ToHandle(env, child);
+  }
+  RETURN_NULL();
+}
+
+FN(PropGetFromPath) {
+  GET_ARGS(2);
+  READ_HANDLE(wz::WzImageProperty*, prop, args[0]);
+  READ_STRING(path, args[1]);
+  return NullableHandle(env, prop->GetFromPath(path));
+}
+
+FN(PropLinked) {
+  GET_ARGS(1);
+  READ_HANDLE(wz::WzImageProperty*, prop, args[0]);
+  return NullableHandle(env, prop->GetLinkedWzImageProperty());
+}
+
+FN(PropGetInt) {
+  GET_ARGS(1);
+  READ_HANDLE(wz::WzImageProperty*, prop, args[0]);
+  RETURN_INT(prop->GetInt());
+}
+
+FN(PropGetShort) {
+  GET_ARGS(1);
+  READ_HANDLE(wz::WzImageProperty*, prop, args[0]);
+  RETURN_INT(prop->GetShort());
+}
+
+FN(PropGetLong) {
+  GET_ARGS(1);
+  READ_HANDLE(wz::WzImageProperty*, prop, args[0]);
+  RETURN_BIGINT(prop->GetLong());
+}
+
+FN(PropGetFloat) {
+  GET_ARGS(1);
+  READ_HANDLE(wz::WzImageProperty*, prop, args[0]);
+  RETURN_DOUBLE(prop->GetFloat());
+}
+
+FN(PropGetDouble) {
+  GET_ARGS(1);
+  READ_HANDLE(wz::WzImageProperty*, prop, args[0]);
+  RETURN_DOUBLE(prop->GetDouble());
+}
+
+FN(PropGetString) {
+  GET_ARGS(1);
+  READ_HANDLE(wz::WzImageProperty*, prop, args[0]);
+  RETURN_STRING(prop->GetString());
+}
+
+FN(PropGetBytes) {
+  GET_ARGS(1);
+  READ_HANDLE(wz::WzImageProperty*, prop, args[0]);
+  auto result = prop->GetBytes();
+  if (!CheckResult(env, result)) return nullptr;
+  return Bytes(env, result.value());
+}
+
+FN(PropertyValue) {
+  GET_ARGS(1);
+  READ_HANDLE(wz::WzImageProperty*, prop, args[0]);
+  if (!CheckNotNull(env, prop, "propertyValue")) return nullptr;
+  switch (prop->PropertyType()) {
+    case wz::WzPropertyType::Short:
+      RETURN_INT(static_cast<wz::WzShortProperty*>(prop)->Value());
+    case wz::WzPropertyType::Int:
+      RETURN_INT(static_cast<wz::WzIntProperty*>(prop)->Value());
+    case wz::WzPropertyType::Long:
+      RETURN_BIGINT(static_cast<wz::WzLongProperty*>(prop)->Value());
+    case wz::WzPropertyType::Float:
+      RETURN_DOUBLE(static_cast<wz::WzFloatProperty*>(prop)->Value());
+    case wz::WzPropertyType::Double:
+      RETURN_DOUBLE(static_cast<wz::WzDoubleProperty*>(prop)->Value());
+    case wz::WzPropertyType::String:
+      RETURN_STRING(static_cast<wz::WzStringProperty*>(prop)->Value());
+    case wz::WzPropertyType::UOL:
+      RETURN_STRING(static_cast<wz::WzUOLProperty*>(prop)->Value());
+    default:
+      NODE_API_THROW(env, "propertyValue: wrong property type");
+  }
+}
+
+FN(PropertySetValue) {
+  GET_ARGS(2);
+  READ_HANDLE(wz::WzImageProperty*, prop, args[0]);
+  if (!CheckNotNull(env, prop, "propertySetValue")) return nullptr;
+  switch (prop->PropertyType()) {
+    case wz::WzPropertyType::Short: {
+      READ_INT(value, args[1]);
+      static_cast<wz::WzShortProperty*>(prop)->SetValue(
+          static_cast<int16_t>(value));
+      RETURN_UNDEFINED();
+    }
+    case wz::WzPropertyType::Int: {
+      READ_INT(value, args[1]);
+      static_cast<wz::WzIntProperty*>(prop)->SetValue(value);
+      RETURN_UNDEFINED();
+    }
+    case wz::WzPropertyType::Long: {
+      int64_t value = 0;
+      if (!ReadInt64(env, args[1], &value)) return nullptr;
+      static_cast<wz::WzLongProperty*>(prop)->SetValue(value);
+      RETURN_UNDEFINED();
+    }
+    case wz::WzPropertyType::Float: {
+      READ_DOUBLE(value, args[1]);
+      static_cast<wz::WzFloatProperty*>(prop)->SetValue(
+          static_cast<float>(value));
+      RETURN_UNDEFINED();
+    }
+    case wz::WzPropertyType::Double: {
+      READ_DOUBLE(value, args[1]);
+      static_cast<wz::WzDoubleProperty*>(prop)->SetValue(value);
+      RETURN_UNDEFINED();
+    }
+    case wz::WzPropertyType::String: {
+      READ_STRING(value, args[1]);
+      static_cast<wz::WzStringProperty*>(prop)->SetValue(value);
+      RETURN_UNDEFINED();
+    }
+    case wz::WzPropertyType::UOL: {
+      READ_STRING(value, args[1]);
+      static_cast<wz::WzUOLProperty*>(prop)->SetValue(value);
+      RETURN_UNDEFINED();
+    }
+    default:
+      NODE_API_THROW(env, "propertySetValue: wrong property type");
+  }
+}
+
+FN(PropertyFree) {
+  GET_ARGS(1);
+  READ_HANDLE(wz::WzImageProperty*, prop, args[0]);
+  if (!CheckNotNull(env, prop, "propertyFree")) return nullptr;
+  if (prop->Parent()) {
+    NODE_API_THROW(env, "propertyFree: property is owned by a WZ tree");
+  }
+  delete prop;
+  RETURN_UNDEFINED();
+}
+
+FN(PropertyAddChild) {
+  GET_ARGS(2);
+  READ_HANDLE(wz::WzImageProperty*, parent, args[0]);
+  READ_HANDLE(wz::WzImageProperty*, child, args[1]);
+  if (!IsMutablePropertyContainer(parent)) {
+    NODE_API_THROW(env, "propertyAddChild: wrong property type");
+  }
+  auto result = parent->TryAddChildProperty(child);
+  if (!CheckResult(env, result)) return nullptr;
+  RETURN_UNDEFINED();
+}
+
+FN(PropertyRemoveChild) {
+  GET_ARGS(2);
+  READ_HANDLE(wz::WzImageProperty*, parent, args[0]);
+  READ_HANDLE(wz::WzImageProperty*, child, args[1]);
+  if (!IsMutablePropertyContainer(parent)) {
+    NODE_API_THROW(env, "propertyRemoveChild: wrong property type");
+  }
+  auto result = parent->TryRemoveChildProperty(child);
+  if (!CheckResult(env, result)) return nullptr;
+  RETURN_UNDEFINED();
+}
+
+FN(PropertyClearChildren) {
+  GET_ARGS(1);
+  READ_HANDLE(wz::WzImageProperty*, prop, args[0]);
+  if (!IsMutablePropertyContainer(prop)) {
+    NODE_API_THROW(env, "propertyClearChildren: wrong property type");
+  }
+  auto result = prop->TryClearChildProperties();
+  if (!CheckResult(env, result)) return nullptr;
+  RETURN_UNDEFINED();
+}
+
+FN(CreatePropertyNull) {
+  GET_ARGS(1);
+  READ_STRING(name, args[0]);
+  return ToHandle(env, new wz::WzNullProperty(name));
+}
+
+FN(CreatePropertyShort) {
+  GET_ARGS(2);
+  READ_STRING(name, args[0]);
+  READ_INT(value, args[1]);
+  return ToHandle(env,
+                  new wz::WzShortProperty(name, static_cast<int16_t>(value)));
+}
+
+FN(CreatePropertyInt) {
+  GET_ARGS(2);
+  READ_STRING(name, args[0]);
+  READ_INT(value, args[1]);
+  return ToHandle(env, new wz::WzIntProperty(name, value));
+}
+
+FN(CreatePropertyLong) {
+  GET_ARGS(2);
+  READ_STRING(name, args[0]);
+  int64_t value = 0;
+  if (!ReadInt64(env, args[1], &value)) return nullptr;
+  return ToHandle(env, new wz::WzLongProperty(name, value));
+}
+
+FN(CreatePropertyFloat) {
+  GET_ARGS(2);
+  READ_STRING(name, args[0]);
+  READ_DOUBLE(value, args[1]);
+  return ToHandle(env,
+                  new wz::WzFloatProperty(name, static_cast<float>(value)));
+}
+
+FN(CreatePropertyDouble) {
+  GET_ARGS(2);
+  READ_STRING(name, args[0]);
+  READ_DOUBLE(value, args[1]);
+  return ToHandle(env, new wz::WzDoubleProperty(name, value));
+}
+
+FN(CreatePropertyString) {
+  GET_ARGS(2);
+  READ_STRING(name, args[0]);
+  READ_STRING(value, args[1]);
+  return ToHandle(env, new wz::WzStringProperty(name, value));
+}
+
+FN(CreatePropertySub) {
+  GET_ARGS(1);
+  READ_STRING(name, args[0]);
+  return ToHandle(env, new wz::WzSubProperty(name));
+}
+
+FN(CreatePropertyVector) {
+  GET_ARGS(3);
+  READ_STRING(name, args[0]);
+  READ_INT(x, args[1]);
+  READ_INT(y, args[2]);
+  return ToHandle(env, new wz::WzVectorProperty(name, x, y));
+}
+
+FN(CreatePropertyUol) {
+  GET_ARGS(2);
+  READ_STRING(name, args[0]);
+  READ_STRING(value, args[1]);
+  return ToHandle(env, new wz::WzUOLProperty(name, value));
+}
+
+template <typename T>
+T* TypedProp(napi_env env,
+             napi_value value,
+             wz::WzPropertyType type,
+             const char* name) {
+  wz::WzImageProperty* prop = nullptr;
+  if (!ReadHandle<wz::WzImageProperty*>(env, value, &prop)) return nullptr;
+  return CheckPropertyType(env, prop, type, name) ? static_cast<T*>(prop)
+                                                  : nullptr;
+}
+
+FN(CanvasPng) {
+  GET_ARGS(1);
+  auto* prop = TypedProp<wz::WzCanvasProperty>(
+      env, args[0], wz::WzPropertyType::Canvas, "canvasPng");
+  if (!prop) return nullptr;
+  return NullableHandle(env, prop->PngProperty());
+}
+
+FN(CanvasContainsInlink) {
+  GET_ARGS(1);
+  auto* prop = TypedProp<wz::WzCanvasProperty>(
+      env, args[0], wz::WzPropertyType::Canvas, "canvasContainsInlink");
+  if (!prop) return nullptr;
+  RETURN_BOOL(prop->ContainsInlinkProperty());
+}
+
+FN(CanvasContainsOutlink) {
+  GET_ARGS(1);
+  auto* prop = TypedProp<wz::WzCanvasProperty>(
+      env, args[0], wz::WzPropertyType::Canvas, "canvasContainsOutlink");
+  if (!prop) return nullptr;
+  RETURN_BOOL(prop->ContainsOutlinkProperty());
+}
+
+FN(CanvasLinked) {
+  GET_ARGS(1);
+  auto* prop = TypedProp<wz::WzCanvasProperty>(
+      env, args[0], wz::WzPropertyType::Canvas, "canvasLinked");
+  if (!prop) return nullptr;
+  auto result = prop->GetLinkedWzImageProperty();
+  if (!CheckResult(env, result)) return nullptr;
+  return NullableHandle(env, result.value());
+}
+
+FN(CanvasSaveToFile) {
+  GET_ARGS(2);
+  auto* prop = TypedProp<wz::WzCanvasProperty>(
+      env, args[0], wz::WzPropertyType::Canvas, "canvasSaveToFile");
+  if (!prop) return nullptr;
+  READ_STRING(path, args[1]);
+  auto result = prop->SaveToFile(path);
+  if (!CheckResult(env, result)) return nullptr;
+  RETURN_BOOL(true);
+}
+
+FN(PngWidth) {
+  GET_ARGS(1);
+  READ_HANDLE(wz::WzPngProperty*, png, args[0]);
+  RETURN_INT(png->Width());
+}
+
+FN(PngHeight) {
+  GET_ARGS(1);
+  READ_HANDLE(wz::WzPngProperty*, png, args[0]);
+  RETURN_INT(png->Height());
+}
+
+FN(PngFormat) {
+  GET_ARGS(1);
+  READ_HANDLE(wz::WzPngProperty*, png, args[0]);
+  RETURN_INT(static_cast<int>(png->Format()));
+}
+
+FN(PngListWzUsed) {
+  GET_ARGS(1);
+  READ_HANDLE(wz::WzPngProperty*, png, args[0]);
+  RETURN_BOOL(png->ListWzUsed());
+}
+
+FN(PngImage) {
+  GET_ARGS(1);
+  READ_HANDLE(wz::WzPngProperty*, png, args[0]);
+  auto result = png->GetImage(false);
+  if (!CheckResult(env, result)) return nullptr;
+  return Bytes(env, result.value());
+}
+
+FN(PngCompressedBytes) {
+  GET_ARGS(1);
+  READ_HANDLE(wz::WzPngProperty*, png, args[0]);
+  auto result = png->GetCompressedBytes(false);
+  if (!CheckResult(env, result)) return nullptr;
+  return Bytes(env, result.value());
+}
+
+FN(PngSaveToFile) {
+  GET_ARGS(2);
+  READ_HANDLE(wz::WzPngProperty*, png, args[0]);
+  READ_STRING(path, args[1]);
+  auto result = png->SaveToFile(path);
+  if (!CheckResult(env, result)) return nullptr;
+  RETURN_BOOL(true);
+}
+
+FN(VectorX) {
+  GET_ARGS(1);
+  auto* prop = TypedProp<wz::WzVectorProperty>(
+      env, args[0], wz::WzPropertyType::Vector, "vectorX");
+  if (!prop) return nullptr;
+  RETURN_INT(prop->X ? prop->X->Value() : 0);
+}
+
+FN(VectorY) {
+  GET_ARGS(1);
+  auto* prop = TypedProp<wz::WzVectorProperty>(
+      env, args[0], wz::WzPropertyType::Vector, "vectorY");
+  if (!prop) return nullptr;
+  RETURN_INT(prop->Y ? prop->Y->Value() : 0);
+}
+
+FN(BinaryData) {
+  GET_ARGS(1);
+  auto* prop = TypedProp<wz::WzBinaryProperty>(
+      env, args[0], wz::WzPropertyType::Sound, "binaryData");
+  if (!prop) return nullptr;
+  auto result = prop->GetBytes(false);
+  if (!CheckResult(env, result)) return nullptr;
+  return Bytes(env, result.value());
+}
+
+FN(BinaryWav) {
+  GET_ARGS(1);
+  auto* prop = TypedProp<wz::WzBinaryProperty>(
+      env, args[0], wz::WzPropertyType::Sound, "binaryWav");
+  if (!prop) return nullptr;
+  auto result = prop->GetBytesForWAVPlayback(false);
+  if (!CheckResult(env, result)) return nullptr;
+  return Bytes(env, result.value());
+}
+
+FN(BinaryLength) {
+  GET_ARGS(1);
+  auto* prop = TypedProp<wz::WzBinaryProperty>(
+      env, args[0], wz::WzPropertyType::Sound, "binaryLength");
+  if (!prop) return nullptr;
+  RETURN_INT(prop->Length());
+}
+
+FN(BinaryFrequency) {
+  GET_ARGS(1);
+  auto* prop = TypedProp<wz::WzBinaryProperty>(
+      env, args[0], wz::WzPropertyType::Sound, "binaryFrequency");
+  if (!prop) return nullptr;
+  RETURN_INT(prop->Frequency());
+}
+
+FN(BinaryType) {
+  GET_ARGS(1);
+  auto* prop = TypedProp<wz::WzBinaryProperty>(
+      env, args[0], wz::WzPropertyType::Sound, "binaryType");
+  if (!prop) return nullptr;
+  RETURN_INT(static_cast<int>(prop->Type()));
+}
+
+FN(BinaryHeaderEncrypted) {
+  GET_ARGS(1);
+  auto* prop = TypedProp<wz::WzBinaryProperty>(
+      env, args[0], wz::WzPropertyType::Sound, "binaryHeaderEncrypted");
+  if (!prop) return nullptr;
+  RETURN_BOOL(prop->HeaderEncrypted());
+}
+
+FN(BinarySaveToFile) {
+  GET_ARGS(2);
+  auto* prop = TypedProp<wz::WzBinaryProperty>(
+      env, args[0], wz::WzPropertyType::Sound, "binarySaveToFile");
+  if (!prop) return nullptr;
+  READ_STRING(path, args[1]);
+  auto result = prop->SaveToFile(path);
+  if (!CheckResult(env, result)) return nullptr;
+  RETURN_BOOL(true);
+}
+
+FN(RawData) {
+  GET_ARGS(1);
+  READ_HANDLE(wz::WzImageProperty*, prop, args[0]);
+  if (!prop || !prop->IsRawDataProperty()) {
+    NODE_API_THROW(env, "rawData: wrong property type");
+  }
+  auto result = static_cast<wz::WzRawDataProperty*>(prop)->GetBytes(false);
+  if (!CheckResult(env, result)) return nullptr;
+  return Bytes(env, result.value());
+}
+
+FN(RawType) {
+  GET_ARGS(1);
+  READ_HANDLE(wz::WzImageProperty*, prop, args[0]);
+  if (!prop || !prop->IsRawDataProperty()) {
+    NODE_API_THROW(env, "rawType: wrong property type");
+  }
+  RETURN_INT(static_cast<wz::WzRawDataProperty*>(prop)->Type());
+}
+
+FN(VideoData) {
+  GET_ARGS(1);
+  READ_HANDLE(wz::WzImageProperty*, prop, args[0]);
+  if (!prop || !prop->IsVideoProperty()) {
+    NODE_API_THROW(env, "videoData: wrong property type");
+  }
+  auto result = static_cast<wz::WzVideoProperty*>(prop)->GetBytes(false);
+  if (!CheckResult(env, result)) return nullptr;
+  return Bytes(env, result.value());
+}
+
+FN(UolLinkValue) {
+  GET_ARGS(1);
+  auto* prop = TypedProp<wz::WzUOLProperty>(
+      env, args[0], wz::WzPropertyType::UOL, "uolLinkValue");
+  if (!prop) return nullptr;
+  return NullableObject(env, prop->LinkValue());
+}
+
+FN(LuaData) {
+  GET_ARGS(1);
+  auto* prop = TypedProp<wz::WzLuaProperty>(
+      env, args[0], wz::WzPropertyType::Lua, "luaData");
+  if (!prop) return nullptr;
+  return Bytes(env, prop->Value());
+}
+
+FN(LuaString) {
+  GET_ARGS(1);
+  auto* prop = TypedProp<wz::WzLuaProperty>(
+      env, args[0], wz::WzPropertyType::Lua, "luaString");
+  if (!prop) return nullptr;
+  RETURN_STRING(prop->GetString());
+}
+
+FN(DetectMapleVersion) {
+  GET_ARGS(1);
+  READ_STRING(path, args[0]);
+  int16_t version = 0;
+  auto maple_version = wz::WzTool::DetectMapleVersion(path, &version);
+  napi_value result = nullptr;
+  NODE_API_CALL(
+      env, napi_create_object(env, &result), "failed to create version result");
+  napi_value maple_version_value = nullptr;
+  NODE_API_CALL(env,
+                napi_create_int32(
+                    env, static_cast<int>(maple_version), &maple_version_value),
+                "failed to create maple version value");
+  NODE_API_CALL(
+      env,
+      napi_set_named_property(env, result, "mapleVersion", maple_version_value),
+      "failed to set mapleVersion");
+  napi_value version_value = nullptr;
+  NODE_API_CALL(env,
+                napi_create_int32(env, version, &version_value),
+                "failed to create file version value");
+  NODE_API_CALL(env,
+                napi_set_named_property(env, result, "version", version_value),
+                "failed to set version");
+  return result;
+}
+
+FN(IvForVersion) {
+  GET_ARGS(1);
+  READ_INT(version, args[0]);
+  auto iv =
+      wz::WzTool::GetIvByMapleVersion(static_cast<wz::WzMapleVersion>(version));
+  return Bytes(env, std::vector<uint8_t>(iv.begin(), iv.end()));
+}
+
+#define WZ_EXPORT_FN(name, fn)                                                 \
+  {name, nullptr, fn, nullptr, nullptr, nullptr, napi_default, nullptr}
+
+NAPI_MODULE_INIT() {
+  const napi_property_descriptor descriptors[] = {
+      WZ_EXPORT_FN("openFile", OpenFile),
+      WZ_EXPORT_FN("openMemory", OpenMemory),
+      WZ_EXPORT_FN("openBlobSource", OpenBlobSource),
+      WZ_EXPORT_FN("createFile", CreateFile),
+      WZ_EXPORT_FN("parseFile", ParseFile),
+      WZ_EXPORT_FN("closeFile", CloseFile),
+      WZ_EXPORT_FN("fileSaveToDisk", FileSaveToDisk),
+      WZ_EXPORT_FN("fileName", FileName),
+      WZ_EXPORT_FN("filePath", FilePath),
+      WZ_EXPORT_FN("fileVersion", FileVersion),
+      WZ_EXPORT_FN("fileMapleVersion", FileMapleVersion),
+      WZ_EXPORT_FN("fileWzDirectory", FileWzDirectory),
+      WZ_EXPORT_FN("fileIs64Bit", FileIs64Bit),
+      WZ_EXPORT_FN("fileIsUnloaded", FileIsUnloaded),
+      WZ_EXPORT_FN("fileVersionHash", FileVersionHash),
+      WZ_EXPORT_FN("fileObjectFromPath", FileObjectFromPath),
+      WZ_EXPORT_FN("dirName", DirName),
+      WZ_EXPORT_FN("dirCountImages", DirCountImages),
+      WZ_EXPORT_FN("dirCountDirectories", DirCountDirectories),
+      WZ_EXPORT_FN("dirCountImagesTotal", DirCountImagesTotal),
+      WZ_EXPORT_FN("dirGetImage", DirGetImage),
+      WZ_EXPORT_FN("dirGetImageByName", DirGetImageByName),
+      WZ_EXPORT_FN("dirGetDirectory", DirGetDirectory),
+      WZ_EXPORT_FN("dirGetDirectoryByName", DirGetDirectoryByName),
+      WZ_EXPORT_FN("dirCreateDirectory", DirCreateDirectory),
+      WZ_EXPORT_FN("dirCreateImage", DirCreateImage),
+      WZ_EXPORT_FN("dirRemoveDirectory", DirRemoveDirectory),
+      WZ_EXPORT_FN("dirRemoveImage", DirRemoveImage),
+      WZ_EXPORT_FN("dirBlockSize", DirBlockSize),
+      WZ_EXPORT_FN("dirChecksum", DirChecksum),
+      WZ_EXPORT_FN("dirOffset", DirOffset),
+      WZ_EXPORT_FN("imageName", ImageName),
+      WZ_EXPORT_FN("imageParsed", ImageParsed),
+      WZ_EXPORT_FN("imageChanged", ImageChanged),
+      WZ_EXPORT_FN("imageBlockSize", ImageBlockSize),
+      WZ_EXPORT_FN("imageChecksum", ImageChecksum),
+      WZ_EXPORT_FN("imageOffset", ImageOffset),
+      WZ_EXPORT_FN("imageIsLua", ImageIsLua),
+      WZ_EXPORT_FN("imageParse", ImageParse),
+      WZ_EXPORT_FN("imageCountProperties", ImageCountProperties),
+      WZ_EXPORT_FN("imageGetProperty", ImageGetProperty),
+      WZ_EXPORT_FN("imageGetFromPath", ImageGetFromPath),
+      WZ_EXPORT_FN("imageAddProperty", ImageAddProperty),
+      WZ_EXPORT_FN("imageRemoveProperty", ImageRemoveProperty),
+      WZ_EXPORT_FN("imageClearProperties", ImageClearProperties),
+      WZ_EXPORT_FN("objectType", ObjectType),
+      WZ_EXPORT_FN("objectName", ObjectName),
+      WZ_EXPORT_FN("objectParent", ObjectParent),
+      WZ_EXPORT_FN("objectFullPath", ObjectFullPath),
+      WZ_EXPORT_FN("objectWzFileParent", ObjectWzFileParent),
+      WZ_EXPORT_FN("objectTopMostDirectory", ObjectTopMostDirectory),
+      WZ_EXPORT_FN("objectTopMostImage", ObjectTopMostImage),
+      WZ_EXPORT_FN("objectAt", ObjectAt),
+      WZ_EXPORT_FN("objectSetName", ObjectSetName),
+      WZ_EXPORT_FN("objectRemove", ObjectRemove),
+      WZ_EXPORT_FN("propType", PropType),
+      WZ_EXPORT_FN("propIsRaw", PropIsRaw),
+      WZ_EXPORT_FN("propIsVideo", PropIsVideo),
+      WZ_EXPORT_FN("propName", PropName),
+      WZ_EXPORT_FN("propCountChildren", PropCountChildren),
+      WZ_EXPORT_FN("propGetChild", PropGetChild),
+      WZ_EXPORT_FN("propGetChildByName", PropGetChildByName),
+      WZ_EXPORT_FN("propGetFromPath", PropGetFromPath),
+      WZ_EXPORT_FN("propGetInt", PropGetInt),
+      WZ_EXPORT_FN("propGetShort", PropGetShort),
+      WZ_EXPORT_FN("propGetLong", PropGetLong),
+      WZ_EXPORT_FN("propGetFloat", PropGetFloat),
+      WZ_EXPORT_FN("propGetDouble", PropGetDouble),
+      WZ_EXPORT_FN("propGetString", PropGetString),
+      WZ_EXPORT_FN("propGetBytes", PropGetBytes),
+      WZ_EXPORT_FN("propLinked", PropLinked),
+      WZ_EXPORT_FN("propertyValue", PropertyValue),
+      WZ_EXPORT_FN("propertySetValue", PropertySetValue),
+      WZ_EXPORT_FN("propertyCreateNull", CreatePropertyNull),
+      WZ_EXPORT_FN("propertyCreateShort", CreatePropertyShort),
+      WZ_EXPORT_FN("propertyCreateInt", CreatePropertyInt),
+      WZ_EXPORT_FN("propertyCreateLong", CreatePropertyLong),
+      WZ_EXPORT_FN("propertyCreateFloat", CreatePropertyFloat),
+      WZ_EXPORT_FN("propertyCreateDouble", CreatePropertyDouble),
+      WZ_EXPORT_FN("propertyCreateString", CreatePropertyString),
+      WZ_EXPORT_FN("propertyCreateSub", CreatePropertySub),
+      WZ_EXPORT_FN("propertyCreateVector", CreatePropertyVector),
+      WZ_EXPORT_FN("propertyCreateUol", CreatePropertyUol),
+      WZ_EXPORT_FN("propertyFree", PropertyFree),
+      WZ_EXPORT_FN("propertyAddChild", PropertyAddChild),
+      WZ_EXPORT_FN("propertyRemoveChild", PropertyRemoveChild),
+      WZ_EXPORT_FN("propertyClearChildren", PropertyClearChildren),
+      WZ_EXPORT_FN("pngWidth", PngWidth),
+      WZ_EXPORT_FN("pngHeight", PngHeight),
+      WZ_EXPORT_FN("pngFormat", PngFormat),
+      WZ_EXPORT_FN("pngListWzUsed", PngListWzUsed),
+      WZ_EXPORT_FN("pngImage", PngImage),
+      WZ_EXPORT_FN("pngCompressedBytes", PngCompressedBytes),
+      WZ_EXPORT_FN("pngSaveToFile", PngSaveToFile),
+      WZ_EXPORT_FN("canvasPng", CanvasPng),
+      WZ_EXPORT_FN("canvasContainsInlink", CanvasContainsInlink),
+      WZ_EXPORT_FN("canvasContainsOutlink", CanvasContainsOutlink),
+      WZ_EXPORT_FN("canvasLinked", CanvasLinked),
+      WZ_EXPORT_FN("canvasSaveToFile", CanvasSaveToFile),
+      WZ_EXPORT_FN("uolLinkValue", UolLinkValue),
+      WZ_EXPORT_FN("vectorX", VectorX),
+      WZ_EXPORT_FN("vectorY", VectorY),
+      WZ_EXPORT_FN("luaData", LuaData),
+      WZ_EXPORT_FN("luaString", LuaString),
+      WZ_EXPORT_FN("binaryData", BinaryData),
+      WZ_EXPORT_FN("binaryWav", BinaryWav),
+      WZ_EXPORT_FN("binaryLength", BinaryLength),
+      WZ_EXPORT_FN("binaryFrequency", BinaryFrequency),
+      WZ_EXPORT_FN("binaryType", BinaryType),
+      WZ_EXPORT_FN("binaryHeaderEncrypted", BinaryHeaderEncrypted),
+      WZ_EXPORT_FN("binarySaveToFile", BinarySaveToFile),
+      WZ_EXPORT_FN("rawData", RawData),
+      WZ_EXPORT_FN("rawType", RawType),
+      WZ_EXPORT_FN("videoData", VideoData),
+      WZ_EXPORT_FN("detectMapleVersion", DetectMapleVersion),
+      WZ_EXPORT_FN("ivForVersion", IvForVersion),
+  };
+  NODE_API_CALL(
+      env,
+      napi_define_properties(env,
+                             exports,
+                             sizeof(descriptors) / sizeof(descriptors[0]),
+                             descriptors),
+      "failed to define exports");
   return exports;
 }
 
-}  // namespace
-
-NODE_API_MODULE(libwz, Init)
+#undef WZ_EXPORT_FN

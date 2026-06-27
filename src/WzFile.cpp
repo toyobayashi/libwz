@@ -3,10 +3,8 @@
 #include <cctype>
 #include <cstring>
 #include <filesystem>
-#include <fstream>
 #include <limits>
 #include <memory>
-#include <sstream>
 #include "wz/Properties/WzCanvasProperty.h"
 #include "wz/Properties/WzConvexProperty.h"
 #include "wz/Properties/WzSubProperty.h"
@@ -17,7 +15,6 @@
 #include "wz/Util/WzTool.h"
 #include "wz/WzAESConstant.h"
 #include "wz/WzDirectory.h"
-#include "wz/WzFileManager.h"
 #include "wz/WzImage.h"
 
 namespace wz {
@@ -42,9 +39,29 @@ WzFile::WzFile(const std::string& filePath,
   wz_iv_ = WzTool::GetIvByMapleVersion(version);
 }
 
+WzFile::WzFile(const std::string& fileName,
+               std::shared_ptr<WzDataSource> source,
+               int16_t gameVersion,
+               WzMapleVersion version)
+    : source_(std::move(source)),
+      mapleStoryPatchVersion_(gameVersion),
+      maplepLocalVersion_(version) {
+  name_ = fileName;
+  wz_iv_ = WzTool::GetIvByMapleVersion(version);
+}
+
 WzFile::WzFile(const std::string& filePath, const std::array<uint8_t, 4>& wzIv)
     : path_(filePath), wz_iv_(wzIv) {
   name_ = wz::to_path(filePath).filename().string();
+  mapleStoryPatchVersion_ = -1;
+  maplepLocalVersion_ = WzMapleVersion::CUSTOM;
+}
+
+WzFile::WzFile(const std::string& fileName,
+               std::shared_ptr<WzDataSource> source,
+               const std::array<uint8_t, 4>& wzIv)
+    : source_(std::move(source)), wz_iv_(wzIv) {
+  name_ = fileName;
   mapleStoryPatchVersion_ = -1;
   maplepLocalVersion_ = WzMapleVersion::CUSTOM;
 }
@@ -56,7 +73,8 @@ WzFile::~WzFile() {
     fileReader_->Close();
     fileReader_.reset();
   }
-  if (fileStream_.is_open()) fileStream_.close();
+  fileStream_.Close();
+  source_.reset();
   path_.clear();
   name_.clear();
 }
@@ -159,24 +177,46 @@ bool WzFile::TryDecodeWithWZVersionNumber(WzBinaryReader* reader,
 }
 
 WzFileParseStatus WzFile::ParseMainWzDirectory() {
-  if (path_.empty()) {
+  if (path_.empty() && !source_) {
     return WzFileParseStatus::Path_Is_Null;
   }
 
   wzDir_.reset();
   fileReader_.reset();
-  if (fileStream_.is_open()) fileStream_.close();
-  fileStream_ = std::ifstream(wz::to_path(path_), std::ios::binary);
-  if (!fileStream_.is_open()) {
+  if (!source_) {
+    fileStream_.Close();
+
+    const auto filePath = wz::to_path(path_);
+    std::error_code ec;
+    if (!std::filesystem::is_regular_file(filePath, ec) || ec) {
+      return WzFileParseStatus::Failed_Unknown;
+    }
+    const auto actualFileSize = std::filesystem::file_size(filePath, ec);
+    if (ec || actualFileSize < 17U) {
+      return WzFileParseStatus::Failed_Unknown;
+    }
+
+    if (!fileStream_.Open(wz::to_path(path_), "rb")) {
+      return WzFileParseStatus::Failed_Unknown;
+    }
+
+    fileReader_.emplace(std::make_shared<WzFileDataSource>(&fileStream_),
+                        wz_iv_);
+  } else {
+    fileReader_.emplace(source_, wz_iv_);
+  }
+  WzBinaryReader& fileReader = *fileReader_;
+
+  if (fileReader.SourceSize() < 17U) {
     return WzFileParseStatus::Failed_Unknown;
   }
-
-  fileReader_.emplace(fileStream_, wz_iv_);
-  WzBinaryReader& fileReader = *fileReader_;
 
   header_.SetIdent(fileReader.ReadString(4));
   header_.SetFSize(fileReader.ReadUInt64());
   header_.SetFStart(fileReader.ReadUInt32());
+  if (header_.FStart() < 17U || header_.FStart() > fileReader.SourceSize()) {
+    return WzFileParseStatus::Failed_Unknown;
+  }
   header_.SetCopyright(
       fileReader.ReadString(static_cast<size_t>(header_.FStart() - 17U)));
 
@@ -259,7 +299,7 @@ Result<void> WzFile::SaveToDisk(const std::string& path,
   CreateWZVersionHash();
   wzDir_->SetHash(versionHash_);
 
-  std::stringstream tempStream(std::ios::in | std::ios::out | std::ios::binary);
+  WzMemoryStream tempStream;
   WzTool::ClearWzObjectValueLengthCache();
   auto generateResult = wzDir_->GenerateDataFile(
       isSameIv ? nullptr : &saveIv, isDefaultUserKey, &tempStream);
@@ -290,8 +330,8 @@ Result<void> WzFile::SaveToDisk(const std::string& path,
   }
   header_.SetFSize(fileSize);
 
-  std::ofstream output(wz::to_path(path), std::ios::binary | std::ios::trunc);
-  if (!output.is_open()) {
+  WzFileStream output;
+  if (!output.Open(wz::to_path(path), "wb")) {
     return std::unexpected(Error::IoError("Failed to open WZ output file"));
   }
   WzBinaryWriter writer(output, saveIv, versionHash_);
@@ -323,15 +363,17 @@ Result<void> WzFile::SaveToDisk(const std::string& path,
   }
   writer.ClearStringCache();
 
-  tempStream.clear();
-  tempStream.seekg(0, std::ios::beg);
+  if (!tempStream.Seek(0, WzSeekOrigin::Begin)) {
+    return std::unexpected(
+        Error::IoError("Failed to rewind temporary WZ image data"));
+  }
   auto saveImagesResult = wzDir_->SaveImages(&writer, &tempStream);
   if (!saveImagesResult.has_value()) {
     return std::unexpected(saveImagesResult.error());
   }
   writer.ClearStringCache();
 
-  if (!output) {
+  if (!output.Flush()) {
     return std::unexpected(Error::IoError("Failed to write WZ output file"));
   }
 
@@ -347,183 +389,34 @@ WzObject* WzFile::GetObjectFromPath(const std::string& path,
                                     bool checkFirstDirectoryName) {
   if (!wzDir_) return nullptr;
 
-  if (!checkFirstDirectoryName) {
-    // C# checkFirstDirectoryName=false: start from own WzDirectory
-    WzObject* curObj = wzDir_.get();
-    std::string remaining = path;
-    while (!remaining.empty()) {
-      size_t pos = remaining.find('/');
-      std::string component;
-      if (pos == std::string::npos) {
-        component = remaining;
-        remaining.clear();
-      } else {
-        component = remaining.substr(0, pos);
-        remaining = remaining.substr(pos + 1);
-      }
-      if (component.empty()) continue;
-      curObj = TraverseComponent(curObj, component);
-      if (!curObj) return nullptr;
+  WzObject* curObj = wzDir_.get();
+  std::string remaining = path;
+
+  if (checkFirstDirectoryName) {
+    size_t firstSep = remaining.find('/');
+    std::string firstComponent = firstSep == std::string::npos
+                                     ? remaining
+                                     : remaining.substr(0, firstSep);
+    if (firstComponent == wzDir_->Name() || firstComponent == Name()) {
+      remaining =
+          firstSep == std::string::npos ? "" : remaining.substr(firstSep + 1);
     }
-    return curObj;
   }
 
-  // C# checkFirstDirectoryName=true: cross-file lookup
-  auto* mgr = WzFileManager::fileManager;
-  if (!mgr) return nullptr;
-
-  size_t firstSep = path.find('/');
-  if (firstSep == std::string::npos) return wzDir_.get();
-
-  std::string firstComponent = path.substr(0, firstSep);
-  std::string remaining = path.substr(firstSep + 1);
-
-  WzObject* curObj = nullptr;
-  int pathIndex = 0;
-
-  bool bIsCanvasDir = WzFileManager::ContainsCanvasDirectory(path);
-  if (bIsCanvasDir) {
-    std::string beforeCanvasPath =
-        WzFileManager::NormaliseWzCanvasDirectory(path);
-    std::replace(beforeCanvasPath.begin(), beforeCanvasPath.end(), '\\', '/');
-    auto wzDir = mgr->GetWzDirectoriesFromBase(beforeCanvasPath, true);
-
-    std::string canvasMarker =
-        std::string("/") + WzFileManager::CANVAS_DIRECTORY_NAME + "/";
-    size_t canvasPos = path.find(canvasMarker);
-    std::string itemDirectoryPath =
-        (canvasPos != std::string::npos)
-            ? path.substr(canvasPos + canvasMarker.size())
-            : path;
-
-    size_t subPos = itemDirectoryPath.find('/');
-    std::string firstItem = (subPos != std::string::npos)
-                                ? itemDirectoryPath.substr(0, subPos)
-                                : itemDirectoryPath;
-
-    size_t count = 1;
-    for (size_t p = itemDirectoryPath.find('/'); p != std::string::npos;
-         p = itemDirectoryPath.find('/', p + 1)) {
-      count++;
-    }
-
-    bool found = false;
-    for (auto* dir : wzDir) {
-      WzObject* inner = (*dir)[firstItem];
-      if (inner) {
-        curObj = inner;
-        int totalSegments = 1;
-        for (size_t p = path.find('/'); p != std::string::npos;
-             p = path.find('/', p + 1)) {
-          totalSegments++;
-        }
-        pathIndex = totalSegments - static_cast<int>(count) + 1;
-        found = true;
-        break;
-      }
-    }
-    if (!found) return nullptr;
-  } else {
-    // Match C#: look up WzDirectory by first component name directly
-    // from the manager's loaded directories. Bypass GetWzDirectoriesFromBase
-    // because its pre-BB redirect may not apply here.
-    std::string lookup = firstComponent;
-    for (auto& c : lookup) c = static_cast<char>(std::tolower(c));
-
-    WzDirectory* wzInnerDir = nullptr;
-    // Try lookup as-is, then strip ".wz"
-    for (int attempt = 0; attempt < 2 && !wzInnerDir; ++attempt) {
-      std::string key = (attempt == 1 && lookup.size() > 3 &&
-                         lookup.substr(lookup.size() - 3) == ".wz")
-                            ? lookup.substr(0, lookup.size() - 3)
-                            : lookup;
-      for (const auto& pair : mgr->GetWzFiles()) {
-        WzDirectory* dir = pair.second->GetWzDirectory();
-        if (!dir) continue;
-        std::string name = dir->Name();
-        bool match = name.size() == firstComponent.size() &&
-                     std::equal(name.begin(),
-                                name.end(),
-                                firstComponent.begin(),
-                                [](char a, char b) {
-                                  return std::tolower(a) == std::tolower(b);
-                                });
-        bool suffixMatch =
-            (name.size() > 3 && name.size() - 3 == firstComponent.size() &&
-             std::equal(name.begin(),
-                        name.end() - 3,
-                        firstComponent.begin(),
-                        [](char a, char b) {
-                          return std::tolower(a) == std::tolower(b);
-                        }));
-        if (match || suffixMatch) {
-          wzInnerDir = dir;
-          break;
-        }
-      }
-    }
-
-    if (wzInnerDir) {
-      curObj = wzInnerDir;
-      pathIndex = 1;
+  while (!remaining.empty()) {
+    size_t pos = remaining.find('/');
+    std::string component;
+    if (pos == std::string::npos) {
+      component = remaining;
+      remaining.clear();
     } else {
-      // Count total segments
-      int totalSegments = 1;
-      for (size_t p = path.find('/'); p != std::string::npos;
-           p = path.find('/', p + 1)) {
-        totalSegments++;
-      }
-
-      if (totalSegments >= 2) {
-        size_t s2 = remaining.find('/');
-        std::string seg2 =
-            (s2 != std::string::npos) ? remaining.substr(0, s2) : remaining;
-        std::string segRem =
-            (s2 != std::string::npos) ? remaining.substr(s2 + 1) : "";
-
-        curObj = mgr->FindWzImageByName(lookup, seg2);
-        if (curObj) {
-          pathIndex = 2;
-        } else if (totalSegments >= 3) {
-          std::string combinedBase = lookup + "/" + seg2;
-          size_t s3 = segRem.find('/');
-          std::string seg3 =
-              (s3 != std::string::npos) ? segRem.substr(0, s3) : segRem;
-
-          curObj = mgr->FindWzImageByName(combinedBase, seg3);
-          if (curObj) {
-            pathIndex = 3;
-          } else {
-            return nullptr;
-          }
-        } else {
-          return nullptr;
-        }
-      } else {
-        return nullptr;
-      }
+      component = remaining.substr(0, pos);
+      remaining = remaining.substr(pos + 1);
     }
+    if (component.empty()) continue;
+    curObj = TraverseComponent(curObj, component);
+    if (!curObj) return nullptr;
   }
-
-  if (!curObj) return nullptr;
-
-  // Iterate remaining path segments from pathIndex
-  int currentIdx = 0;
-  size_t segStart = 0;
-  for (size_t p = 0; p <= path.size(); ++p) {
-    if (p == path.size() || path[p] == '/') {
-      if (p > segStart) {
-        if (currentIdx >= pathIndex) {
-          std::string seg = path.substr(segStart, p - segStart);
-          curObj = TraverseComponent(curObj, seg);
-          if (!curObj) return nullptr;
-        }
-        currentIdx++;
-      }
-      segStart = p + 1;
-    }
-  }
-
   return curObj;
 }
 

@@ -29,7 +29,6 @@ class WzPngProperty : public WzImageProperty {
       bool saveInMemory);
   Result<std::vector<uint8_t>> GetRawImage(bool saveInMemory);
   Result<void> ParsePng(bool saveInMemory);
-
   Result<void> SaveToFile(const std::string& filePath);
 
   WzBinaryReader* Reader() const { return wzReader_; }

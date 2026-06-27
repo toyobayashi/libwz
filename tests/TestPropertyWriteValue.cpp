@@ -1,14 +1,10 @@
 #include <gtest/gtest.h>
 
-#include <array>
 #include <cstdint>
-#include <filesystem>
-#include <fstream>
 #include <memory>
-#include <sstream>
 #include <string>
-#include <vector>
 
+#include "TestStreams.h"
 #include "wz/Properties/WzCanvasProperty.h"
 #include "wz/Properties/WzIntProperty.h"
 #include "wz/Properties/WzStringProperty.h"
@@ -17,32 +13,29 @@
 #include "wz/Properties/WzVectorProperty.h"
 #include "wz/Util/WzBinaryReader.h"
 #include "wz/Util/WzBinaryWriter.h"
+#include "wz/Util/WzStream.h"
 #include "wz/WzAESConstant.h"
 #include "wz/WzImageProperty.h"
 
 namespace {
 
-std::filesystem::path TempPath(const std::string& name) {
-  return std::filesystem::temp_directory_path() / name;
+wz::WzBinaryReader MakeReader(const wz::WzMemoryStream& stream) {
+  return wz::WzBinaryReader(test::MemorySource(stream.Buffer()),
+                            wz::WzAESConstant::WZ_GMSIV);
 }
 
 }  // namespace
 
 TEST(PropertyWriteValueTest, WritesIntPropertyListEntryReadableByReader) {
-  const auto path = TempPath("libwz_property_write_int.bin");
-  {
-    std::ofstream out(path, std::ios::binary);
-    wz::WzBinaryWriter writer(out, wz::WzAESConstant::WZ_GMSIV);
-    wz::WzPropertyCollection properties;
-    properties.Add(std::make_unique<wz::WzIntProperty>("count", 300));
+  wz::WzMemoryStream out;
+  wz::WzBinaryWriter writer(out, wz::WzAESConstant::WZ_GMSIV);
+  wz::WzPropertyCollection properties;
+  properties.Add(std::make_unique<wz::WzIntProperty>("count", 300));
 
-    auto result = wz::WzImageProperty::WritePropertyList(&writer, properties);
+  auto result = wz::WzImageProperty::WritePropertyList(&writer, properties);
 
-    ASSERT_TRUE(result.has_value()) << result.error().message();
-  }
-
-  std::ifstream in(path, std::ios::binary);
-  wz::WzBinaryReader reader(in, wz::WzAESConstant::WZ_GMSIV);
+  ASSERT_TRUE(result.has_value()) << result.error().message();
+  auto reader = MakeReader(out);
 
   EXPECT_EQ(reader.ReadUInt16(), 0);
   EXPECT_EQ(reader.ReadCompressedInt(), 1);
@@ -50,52 +43,37 @@ TEST(PropertyWriteValueTest, WritesIntPropertyListEntryReadableByReader) {
   EXPECT_EQ(reader.ReadString(), "count");
   EXPECT_EQ(reader.ReadByte(), 3);
   EXPECT_EQ(reader.ReadCompressedInt(), 300);
-
-  std::error_code ec;
-  std::filesystem::remove(path, ec);
 }
 
 TEST(PropertyWriteValueTest, SubPropertyWritesPropertyHeaderAndChildCount) {
-  const auto path = TempPath("libwz_property_write_sub.bin");
-  {
-    std::ofstream out(path, std::ios::binary);
-    wz::WzBinaryWriter writer(out, wz::WzAESConstant::WZ_GMSIV);
-    wz::WzSubProperty sub("node");
-    sub.AddProperty(std::make_unique<wz::WzIntProperty>("x", 7));
+  wz::WzMemoryStream out;
+  wz::WzBinaryWriter writer(out, wz::WzAESConstant::WZ_GMSIV);
+  wz::WzSubProperty sub("node");
+  sub.AddProperty(std::make_unique<wz::WzIntProperty>("x", 7));
 
-    auto result = sub.WriteValue(&writer);
+  auto result = sub.WriteValue(&writer);
 
-    ASSERT_TRUE(result.has_value()) << result.error().message();
-  }
-
-  std::ifstream in(path, std::ios::binary);
-  wz::WzBinaryReader reader(in, wz::WzAESConstant::WZ_GMSIV);
+  ASSERT_TRUE(result.has_value()) << result.error().message();
+  auto reader = MakeReader(out);
 
   EXPECT_EQ(reader.ReadByte(), 0x73);
   EXPECT_EQ(reader.ReadString(), "Property");
   EXPECT_EQ(reader.ReadUInt16(), 0);
   EXPECT_EQ(reader.ReadCompressedInt(), 1);
-
-  std::error_code ec;
-  std::filesystem::remove(path, ec);
 }
 
 TEST(PropertyWriteValueTest, WritesStringUolAndVectorExtendedValues) {
-  const auto path = TempPath("libwz_property_write_scalars.bin");
-  {
-    std::ofstream out(path, std::ios::binary);
-    wz::WzBinaryWriter writer(out, wz::WzAESConstant::WZ_GMSIV);
-    wz::WzStringProperty stringProp("label", "hello");
-    wz::WzUOLProperty uolProp("link", "../label");
-    wz::WzVectorProperty vectorProp("origin", 12, -5);
+  wz::WzMemoryStream out;
+  wz::WzBinaryWriter writer(out, wz::WzAESConstant::WZ_GMSIV);
+  wz::WzStringProperty stringProp("label", "hello");
+  wz::WzUOLProperty uolProp("link", "../label");
+  wz::WzVectorProperty vectorProp("origin", 12, -5);
 
-    ASSERT_TRUE(stringProp.WriteValue(&writer).has_value());
-    ASSERT_TRUE(uolProp.WriteValue(&writer).has_value());
-    ASSERT_TRUE(vectorProp.WriteValue(&writer).has_value());
-  }
+  ASSERT_TRUE(stringProp.WriteValue(&writer).has_value());
+  ASSERT_TRUE(uolProp.WriteValue(&writer).has_value());
+  ASSERT_TRUE(vectorProp.WriteValue(&writer).has_value());
 
-  std::ifstream in(path, std::ios::binary);
-  wz::WzBinaryReader reader(in, wz::WzAESConstant::WZ_GMSIV);
+  auto reader = MakeReader(out);
 
   EXPECT_EQ(reader.ReadByte(), 8);
   EXPECT_EQ(reader.ReadByte(), 0x00);
@@ -111,13 +89,10 @@ TEST(PropertyWriteValueTest, WritesStringUolAndVectorExtendedValues) {
   EXPECT_EQ(reader.ReadString(), "Shape2D#Vector2D");
   EXPECT_EQ(reader.ReadCompressedInt(), 12);
   EXPECT_EQ(reader.ReadCompressedInt(), -5);
-
-  std::error_code ec;
-  std::filesystem::remove(path, ec);
 }
 
 TEST(PropertyWriteValueTest, CanvasWithoutPngReturnsPreciseUnsupportedError) {
-  std::ostringstream out;
+  wz::WzMemoryStream out;
   wz::WzBinaryWriter writer(out, wz::WzAESConstant::WZ_GMSIV);
   wz::WzCanvasProperty canvas("frame");
 

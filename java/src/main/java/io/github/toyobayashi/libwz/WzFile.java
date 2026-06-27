@@ -15,6 +15,9 @@ public class WzFile extends WzObject {
 
     public WzFile(String path, byte[] iv) {
         super(0, true);
+        if (iv == null || iv.length != 4) {
+            throw new IllegalArgumentException("iv must be exactly 4 bytes");
+        }
         updateNativePtr(nativeOpenWithIv(path, iv));
     }
 

@@ -4,9 +4,15 @@
 #include <cstring>
 #include <memory>
 #include <optional>
+#include <span>
 #include <string>
+#include <vector>
 
 #include "wz/wz.h"
+
+#ifdef __EMSCRIPTEN__
+#include "wz/Util/WzBlobDataSource.h"
+#endif
 
 static thread_local std::string g_last_error_msg;
 static thread_local wz_last_error_info g_last_error_info = {WZ_ERROR_NONE, ""};
@@ -135,6 +141,36 @@ static wz::WzObject* unwrap_object(wz_object o) {
   return reinterpret_cast<wz::WzObject*>(o);
 }
 
+#ifdef __EMSCRIPTEN__
+static std::shared_ptr<wz::WzBlobDataSource> make_blob_source(
+    void* userdata,
+    wz_blob_read_callback read_callback,
+    wz_blob_release_callback release_callback,
+    uint64_t size) {
+  auto release = [release_callback](void* ptr) {
+    if (release_callback) release_callback(ptr);
+  };
+  auto owner = std::shared_ptr<void>(userdata, release);
+  auto source = std::make_shared<wz::WzBlobDataSource>(
+      size,
+      [owner, read_callback](uint64_t offset, std::span<uint8_t> destination)
+          -> wz::Result<size_t> {
+        size_t bytes_read = 0;
+        const int ok = read_callback(owner.get(),
+                                     offset,
+                                     destination.data(),
+                                     destination.size(),
+                                     &bytes_read);
+        if (!ok) {
+          return std::unexpected(
+              wz::Error::IoError("Blob read callback failed"));
+        }
+        return bytes_read;
+      });
+  return source;
+}
+#endif
+
 extern "C" {
 
 wz_error_code wz_get_last_error_info(const wz_last_error_info** info) {
@@ -157,6 +193,75 @@ wz_error_code wz_open_file(const char* file_path,
       file_path, game_version, static_cast<wz::WzMapleVersion>(version));
   *out_file = reinterpret_cast<wz_file>(f);
   return wz_clear_last_error();
+}
+
+wz_error_code wz_open_memory(const char* file_name,
+                             const uint8_t* data,
+                             size_t data_size,
+                             int16_t game_version,
+                             wz_maple_version version,
+                             wz_file* out_file) {
+  if (auto ec = init_out("wz_open_memory", out_file); ec != WZ_ERROR_NONE) {
+    return ec;
+  }
+  if (!file_name) return set_error_invalid_arg("wz_open_memory", "file_name");
+  if (!data && data_size != 0) {
+    return set_error_invalid_arg("wz_open_memory", "data");
+  }
+
+  std::vector<uint8_t> bytes;
+  if (data_size > 0) {
+    bytes.assign(data, data + data_size);
+  }
+  auto source = std::make_shared<wz::WzMemoryDataSource>(std::move(bytes));
+  auto* f = new wz::WzFile(file_name,
+                           source,
+                           game_version,
+                           static_cast<wz::WzMapleVersion>(version));
+  *out_file = reinterpret_cast<wz_file>(f);
+  return wz_clear_last_error();
+}
+
+wz_error_code wz_open_blob_source_with_callback(
+    void* userdata,
+    wz_blob_read_callback read_callback,
+    wz_blob_release_callback release_callback,
+    uint64_t size,
+    const char* file_name,
+    int16_t game_version,
+    wz_maple_version version,
+    wz_file* out_file) {
+  if (auto ec = init_out("wz_open_blob_source_with_callback", out_file);
+      ec != WZ_ERROR_NONE) {
+    return ec;
+  }
+  if (!file_name) {
+    return set_error_invalid_arg("wz_open_blob_source_with_callback",
+                                 "file_name");
+  }
+  if (!read_callback) {
+    return set_error_invalid_arg("wz_open_blob_source_with_callback",
+                                 "read_callback");
+  }
+#ifdef __EMSCRIPTEN__
+  auto source =
+      make_blob_source(userdata, read_callback, release_callback, size);
+  auto* f = new wz::WzFile(file_name,
+                           source,
+                           game_version,
+                           static_cast<wz::WzMapleVersion>(version));
+  *out_file = reinterpret_cast<wz_file>(f);
+  return wz_clear_last_error();
+#else
+  (void)userdata;
+  (void)read_callback;
+  (void)release_callback;
+  (void)size;
+  (void)game_version;
+  (void)version;
+  return wz_set_last_error(WZ_ERROR_NOT_IMPLEMENTED,
+                           "Blob sources require Emscripten");
+#endif
 }
 
 wz_error_code wz_create_file(int16_t game_version,
@@ -186,6 +291,75 @@ wz_error_code wz_open_file_with_iv(const char* file_path,
   auto* f = new wz::WzFile(file_path, iv_arr);
   *out_file = reinterpret_cast<wz_file>(f);
   return wz_clear_last_error();
+}
+
+wz_error_code wz_open_memory_with_iv(const char* file_name,
+                                     const uint8_t* data,
+                                     size_t data_size,
+                                     const uint8_t iv[4],
+                                     wz_file* out_file) {
+  if (auto ec = init_out("wz_open_memory_with_iv", out_file);
+      ec != WZ_ERROR_NONE) {
+    return ec;
+  }
+  if (!file_name) {
+    return set_error_invalid_arg("wz_open_memory_with_iv", "file_name");
+  }
+  if (!data && data_size != 0) {
+    return set_error_invalid_arg("wz_open_memory_with_iv", "data");
+  }
+  if (!iv) return set_error_invalid_arg("wz_open_memory_with_iv", "iv");
+
+  std::vector<uint8_t> bytes;
+  if (data_size > 0) {
+    bytes.assign(data, data + data_size);
+  }
+  std::array<uint8_t, 4> iv_arr = {iv[0], iv[1], iv[2], iv[3]};
+  auto source = std::make_shared<wz::WzMemoryDataSource>(std::move(bytes));
+  auto* f = new wz::WzFile(file_name, source, iv_arr);
+  *out_file = reinterpret_cast<wz_file>(f);
+  return wz_clear_last_error();
+}
+
+wz_error_code wz_open_blob_source_with_callback_and_iv(
+    void* userdata,
+    wz_blob_read_callback read_callback,
+    wz_blob_release_callback release_callback,
+    uint64_t size,
+    const char* file_name,
+    const uint8_t iv[4],
+    wz_file* out_file) {
+  if (auto ec = init_out("wz_open_blob_source_with_callback_and_iv", out_file);
+      ec != WZ_ERROR_NONE) {
+    return ec;
+  }
+  if (!file_name) {
+    return set_error_invalid_arg("wz_open_blob_source_with_callback_and_iv",
+                                 "file_name");
+  }
+  if (!read_callback) {
+    return set_error_invalid_arg("wz_open_blob_source_with_callback_and_iv",
+                                 "read_callback");
+  }
+  if (!iv) {
+    return set_error_invalid_arg("wz_open_blob_source_with_callback_and_iv",
+                                 "iv");
+  }
+#ifdef __EMSCRIPTEN__
+  std::array<uint8_t, 4> iv_arr = {iv[0], iv[1], iv[2], iv[3]};
+  auto source =
+      make_blob_source(userdata, read_callback, release_callback, size);
+  auto* f = new wz::WzFile(file_name, source, iv_arr);
+  *out_file = reinterpret_cast<wz_file>(f);
+  return wz_clear_last_error();
+#else
+  (void)userdata;
+  (void)read_callback;
+  (void)release_callback;
+  (void)size;
+  return wz_set_last_error(WZ_ERROR_NOT_IMPLEMENTED,
+                           "Blob sources require Emscripten");
+#endif
 }
 
 wz_error_code wz_parse(wz_file file, wz_parse_status* out_status) {
@@ -1243,18 +1417,6 @@ wz_error_code wz_string_set_value(wz_property prop, const char* value) {
   return wz_clear_last_error();
 }
 
-wz_error_code wz_string_save_to_file(wz_property prop, const char* file_path) {
-  if (!prop) return set_error_null("wz_string_save_to_file");
-  if (!file_path) {
-    return set_error_invalid_arg("wz_string_save_to_file", "file_path");
-  }
-  if (unwrap_prop(prop)->PropertyType() != wz::WzPropertyType::String) {
-    return set_error_wrong_type("wz_string_save_to_file");
-  }
-  return result_void(static_cast<wz::WzStringProperty*>(unwrap_prop(prop))
-                         ->SaveToFile(file_path));
-}
-
 wz_error_code wz_png_width(wz_png_property png, int* out_width) {
   if (auto ec = init_out("wz_png_width", out_width); ec != WZ_ERROR_NONE) {
     return ec;
@@ -1550,18 +1712,6 @@ wz_error_code wz_lua_get_string(wz_property lua_prop, const char** out_value) {
   return wz_clear_last_error();
 }
 
-wz_error_code wz_lua_save_to_file(wz_property lua_prop, const char* file_path) {
-  auto* p = unwrap_prop(lua_prop);
-  if (!p) return set_error_null("wz_lua_save_to_file");
-  if (!file_path) {
-    return set_error_invalid_arg("wz_lua_save_to_file", "file_path");
-  }
-  if (p->PropertyType() != wz::WzPropertyType::Lua) {
-    return set_error_wrong_type("wz_lua_save_to_file");
-  }
-  return result_void(static_cast<wz::WzLuaProperty*>(p)->SaveToFile(file_path));
-}
-
 wz_error_code wz_binary_get_data(wz_property binary_prop,
                                  uint8_t* buffer,
                                  size_t buffer_size,
@@ -1728,20 +1878,6 @@ wz_error_code wz_rawdata_get_type(wz_property raw_prop, int* out_type) {
   return wz_clear_last_error();
 }
 
-wz_error_code wz_rawdata_save_to_file(wz_property raw_prop,
-                                      const char* file_path) {
-  auto* p = unwrap_prop(raw_prop);
-  if (!p) return set_error_null("wz_rawdata_save_to_file");
-  if (!file_path) {
-    return set_error_invalid_arg("wz_rawdata_save_to_file", "file_path");
-  }
-  if (!p->IsRawDataProperty()) {
-    return set_error_wrong_type("wz_rawdata_save_to_file");
-  }
-  return result_void(
-      static_cast<wz::WzRawDataProperty*>(p)->SaveToFile(file_path));
-}
-
 wz_error_code wz_video_get_data(wz_property video_prop,
                                 uint8_t* buffer,
                                 size_t buffer_size,
@@ -1765,20 +1901,6 @@ wz_error_code wz_video_get_data(wz_property video_prop,
     std::memcpy(buffer, data.data(), data.size());
   }
   return wz_clear_last_error();
-}
-
-wz_error_code wz_video_save_to_file(wz_property video_prop,
-                                    const char* file_path) {
-  auto* p = unwrap_prop(video_prop);
-  if (!p) return set_error_null("wz_video_save_to_file");
-  if (!file_path) {
-    return set_error_invalid_arg("wz_video_save_to_file", "file_path");
-  }
-  if (!p->IsVideoProperty()) {
-    return set_error_wrong_type("wz_video_save_to_file");
-  }
-  return result_void(
-      static_cast<wz::WzVideoProperty*>(p)->SaveToFile(file_path));
 }
 
 wz_error_code wz_get_error_description(wz_parse_status status,

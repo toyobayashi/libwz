@@ -9,7 +9,6 @@
 #include "wz/WzDirectory.h"
 #include "wz/WzEnums.h"
 #include "wz/WzFile.h"
-#include "wz/WzFileManager.h"
 #include "wz/WzHeader.h"
 #include "wz/WzImage.h"
 #include "wz/WzImageProperty.h"

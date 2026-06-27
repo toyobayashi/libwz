@@ -2,14 +2,14 @@
 
 #include <cstdint>
 #include <filesystem>
-#include <fstream>
 #include <memory>
-#include <sstream>
 #include <string>
 
+#include "TestStreams.h"
 #include "wz/Properties/WzIntProperty.h"
 #include "wz/Util/WzBinaryReader.h"
 #include "wz/Util/WzBinaryWriter.h"
+#include "wz/Util/WzStream.h"
 #include "wz/Util/WzTool.h"
 #include "wz/WzAESConstant.h"
 #include "wz/WzDirectory.h"
@@ -46,22 +46,22 @@ TEST(RepackTest, SharedRotateHandlesZeroAndWrappedCounts) {
 TEST(RepackTest, EncodedStringLengthMatchesWriterForUtf8Unicode) {
   const std::string unicodeName = "Name_\xE6\xB5\x8B\xE8\xAF\x95";
 
-  std::ostringstream stringOut(std::ios::out | std::ios::binary);
+  wz::WzMemoryStream stringOut;
   wz::WzBinaryWriter stringWriter(stringOut, wz::WzAESConstant::WZ_GMSIV);
   stringWriter.WriteString(unicodeName);
 
   EXPECT_EQ(wz::WzTool::GetEncodedStringLength(unicodeName),
-            static_cast<int>(stringOut.str().size()));
+            static_cast<int>(stringOut.Buffer().size()));
 
   wz::WzTool::ClearWzObjectValueLengthCache();
-  std::ostringstream objectOut(std::ios::out | std::ios::binary);
+  wz::WzMemoryStream objectOut;
   wz::WzBinaryWriter objectWriter(objectOut, wz::WzAESConstant::WZ_GMSIV);
   objectWriter.WriteWzObjectValue(unicodeName, wz::WzDirectoryType::WzImage_4);
 
   EXPECT_EQ(
       wz::WzTool::GetWzObjectValueLength(
           unicodeName, static_cast<uint8_t>(wz::WzDirectoryType::WzImage_4)),
-      static_cast<int>(objectOut.str().size()));
+      static_cast<int>(objectOut.Buffer().size()));
 }
 
 TEST(RepackTest, RepeatedLongDirectoryNamesAcrossSiblingsRoundTrip) {
@@ -170,13 +170,12 @@ TEST(RepackTest, SaveImagesRejectsShortUnchangedSourceRead) {
   const auto outputPath = TempPath("libwz_repack_short_output.bin");
   RemoveIfExists(sourcePath);
   RemoveIfExists(outputPath);
-  {
-    std::ofstream source(sourcePath, std::ios::binary);
-    source.write("abc", 3);
-  }
+  ASSERT_TRUE(test::WriteFile(sourcePath, "abc"));
 
-  std::ifstream source(sourcePath, std::ios::binary);
-  wz::WzBinaryReader reader(source, wz::WzAESConstant::WZ_GMSIV);
+  wz::WzFileStream source;
+  ASSERT_TRUE(source.Open(sourcePath, "rb"));
+  wz::WzBinaryReader reader(std::make_shared<wz::WzFileDataSource>(&source),
+                            wz::WzAESConstant::WZ_GMSIV);
   wz::WzDirectory dir("root");
   auto* image = new wz::WzImage("short.img", reader, 0);
   image->SetOffset(0);
@@ -186,9 +185,9 @@ TEST(RepackTest, SaveImagesRejectsShortUnchangedSourceRead) {
   image->SetChanged(false);
   dir.AddImage(image);
 
-  std::ostringstream output(std::ios::out | std::ios::binary);
+  wz::WzMemoryStream output;
   wz::WzBinaryWriter writer(output, wz::WzAESConstant::WZ_GMSIV);
-  std::istringstream temp("", std::ios::in | std::ios::binary);
+  wz::WzMemoryStream temp;
 
   auto saveResult = dir.SaveImages(&writer, &temp);
 

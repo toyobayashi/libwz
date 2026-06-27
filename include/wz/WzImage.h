@@ -1,12 +1,12 @@
 #ifndef WZ_WZIMAGE_H_
 #define WZ_WZIMAGE_H_
-#include <fstream>
 #include <memory>
 #include <optional>
 #include <string>
 #include <vector>
 #include "wz/Util/Defines.h"
 #include "wz/Util/WzBinaryReader.h"
+#include "wz/Util/WzStream.h"
 #include "wz/WzImageProperty.h"
 #include "wz/WzObject.h"
 #include "wz/WzPropertyCollection.h"
@@ -22,7 +22,7 @@ class WzImage final : public WzObject, public IPropertyContainer {
   explicit WzImage(const std::string& name);
   WzImage(const std::string& name, WzBinaryReader& reader, int checksum);
   WzImage(const std::string& name,
-          std::ifstream&& dataStream,
+          WzFileStream&& dataStream,
           WzMapleVersion mapleVersion);
   ~WzImage() override;
 
@@ -90,7 +90,7 @@ class WzImage final : public WzObject, public IPropertyContainer {
   int64_t tempFileEnd_ = 0;
   int blockStart_ = 0;
   bool parseEverything_ = false;
-  std::ifstream dataStream_;
+  WzFileStream dataStream_;
   std::optional<WzBinaryReader> ownedReader_;
   WzBinaryReader* reader_ = nullptr;
   WzPropertyCollection properties_;

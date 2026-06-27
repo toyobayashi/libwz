@@ -12,6 +12,14 @@ import org.junit.jupiter.api.Test;
 
 class EditingTest {
     @Test
+    void ivConstructorRequiresExactlyFourBytes() {
+        assertThrows(IllegalArgumentException.class,
+            () -> new WzFile("unused.wz", (byte[])null));
+        assertThrows(IllegalArgumentException.class,
+            () -> new WzFile("unused.wz", new byte[] {1, 2, 3}));
+    }
+
+    @Test
     void createsFileAddsPropertyAndUpdatesValue() {
         try (WzFile file = WzFile.create((short)95, MapleVersion.GMS)) {
             WzDirectory root = file.getWzDirectory();

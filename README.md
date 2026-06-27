@@ -24,6 +24,7 @@ Provides C API for FFI consumers and JNI bindings for Java/Kotlin.
 - C API (`wz_api.h`) for FFI consumers (Python, Node.js, etc.)
 - JNI bindings for Java/Kotlin consumers
 - Java wrapper classes with `AutoCloseable` resource management
+- Node.js native addon and WebAssembly package entries for JavaScript users
 
 ## Requirements
 
@@ -81,6 +82,44 @@ Authenticate with a [GitHub personal access token](https://docs.github.com/en/pa
 The JAR bundles native libraries for **Windows x86_64**, **Linux x86_64**,
 and **macOS ARM64 (Apple Silicon)**. `NativeLibraryLoader` automatically
 extracts the correct one at runtime.
+
+## Quick Start — JavaScript / Wasm
+
+The root `libwz` package entry uses the native Node addon in Node.js and the
+Wasm build through the package `browser` export in browser bundlers. Both
+entries export the same classes and constants, plus one async `init()` function
+for the Wasm runtime.
+
+Node.js requires `^20.19.0 || >=22.12.0`. `process.getBuiltinModule()` exists
+in Node.js 20.16.0 and 22.3.0, but the package also relies on the modern
+`require(esm)` interoperability that is available by default from Node.js
+20.19.0 and 22.12.0; Node.js 24.x is covered by the `>=22.12.0` range.
+
+```js
+import { init, MapleVersion, WzFile } from "libwz";
+
+await init();
+using file = new WzFile("Character.wz", MapleVersion.GMS);
+file.parseWzFile();
+```
+
+Pass a custom Wasm URL or path when your bundler or CDN serves the binary from
+a different location.
+
+```js
+import { init } from "libwz";
+
+await init(new URL("./assets/libwz.wasm", import.meta.url));
+```
+
+Use `getWzBindingType()` to inspect whether the active backend is `"native"` or
+`"wasm"`. If the native addon cannot be loaded, `init()` falls back to Wasm.
+In Node.js, pass a Wasm URL or `{ forceWasm: true }` to force the Wasm backend
+even when the native addon is available. Path-based APIs still accept normal
+host filesystem paths; the Wasm runtime maps them internally.
+
+The package publishes one Wasm binary, `dist/libwz.wasm`, and no synchronous or
+main-thread Worker wrapper entry.
 
 ## Build Options
 

@@ -1,0 +1,34 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "allowJs": true,
+    "checkJs": false,
+    "lib": [
+      "es2022",
+      "dom",
+      "dom.iterable",
+      "esnext.disposable"
+    ],
+    "module": "es2022",
+    "moduleResolution": "bundler",
+    "noEmit": true,
+    "jsx": "react-jsx",
+    "allowSyntheticDefaultImports": true
+  },
+  "include": [
+    "eslint.config.mjs",
+    "js/**/*.ts",
+    "scripts/**/*.mjs",
+    "tests/**/*.js",
+    "tests/**/*.mjs",
+    "tests/**/*.ts",
+    "tests/**/*.tsx"
+  ],
+  "exclude": [
+    "build",
+    "dist",
+    "node_modules",
+    "tests/wasm/vite/dist",
+    "tests/wasm/webpack/dist"
+  ]
+}

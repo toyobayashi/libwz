@@ -8,7 +8,6 @@
 #include "wz/Properties/WzStringProperty.h"
 #include "wz/Util/WzBinaryWriter.h"
 #include "wz/WzFile.h"
-#include "wz/WzFileManager.h"
 #include "wz/WzImage.h"
 
 namespace wz {
@@ -49,9 +48,9 @@ Result<void> WzCanvasProperty::WriteValue(WzBinaryWriter* writer) const {
   writer->WriteInt32(0);
   writer->WriteInt32(static_cast<int32_t>(bytes.value().size()) + 1);
   writer->WriteByte(0);
-  writer->BaseStream().write(
-      reinterpret_cast<const char*>(bytes.value().data()),
-      static_cast<std::streamsize>(bytes.value().size()));
+  if (!writer->BaseStream().Write(bytes.value().data(), bytes.value().size())) {
+    return std::unexpected(Error::IoError("Failed to write canvas property"));
+  }
   return {};
 }
 
@@ -234,18 +233,18 @@ Result<WzImageProperty*> WzCanvasProperty::GetLinkedWzImageProperty() {
         realpath = wzfName + "/" + realpath;
         foundProperty = wzFileParent->GetObjectFromPath(realpath);
       } else {
-        if (WzFileManager::fileManager &&
-            WzFileManager::fileManager->Is64Bit()) {
-          if (WzFileManager::ContainsCanvasDirectory(outlink)) {
-            std::string canvasFolderBase =
-                WzFileManager::NormaliseWzCanvasDirectory(outlink);
-            auto result = WzFileManager::fileManager->LoadCanvasSection(
-                canvasFolderBase, wzFileParent->MapleVersion());
-            if (!result.has_value()) {
-              return std::unexpected(result.error());
-            }
-          }
-        }
+        // if (WzFileManager::fileManager &&
+        //     WzFileManager::fileManager->Is64Bit()) {
+        //   if (WzFileManager::ContainsCanvasDirectory(outlink)) {
+        //     std::string canvasFolderBase =
+        //         WzFileManager::NormaliseWzCanvasDirectory(outlink);
+        //     auto result = WzFileManager::fileManager->LoadCanvasSection(
+        //         canvasFolderBase, wzFileParent->MapleVersion());
+        //     if (!result.has_value()) {
+        //       return std::unexpected(result.error());
+        //     }
+        //   }
+        // }
         foundProperty = wzFileParent->GetObjectFromPath(outlink);
       }
       if (foundProperty &&

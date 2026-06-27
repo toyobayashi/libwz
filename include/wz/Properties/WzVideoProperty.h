@@ -28,7 +28,6 @@ class WzVideoProperty : public WzImageProperty, public IPropertyContainer {
   Result<std::vector<uint8_t>> GetBytes() override;
   Result<std::vector<uint8_t>> GetBytes(bool saveInMemory);
   void Parse(bool parseNow);
-  Result<void> SaveToFile(const std::string& filePath);
 
  private:
   WzBinaryReader* wzReader_ = nullptr;

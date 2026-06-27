@@ -27,8 +27,22 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 option(BUILD_TESTS "Build unit tests" ON)
 option(BUILD_CAPI "Build C API layer" ON)
 option(BUILD_JNI "Build JNI bindings" OFF)
+option(BUILD_WASM "Build WebAssembly-specific targets" OFF)
+
+if(BUILD_WASM)
+    if(NOT EMSCRIPTEN)
+        message(FATAL_ERROR "BUILD_WASM requires Emscripten")
+    endif()
+    set(BUILD_CAPI ON)
+    set(BUILD_JNI OFF)
+    set(EMNAPI_FIND_NODE_ADDON_API OFF CACHE BOOL "" FORCE)
+endif()
 
 include(FetchContent)
+
+if(BUILD_WASM)
+    add_subdirectory(node_modules/emnapi EXCLUDE_FROM_ALL)
+endif()
 
 # ---- tiny-AES-c (AES-256-ECB) ----
 add_subdirectory(deps/tiny-aes)
@@ -68,6 +82,8 @@ set(WZ_SOURCES
     src/Util/WzMutableKey.cpp
     src/Util/WzKeyGenerator.cpp
     src/Util/WzBinaryReader.cpp
+    src/Util/WzDataSource.cpp
+    src/Util/WzStream.cpp
     src/Util/WzBinaryWriter.cpp
     src/Util/WzTool.cpp
     src/Util/ListFileParser.cpp
@@ -95,7 +111,6 @@ set(WZ_SOURCES
     src/WzImageProperty.cpp
     src/WzObject.cpp
     src/WzPropertyCollection.cpp
-    src/WzFileManager.cpp
 )
 
 set(WZ_HEADERS
@@ -111,8 +126,9 @@ set(WZ_HEADERS
     include/wz/PngUtility.h
     include/wz/PortalType.h
     include/wz/CRC32.h
-    include/wz/WzFileManager.h
     include/wz/Util/WzBinaryReader.h
+    include/wz/Util/WzDataSource.h
+    include/wz/Util/WzStream.h
     include/wz/Util/WzBinaryWriter.h
     include/wz/Util/WzMutableKey.h
     include/wz/Util/WzKeyGenerator.h
@@ -136,6 +152,11 @@ set(WZ_HEADERS
     include/wz/Properties/WzRawDataProperty.h
     include/wz/Properties/WzVideoProperty.h
 )
+
+if(EMSCRIPTEN)
+    list(APPEND WZ_SOURCES src/Util/WzBlobDataSource.cpp)
+    list(APPEND WZ_HEADERS include/wz/Util/WzBlobDataSource.h)
+endif()
 
 add_library(wz STATIC ${WZ_SOURCES} ${WZ_HEADERS})
 target_include_directories(wz PUBLIC
@@ -161,6 +182,93 @@ if(BUILD_CAPI)
     target_link_libraries(wz_capi PUBLIC wz)
 endif()
 
+if(BUILD_WASM)
+    # set(WZ_WASM_SIZE_OPT_FLAGS
+    #     "$<$<CONFIG:Release>:-Oz>"
+    #     "$<$<CONFIG:Release>:-flto>"
+    # )
+    # foreach(wz_wasm_opt_target wz wz_capi zlibstatic tiny-aes emnapi)
+    #     if(TARGET ${wz_wasm_opt_target})
+    #         target_compile_options(${wz_wasm_opt_target} PRIVATE ${WZ_WASM_SIZE_OPT_FLAGS})
+    #     endif()
+    # endforeach()
+
+    set(WZ_WASM_DIST_DIR "${CMAKE_CURRENT_SOURCE_DIR}/dist")
+    set(WZ_WASM_EXPORTED_FUNCTIONS "['_malloc','_free','_napi_register_wasm_v1','_node_api_module_get_api_version_v1']")
+    set(WZ_WASM_EXPORTED_RUNTIME_METHODS "['emnapiInit','HEAPU8','FS','NODEFS']")
+
+    function(configure_wz_wasm_target target_name output_name environment exported_runtime_methods enable_noderawfs)
+        target_include_directories(${target_name} PRIVATE include)
+        target_compile_definitions(${target_name} PRIVATE
+            BUILDING_NODE_EXTENSION
+            NAPI_DISABLE_CPP_EXCEPTIONS
+        )
+        target_link_libraries(${target_name} PRIVATE wz emnapi)
+        set_target_properties(${target_name} PROPERTIES
+            OUTPUT_NAME ${output_name}
+            RUNTIME_OUTPUT_DIRECTORY "${WZ_WASM_DIST_DIR}"
+        )
+        target_link_options(${target_name} PRIVATE
+            "--js-library=${CMAKE_CURRENT_SOURCE_DIR}/node_modules/emnapi/dist/library_napi.js"
+            "-sALLOW_MEMORY_GROWTH=1"
+            "-sENVIRONMENT=${environment}"
+            "-sEXPORT_ES6=1"
+            "-sEXPORTED_FUNCTIONS=${WZ_WASM_EXPORTED_FUNCTIONS}"
+            "-sEXPORTED_RUNTIME_METHODS=${exported_runtime_methods}"
+            "-sFORCE_FILESYSTEM=1"
+            "-sMALLOC=emmalloc"
+            "-sMODULARIZE=1"
+            "-lnodefs.js"
+        )
+        target_link_options(${target_name} PRIVATE
+            # "$<$<CONFIG:Release>:-Oz>"
+            # "$<$<CONFIG:Release>:-flto>"
+            "$<$<CONFIG:Release>:-sASSERTIONS=0>"
+            "$<$<CONFIG:Release>:--minify=0>"
+        )
+        if(enable_noderawfs)
+            target_link_options(${target_name} PRIVATE
+                "-sNODERAWFS=1"
+            )
+        endif()
+    endfunction()
+
+    add_executable(wz_wasm src/node/binding.cpp)
+    configure_wz_wasm_target(wz_wasm libwz "web,worker,node" "${WZ_WASM_EXPORTED_RUNTIME_METHODS}" FALSE)
+
+    set(WZ_PATCH_WASM_SCRIPT "${CMAKE_CURRENT_BINARY_DIR}/patch-libwz.cmake")
+    file(WRITE "${WZ_PATCH_WASM_SCRIPT}" [==[
+file(READ "${JS_FILE}" js_contents)
+string(REPLACE "\r\n" "\n" js_contents "${js_contents}")
+
+function(wz_replace_optional needle replacement)
+  string(FIND "${js_contents}" "${needle}" match_index)
+  if(NOT match_index EQUAL -1)
+    string(REPLACE "${needle}" "${replacement}" js_contents "${js_contents}")
+    set(js_contents "${js_contents}" PARENT_SCOPE)
+    set(WZ_PATCHED_NODE_MODULE_IMPORT TRUE PARENT_SCOPE)
+  endif()
+endfunction()
+
+set(WZ_PATCHED_NODE_MODULE_IMPORT FALSE)
+wz_replace_optional("await import('module')" "process.getBuiltinModule('module')")
+wz_replace_optional("await import(\"module\")" "process.getBuiltinModule('module')")
+if(NOT WZ_PATCHED_NODE_MODULE_IMPORT)
+  string(FIND "${js_contents}" "process.getBuiltinModule('module')" already_patched_index)
+  if(already_patched_index EQUAL -1)
+    message(FATAL_ERROR "Failed to patch libwz.js: missing Node module dynamic import")
+  endif()
+endif()
+
+file(WRITE "${JS_FILE}" "${js_contents}")
+]==])
+    add_custom_command(TARGET wz_wasm POST_BUILD
+        COMMAND ${CMAKE_COMMAND}
+            -DJS_FILE="${WZ_WASM_DIST_DIR}/libwz.js"
+            -P "${WZ_PATCH_WASM_SCRIPT}"
+    )
+endif()
+
 if(BUILD_TESTS)
     FetchContent_Declare(
         googletest
@@ -180,6 +288,7 @@ if(BUILD_TESTS)
         tests/TestPropertyWriteValue.cpp
         tests/TestEditing.cpp
         tests/TestRepack.cpp
+        tests/TestWzDataSource.cpp
     )
     if(BUILD_CAPI)
         list(APPEND WZ_TEST_SOURCES tests/TestCapiError.cpp)
@@ -195,6 +304,14 @@ if(BUILD_TESTS)
         target_link_libraries(wz_test PRIVATE wz)
     endif()
     add_test(NAME wz_test COMMAND wz_test)
+
+    if(BUILD_WASM)
+        add_executable(wz_wasm_test
+            tests/TestWzBlobDataSource.cpp
+        )
+        target_include_directories(wz_wasm_test PRIVATE include)
+        target_link_libraries(wz_wasm_test PRIVATE wz GTest::gtest_main)
+    endif()
 endif()
 
 if(BUILD_JNI)

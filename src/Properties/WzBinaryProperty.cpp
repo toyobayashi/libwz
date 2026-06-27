@@ -1,11 +1,11 @@
 #include "wz/Properties/WzBinaryProperty.h"
 #include <cstring>
 #include <filesystem>
-#include <fstream>
 #include <mutex>
 #include "wz/Util/WzBinaryReader.h"
 #include "wz/Util/WzBinaryWriter.h"
 #include "wz/Util/WzPath.h"
+#include "wz/Util/WzStream.h"
 #include "wz/WzImage.h"
 
 namespace wz {
@@ -60,10 +60,10 @@ Result<void> WzBinaryProperty::WriteValue(WzBinaryWriter* writer) const {
   writer->WriteByte(0);
   writer->WriteCompressedInt(static_cast<int32_t>(data.value().size()));
   writer->WriteCompressedInt(lenMs_);
-  writer->BaseStream().write(reinterpret_cast<const char*>(header_.data()),
-                             static_cast<std::streamsize>(header_.size()));
-  writer->BaseStream().write(reinterpret_cast<const char*>(data.value().data()),
-                             static_cast<std::streamsize>(data.value().size()));
+  if (!writer->BaseStream().Write(header_.data(), header_.size()) ||
+      !writer->BaseStream().Write(data.value().data(), data.value().size())) {
+    return std::unexpected(Error::IoError("Failed to write binary property"));
+  }
   return {};
 }
 
@@ -172,10 +172,11 @@ Result<void> WzBinaryProperty::SaveToFile(const std::string& filePath) {
     std::filesystem::create_directories(parentPath, ec);
     if (ec) return std::unexpected(Error::IoError(ec.message()));
   }
-  std::ofstream out(outPath, std::ios::binary);
-  if (!out)
+  WzFileStream out;
+  if (!out.Open(outPath, "wb"))
     return std::unexpected(Error::IoError("Failed to open file for writing"));
-  out.write(reinterpret_cast<const char*>(bytes.data()), bytes.size());
+  if (!out.Write(bytes.data(), bytes.size()))
+    return std::unexpected(Error::IoError("Failed to write file"));
   return {};
 }
 

@@ -2,11 +2,8 @@
 #include <cerrno>
 #include <cstdint>
 #include <cstdlib>
-#include <filesystem>
-#include <fstream>
 #include <limits>
 #include "wz/Util/WzBinaryWriter.h"
-#include "wz/Util/WzPath.h"
 
 namespace wz {
 
@@ -42,21 +39,6 @@ int16_t WzStringProperty::GetShort() const {
 }
 int64_t WzStringProperty::GetLong() const {
   return safeParseInt64(value_);
-}
-
-Result<void> WzStringProperty::SaveToFile(const std::string& filePath) {
-  auto outPath = wz::to_path(filePath);
-  auto parentPath = outPath.parent_path();
-  std::error_code ec;
-  if (!parentPath.empty()) {
-    std::filesystem::create_directories(parentPath, ec);
-    if (ec) return std::unexpected(Error::IoError(ec.message()));
-  }
-  std::ofstream out(outPath);
-  if (!out)
-    return std::unexpected(Error::IoError("Failed to open file for writing"));
-  out << value_;
-  return {};
 }
 
 }  // namespace wz

@@ -67,13 +67,15 @@
       "target_name": "wz",
       "sources": [
         "src/node/binding.cpp",
-        "src/capi/wz_api.cpp",
         "src/WzEnums.cpp",
         "src/WzAESConstant.cpp",
         "src/Util/WzMutableKey.cpp",
         "src/Util/WzKeyGenerator.cpp",
         "src/Util/WzBinaryReader.cpp",
+        "src/Util/WzDataSource.cpp",
+        "src/Util/WzStream.cpp",
         "src/Util/WzBinaryWriter.cpp",
+        "src/Util/WzBlobDataSource.cpp",
         "src/Util/WzTool.cpp",
         "src/Util/ListFileParser.cpp",
         "src/PngUtility.cpp",
@@ -100,17 +102,13 @@
         "src/WzImageProperty.cpp",
         "src/WzObject.cpp",
         "src/WzPropertyCollection.cpp",
-        "src/WzFileManager.cpp"
       ],
       "include_dirs": [
-        "<!@(node -p \"require('node-addon-api').include\")",
         "include",
-        "include/wz/capi",
         "deps/tiny-aes",
         "deps/zlib"
       ],
       "dependencies": [
-        "<!(node -p \"require('node-addon-api').gyp\")",
         "tiny_aes",
         "zlibstatic"
       ],
@@ -127,6 +125,9 @@
         "-fno-exceptions",
         "-fno-rtti"
       ],
+      "xcode_settings": {
+        "CLANG_CXX_LANGUAGE_STANDARD": "c++23"
+      },
       "msvs_settings": {
         "VCCLCompilerTool": {
           "ExceptionHandling": 0,

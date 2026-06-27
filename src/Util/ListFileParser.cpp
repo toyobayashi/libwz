@@ -1,8 +1,9 @@
 #include "wz/Util/ListFileParser.h"
-#include <fstream>
 #include <limits>
+#include <memory>
 #include "wz/Util/WzBinaryReader.h"
 #include "wz/Util/WzPath.h"
+#include "wz/Util/WzStream.h"
 #include "wz/Util/WzTool.h"
 
 namespace wz {
@@ -16,12 +17,12 @@ std::vector<std::string> ListFileParser::ParseListFile(
     const std::string& filePath, const std::array<uint8_t, 4>& WzIv) {
   std::vector<std::string> listEntries;
 
-  std::ifstream fs(wz::to_path(filePath), std::ios::binary);
-  if (!fs.is_open()) return listEntries;
+  WzFileStream fs;
+  if (!fs.Open(wz::to_path(filePath), "rb")) return listEntries;
 
-  WzBinaryReader reader(fs, WzIv);
+  WzBinaryReader reader(std::make_shared<WzFileDataSource>(&fs), WzIv);
 
-  while (reader.BaseStream().peek() != std::char_traits<char>::eof()) {
+  while (reader.Available() > 0) {
     int32_t len = reader.ReadInt32();
     if (len < 0 || len > 100000) break;
 
