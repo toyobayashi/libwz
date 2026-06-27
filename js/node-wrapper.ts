@@ -10,15 +10,6 @@ import type {
 import type { WzApiCapabilities } from './binding-state.js'
 import { getWzBinding, getWzCapabilities } from './binding-state.js'
 
-export interface BlobLike {
-  readonly size: number;
-  slice(start?: number, end?: number): BlobLike;
-}
-
-export interface FileLike extends BlobLike {
-  readonly name: string;
-}
-
 export enum MapleVersion {
   GMS = 0,
   EMS = 1,
@@ -366,23 +357,6 @@ export class WzFile extends WzObject {
     }
     if (ptr === null) throw new Error('failed to open WZ file from Blob')
     return createWzFile(ptr, true)
-  }
-
-  static fromBlob (name: string, blob: BlobLike, mapleVersion: MapleVersion): WzFile
-  static fromBlob (name: string, blob: BlobLike, gameVersion: number, mapleVersion: MapleVersion): WzFile
-  static fromBlob (_name?: string, _blob?: BlobLike, _gameVersionOrMapleVersion?: number, _mapleVersion?: MapleVersion): WzFile {
-    throw new Error('Blob-backed WZ input is not configured for this runtime')
-  }
-
-  static fromBlobWithIv (name: string, blob: BlobLike, iv: NativeIv): WzFile
-  static fromBlobWithIv (_name?: string, _blob?: BlobLike, _iv?: NativeIv): WzFile {
-    throw new Error('Blob-backed WZ input is not configured for this runtime')
-  }
-
-  static fromFile (file: FileLike, mapleVersion: MapleVersion): WzFile
-  static fromFile (file: FileLike, gameVersion: number, mapleVersion: MapleVersion): WzFile
-  static fromFile (_file?: FileLike, _gameVersionOrMapleVersion?: number, _mapleVersion?: MapleVersion): WzFile {
-    throw new Error('File-backed WZ input is not configured for this runtime')
   }
 
   constructor (path: string, mapleVersion?: MapleVersion)

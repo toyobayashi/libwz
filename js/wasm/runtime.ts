@@ -1,8 +1,7 @@
 import { setWzBinding } from '../binding-state.js'
-import type { BlobReadRangeCallback, NativeBinding, NativeIv } from '../native-binding.js'
-import {
-  WzFile,
-  type MapleVersion
+import type { NativeBinding, NativeIv } from '../native-binding.js'
+import type {
+  MapleVersion
 } from '../node-wrapper.js'
 
 export interface LoadedWzModule {
@@ -19,14 +18,6 @@ export interface LoadedWzModule {
 
 export type WasmRuntimeOptions = unknown
 
-type BlobLike = Blob & {
-  slice(start?: number, end?: number): Blob;
-}
-
-type FileReaderSyncConstructor = new() => {
-  readAsArrayBuffer(blob: Blob): ArrayBuffer;
-}
-
 export function configureWasmBinding (
   loaded: LoadedWzModule,
   _options: WasmRuntimeOptions
@@ -39,7 +30,6 @@ export function configureWasmBinding (
     pathInput: isNode,
     saveToDisk: isNode
   }, 'wasm')
-  attachBlobFactories()
 }
 
 interface NodePathModule {
@@ -112,92 +102,6 @@ function normalizePath (path: string): string {
     return normalizedPath.replace(/\/+$/u, '')
   }
   return normalizedPath
-}
-
-function attachBlobFactories (): void {
-  WzFile.fromBlob = (
-    name: string,
-    blob: BlobLike,
-    gameVersionOrMapleVersion: number,
-    mapleVersion?: MapleVersion
-  ): WzFile => openBlobSource(
-    name,
-    blob,
-    gameVersionOrMapleVersion,
-    mapleVersion
-  )
-
-  WzFile.fromBlobWithIv = (
-    name: string,
-    blob: BlobLike,
-    iv: NativeIv
-  ): WzFile => openBlobSource(name, blob, iv)
-
-  WzFile.fromFile = (
-    file: File,
-    gameVersionOrMapleVersion: number,
-    mapleVersion?: MapleVersion
-  ): WzFile => mapleVersion === undefined
-    ? WzFile.fromBlob(file.name, file, gameVersionOrMapleVersion)
-    : WzFile.fromBlob(file.name, file, gameVersionOrMapleVersion, mapleVersion)
-}
-
-function openBlobSource (
-  name: string,
-  blob: BlobLike,
-  gameVersionOrMapleVersionOrIv: number | NativeIv,
-  mapleVersion?: MapleVersion
-): WzFile {
-  const readRange = createBlobReadRange(blob)
-  if (ArrayBuffer.isView(gameVersionOrMapleVersionOrIv)) {
-    return WzFile.fromBlobSource(
-      name,
-      blob.size,
-      gameVersionOrMapleVersionOrIv,
-      readRange
-    )
-  }
-  if (mapleVersion === undefined) {
-    return WzFile.fromBlobSource(
-      name,
-      blob.size,
-      gameVersionOrMapleVersionOrIv,
-      readRange
-    )
-  }
-  return WzFile.fromBlobSource(
-    name,
-    blob.size,
-    gameVersionOrMapleVersionOrIv,
-    mapleVersion,
-    readRange
-  )
-}
-
-function createBlobReadRange (blob: BlobLike): BlobReadRangeCallback {
-  const FileReaderSyncCtor = getFileReaderSyncConstructor()
-  if (typeof FileReaderSyncCtor !== 'function') {
-    throw new Error('FileReaderSync is required for synchronous Blob-backed WZ reads')
-  }
-  const reader = new FileReaderSyncCtor()
-  return (offset: number, length: number): Uint8Array => {
-    const start = Math.trunc(offset)
-    if (start < 0 || start > blob.size) {
-      throw new Error('Blob read offset is out of range')
-    }
-    const end = Math.min(start + length, blob.size)
-    const bytes = new Uint8Array(reader.readAsArrayBuffer(blob.slice(start, end)))
-    if (bytes.byteLength !== length) {
-      throw new Error('Blob read returned an unexpected number of bytes')
-    }
-    return bytes
-  }
-}
-
-function getFileReaderSyncConstructor (): FileReaderSyncConstructor | undefined {
-  return (globalThis as {
-    FileReaderSync?: FileReaderSyncConstructor;
-  }).FileReaderSync
 }
 
 function createNodePathMapper (module: LoadedWzModule['module']): NodePathMapper | undefined {
