@@ -310,7 +310,7 @@ export class WzFile extends WzObject {
     mapleVersion?: MapleVersion
   ): WzFile {
     let ptr: NullableNativeHandle
-    if (ArrayBuffer.isView(gameVersionOrMapleVersionOrIv)) {
+    if (gameVersionOrMapleVersionOrIv instanceof Uint8Array) {
       ptr = native.openMemory(name, bytes, gameVersionOrMapleVersionOrIv)
     } else {
       const gameVersion = mapleVersion === undefined ? -1 : gameVersionOrMapleVersionOrIv
@@ -341,7 +341,7 @@ export class WzFile extends WzObject {
     }
 
     let ptr: NullableNativeHandle
-    if (ArrayBuffer.isView(gameVersionOrMapleVersionOrIv)) {
+    if (gameVersionOrMapleVersionOrIv instanceof Uint8Array) {
       const callback = mapleVersionOrReadRange as BlobReadRangeCallback
       ptr = native.openBlobSource(size, name, gameVersionOrMapleVersionOrIv, callback)
     } else {
@@ -373,7 +373,7 @@ export class WzFile extends WzObject {
     }
 
     let ptr: NullableNativeHandle
-    if (ArrayBuffer.isView(gameVersionOrMapleVersion)) {
+    if (gameVersionOrMapleVersion instanceof Uint8Array) {
       ptr = native.openFile(pathOrPtr, gameVersionOrMapleVersion)
     } else {
       const gameVersion = mapleVersion === undefined ? -1 : gameVersionOrMapleVersion as number

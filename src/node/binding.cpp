@@ -183,17 +183,17 @@ inline bool ReadInt64(napi_env env, napi_value value, int64_t* out) {
 inline bool ReadBytesView(napi_env env,
                           napi_value value,
                           uint8_t** data,
-                          size_t* length) {
+                          size_t* length,
+                          napi_value* array_buffer,
+                          size_t* byte_offset) {
   napi_typedarray_type type;
-  size_t byte_offset = 0;
-  napi_value array_buffer = nullptr;
   napi_status status = napi_get_typedarray_info(env,
                                                 value,
                                                 &type,
                                                 length,
                                                 reinterpret_cast<void**>(data),
-                                                &array_buffer,
-                                                &byte_offset);
+                                                array_buffer,
+                                                byte_offset);
   if (status != napi_ok) {
     (void)napi_throw_error(env, nullptr, "expected Uint8Array");
     return false;
@@ -203,29 +203,21 @@ inline bool ReadBytesView(napi_env env,
   return false;
 }
 
-inline bool IsBytesView(napi_env env, napi_value value, bool* out) {
-  bool is_typed_array = false;
-  napi_status status = napi_is_typedarray(env, value, &is_typed_array);
-  if (status != napi_ok) {
-    ThrowNodeApiError(env, "failed to inspect typed array");
-    return false;
-  }
-  if (!is_typed_array) {
-    *out = false;
-    return true;
-  }
-  napi_typedarray_type type;
-  size_t length = 0;
-  void* data = nullptr;
+inline bool ReadBytesView(napi_env env,
+                          napi_value value,
+                          uint8_t** data,
+                          size_t* length) {
   napi_value array_buffer = nullptr;
   size_t byte_offset = 0;
-  status = napi_get_typedarray_info(
-      env, value, &type, &length, &data, &array_buffer, &byte_offset);
+  return ReadBytesView(env, value, data, length, &array_buffer, &byte_offset);
+}
+
+inline bool IsBytesView(napi_env env, napi_value value, bool* out) {
+  napi_status status = napi_is_typedarray(env, value, out);
   if (status != napi_ok) {
     ThrowNodeApiError(env, "failed to inspect typed array");
     return false;
   }
-  *out = type == napi_uint8_array;
   return true;
 }
 
@@ -262,6 +254,23 @@ inline bool SyncMemory(napi_env env,
 #else
 inline bool SyncMemory(napi_env, bool, napi_value, size_t, size_t) {
   return true;
+}
+#endif
+
+#ifdef __EMSCRIPTEN__
+inline bool CreateDestinationView(napi_env env,
+                                  std::span<uint8_t> destination,
+                                  napi_value* result) {
+  napi_status status = emnapi_create_memory_view(env,
+                                                 emnapi_uint8_array,
+                                                 destination.data(),
+                                                 destination.size(),
+                                                 nullptr,
+                                                 nullptr,
+                                                 result);
+  if (status == napi_ok) return true;
+  (void)napi_throw_error(env, nullptr, "failed to create Blob read buffer");
+  return false;
 }
 #endif
 
@@ -363,7 +372,7 @@ wz::Result<size_t> BlobReadRange(BlobReadCallbackState* state,
     return std::unexpected(wz::Error::IoError("Blob read callback failed"));
   }
 
-  napi_value argv[2] = {};
+  napi_value argv[3] = {};
   status =
       napi_create_double(state->env, static_cast<double>(offset), &argv[0]);
   if (status != napi_ok) {
@@ -376,24 +385,62 @@ wz::Result<size_t> BlobReadRange(BlobReadCallbackState* state,
     (void)napi_throw_error(state->env, nullptr, "Blob read callback failed");
     return std::unexpected(wz::Error::IoError("Blob read callback failed"));
   }
+#ifdef __EMSCRIPTEN__
+  if (!CreateDestinationView(state->env, destination, &argv[2])) {
+    return std::unexpected(
+        wz::Error::IoError("failed to create Blob read buffer"));
+  }
+#endif
 
   napi_value result = nullptr;
-  status = napi_call_function(state->env, global, callback, 2, argv, &result);
+  status = napi_call_function(state->env,
+                              global,
+                              callback,
+#ifdef __EMSCRIPTEN__
+                              3,
+#else
+                              2,
+#endif
+                              argv,
+                              &result);
   if (status != napi_ok) {
     (void)napi_throw_error(state->env, nullptr, "Blob read callback failed");
     return std::unexpected(wz::Error::IoError("Blob read callback failed"));
   }
 
+#ifdef __EMSCRIPTEN__
+  napi_valuetype value_type = napi_undefined;
+  status = napi_typeof(state->env, result, &value_type);
+  if (status != napi_ok) {
+    (void)napi_throw_error(state->env, nullptr, "Blob read callback failed");
+    return std::unexpected(wz::Error::IoError("Blob read callback failed"));
+  }
+  if (value_type == napi_undefined || value_type == napi_null) {
+    return destination.size();
+  }
+  (void)napi_throw_error(
+      state->env, nullptr, "Blob read callback must write to destination");
+  return std::unexpected(
+      wz::Error::IoError("Blob read callback must write to destination"));
+#else
+
   uint8_t* data = nullptr;
   size_t length = 0;
-  if (!ReadBytesView(state->env, result, &data, &length) ||
+  napi_value array_buffer = nullptr;
+  size_t byte_offset = 0;
+  if (!ReadBytesView(
+          state->env, result, &data, &length, &array_buffer, &byte_offset) ||
       length != destination.size()) {
     return std::unexpected(
         wz::Error::IoError("Blob read callback returned invalid data"));
   }
-  SyncMemory(state->env, true, result, 0, length);
+  if (!SyncMemory(state->env, true, array_buffer, byte_offset, length)) {
+    return std::unexpected(
+        wz::Error::IoError("Blob read callback memory sync failed"));
+  }
   if (length > 0) std::memcpy(destination.data(), data, length);
   return length;
+#endif
 }
 
 class BlobReadCallback {

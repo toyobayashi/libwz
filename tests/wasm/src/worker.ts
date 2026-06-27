@@ -83,8 +83,8 @@ async function ensureReady (): Promise<void> {
 }
 
 async function openFile (file: File, mapleVersion: MapleVersionOption): Promise<TreeNodeSummary> {
-  const bytes = new Uint8Array(await file.arrayBuffer())
-  const wzFile = WzFile.fromBytes(file.name, bytes, mapleVersion)
+  const readRange = createFileReadRange(file)
+  const wzFile = WzFile.fromBlobSource(file.name, file.size, mapleVersion, readRange)
   const status = wzFile.parseWzFile()
   if (status !== ParseStatus.SUCCESS) {
     wzFile.close()
@@ -92,6 +92,26 @@ async function openFile (file: File, mapleVersion: MapleVersionOption): Promise<
   }
 
   return remember(wzFile, null)
+}
+
+function createFileReadRange (file: File): (offset: number, length: number, destination?: Uint8Array) => Uint8Array | undefined {
+  const reader = new FileReaderSync()
+  return (offset: number, length: number, destination?: Uint8Array): Uint8Array | undefined => {
+    const start = Math.trunc(offset)
+    if (start < 0 || start > file.size) {
+      throw new Error('File read offset is out of range')
+    }
+    const end = Math.min(start + Math.trunc(length), file.size)
+    const bytes = new Uint8Array(reader.readAsArrayBuffer(file.slice(start, end)))
+    if (bytes.byteLength !== length) {
+      throw new Error('File read returned an unexpected number of bytes')
+    }
+    if (destination !== undefined) {
+      destination.set(bytes)
+      return
+    }
+    return bytes
+  }
 }
 
 function unloadFile (nodeId: number): TreeNodeSummary {

@@ -56,7 +56,7 @@ function normalizeNodePathBinding (
     openFile: {
       value (path: string, gameVersionOrIv: number | NativeIv, mapleVersion?: MapleVersion) {
         const wasmPath = toWasmNodePath(path, pathMapper)
-        if (ArrayBuffer.isView(gameVersionOrIv)) return binding.openFile(wasmPath, gameVersionOrIv)
+        if (gameVersionOrIv instanceof Uint8Array) return binding.openFile(wasmPath, gameVersionOrIv)
         if (mapleVersion === undefined) throw new TypeError('mapleVersion is required')
         return binding.openFile(wasmPath, gameVersionOrIv, mapleVersion)
       }

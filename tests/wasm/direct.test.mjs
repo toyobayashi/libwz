@@ -109,14 +109,56 @@ test('wasm canvas saveToFile exports a PNG image', async () => {
 
 test('wasm API opens callback-backed input', async () => {
   const bytes = fs.readFileSync(sample)
+  class TestBlobSlice {
+    constructor (bytes, start, end) {
+      this.bytes = bytes
+      this.start = start
+      this.end = end
+    }
+  }
+  class TestBlob {
+    constructor (bytes, start = 0, end = bytes.byteLength) {
+      this.bytes = bytes
+      this.start = start
+      this.end = end
+      this.size = end - start
+    }
+    slice (start = 0, end = this.size) {
+      return new TestBlobSlice(
+        this.bytes,
+        this.start + Math.trunc(start),
+        this.start + Math.min(Math.trunc(end), this.size)
+      )
+    }
+  }
+  globalThis.FileReaderSync = class {
+    readAsArrayBuffer (slice) {
+      return slice.bytes.buffer.slice(
+        slice.bytes.byteOffset + slice.start,
+        slice.bytes.byteOffset + slice.end
+      )
+    }
+  }
+  const blob = new TestBlob(bytes)
   await wz.init()
-  const readRange = (offset, length) => bytes.subarray(offset, offset + length)
+  const reader = new FileReaderSync()
+  const readRange = (offset, length, destination) => {
+    const start = Math.trunc(offset)
+    const end = start + Math.trunc(length)
+    const bytes = new Uint8Array(reader.readAsArrayBuffer(blob.slice(start, end)))
+    if (destination !== undefined) {
+      destination.set(bytes)
+      return
+    }
+    return bytes
+  }
   using file = wz.WzFile.fromBlobSource(
     'TamingMob_GMS_87.wz',
-    bytes.byteLength,
+    blob.size,
     wz.MapleVersion.GMS,
     readRange
   )
   assert.equal(file.parseWzFile(), wz.ParseStatus.SUCCESS)
   assert.equal(file.getWzDirectory()?.getName(), 'TamingMob_GMS_87.wz')
+  delete globalThis.FileReaderSync
 })

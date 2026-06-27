@@ -165,4 +165,8 @@ export interface NativeBinding {
   ivForVersion(version: MapleVersion): Uint8Array;
 }
 
-export type BlobReadRangeCallback = (offset: number, length: number) => Uint8Array
+export type BlobReadRangeCallback = (
+  offset: number,
+  length: number,
+  destination?: Uint8Array
+) => Uint8Array | undefined
