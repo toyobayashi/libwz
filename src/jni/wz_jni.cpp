@@ -229,7 +229,9 @@ JNIEXPORT jlong JNICALL JNI_FUNC(WzFile, nativeGetObjectFromPath)(
 // ==================== WzDirectory ====================
 
 JNIEXPORT void JNICALL JNI_FUNC(WzDirectory,
-                                nativeDispose)(JNIEnv*, jclass, jlong) {}
+                                nativeDispose)(JNIEnv* env, jclass, jlong ptr) {
+  WZ_API_CALL(env, wz_object_free(reinterpret_cast<wz_object>(ptr)));
+}
 
 JNIEXPORT jstring JNICALL JNI_FUNC(WzDirectory,
                                    nativeName)(JNIEnv* env, jclass, jlong ptr) {
@@ -387,7 +389,9 @@ JNIEXPORT void JNICALL JNI_FUNC(WzDirectory, nativeRemoveImage)(
 // ==================== WzImage ====================
 
 JNIEXPORT void JNICALL JNI_FUNC(WzImage,
-                                nativeDispose)(JNIEnv*, jclass, jlong) {}
+                                nativeDispose)(JNIEnv* env, jclass, jlong ptr) {
+  WZ_API_CALL(env, wz_object_free(reinterpret_cast<wz_object>(ptr)));
+}
 
 JNIEXPORT jstring JNICALL JNI_FUNC(WzImage,
                                    nativeName)(JNIEnv* env, jclass, jlong ptr) {

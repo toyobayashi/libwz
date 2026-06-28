@@ -54,39 +54,43 @@ Result<void> WzCanvasProperty::WriteValue(WzBinaryWriter* writer) const {
   return {};
 }
 
-void WzCanvasProperty::AddProperty(WzImageProperty* prop) {
-  AddProperty(std::unique_ptr<WzImageProperty>(prop));
+Result<void> WzCanvasProperty::AddProperty(WzImageProperty* prop) {
+  return AddProperty(std::unique_ptr<WzImageProperty>(prop));
 }
 
-void WzCanvasProperty::AddProperty(std::unique_ptr<WzImageProperty> prop) {
-  if (!prop) return;
+Result<void> WzCanvasProperty::AddProperty(
+    std::unique_ptr<WzImageProperty> prop) {
+  if (!prop) return {};
   prop->SetParent(this);
   properties_.Add(std::move(prop));
   MarkParentImageChanged();
+  return {};
 }
 
-void WzCanvasProperty::RemoveProperty(const std::string& propertyName) {
+Result<std::unique_ptr<WzImageProperty>> WzCanvasProperty::RemoveProperty(
+    const std::string& propertyName) {
   for (size_t i = 0; i < properties_.size(); i++) {
     if (properties_[i]->Name() == propertyName) {
-      properties_.erase_at(i);
+      auto removed = properties_.Remove(properties_[i]);
       MarkParentImageChanged();
-      return;
+      return removed;
     }
   }
+  return std::unique_ptr<WzImageProperty>();
 }
 
-void WzCanvasProperty::RemoveProperty(WzImageProperty* prop) {
-  auto it = std::find(properties_.begin(), properties_.end(), prop);
-  if (it != properties_.end()) {
-    properties_.erase(it);
-    MarkParentImageChanged();
-  }
+Result<std::unique_ptr<WzImageProperty>> WzCanvasProperty::RemoveProperty(
+    WzImageProperty* prop) {
+  auto removed = properties_.Remove(prop);
+  if (removed) MarkParentImageChanged();
+  return removed;
 }
 
-void WzCanvasProperty::ClearProperties() {
-  if (properties_.size() == 0) return;
+Result<void> WzCanvasProperty::ClearProperties() {
+  if (properties_.size() == 0) return {};
   properties_.clear();
   MarkParentImageChanged();
+  return {};
 }
 
 bool WzCanvasProperty::ContainsInlinkProperty() const {

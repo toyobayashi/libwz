@@ -21,17 +21,20 @@ class WzImageProperty;
 class IPropertyContainer {
  public:
   virtual ~IPropertyContainer() = default;
-  virtual void AddProperty(WzImageProperty* prop) = 0;
-  virtual void AddProperty(std::unique_ptr<WzImageProperty> prop) = 0;
+  virtual Result<void> AddProperty(WzImageProperty* prop) = 0;
+  virtual Result<void> AddProperty(
+      std::unique_ptr<WzImageProperty> prop) = 0;
   template <typename T>
     requires std::derived_from<T, WzImageProperty>
-  void AddProperty(std::unique_ptr<T> prop) {
-    AddProperty(std::unique_ptr<WzImageProperty>(std::move(prop)));
+  Result<void> AddProperty(std::unique_ptr<T> prop) {
+    return AddProperty(std::unique_ptr<WzImageProperty>(std::move(prop)));
   }
-  virtual void AddProperties(WzPropertyCollection& props);
-  virtual void RemoveProperty(const std::string& propertyName) = 0;
-  virtual void RemoveProperty(WzImageProperty* prop) = 0;
-  virtual void ClearProperties() = 0;
+  virtual Result<void> AddProperties(WzPropertyCollection& props);
+  virtual Result<std::unique_ptr<WzImageProperty>> RemoveProperty(
+      const std::string& propertyName) = 0;
+  virtual Result<std::unique_ptr<WzImageProperty>> RemoveProperty(
+      WzImageProperty* prop) = 0;
+  virtual Result<void> ClearProperties() = 0;
   virtual WzPropertyCollection* WzProperties() = 0;
 };
 
@@ -42,17 +45,18 @@ class WzImageProperty : public WzObject {
 
   WzObjectType ObjectType() const override { return WzObjectType::Property; }
   WzFile* WzFileParent() const override;
-  Result<void> TryRemove() override;
-  void Remove() override;
+  Result<std::unique_ptr<WzObject>> Remove() override;
 
   virtual WzPropertyType PropertyType() const = 0;
   virtual bool IsRawDataProperty() const { return false; }
   virtual bool IsVideoProperty() const { return false; }
   virtual WzPropertyCollection* WzProperties() { return nullptr; }
-  Result<void> TryAddChildProperty(WzImageProperty* prop);
-  Result<void> TryAddChildProperty(std::unique_ptr<WzImageProperty> prop);
-  Result<void> TryRemoveChildProperty(WzImageProperty* prop);
-  Result<void> TryClearChildProperties();
+  Result<void> AddProperty(WzImageProperty* prop);
+  Result<void> AddProperty(std::unique_ptr<WzImageProperty> prop);
+  // Detaches prop from this container and returns ownership to the caller.
+  Result<std::unique_ptr<WzImageProperty>> RemoveProperty(
+      WzImageProperty* prop);
+  Result<void> ClearProperties();
   virtual Result<void> WriteValue(WzBinaryWriter* writer) const;
 
   virtual WzImageProperty* operator[](const std::string& name);

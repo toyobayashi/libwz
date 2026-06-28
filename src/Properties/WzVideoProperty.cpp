@@ -39,39 +39,43 @@ Result<void> WzVideoProperty::WriteValue(WzBinaryWriter* writer) const {
   return {};
 }
 
-void WzVideoProperty::AddProperty(WzImageProperty* prop) {
-  AddProperty(std::unique_ptr<WzImageProperty>(prop));
+Result<void> WzVideoProperty::AddProperty(WzImageProperty* prop) {
+  return AddProperty(std::unique_ptr<WzImageProperty>(prop));
 }
 
-void WzVideoProperty::AddProperty(std::unique_ptr<WzImageProperty> prop) {
-  if (!prop) return;
+Result<void> WzVideoProperty::AddProperty(
+    std::unique_ptr<WzImageProperty> prop) {
+  if (!prop) return {};
   prop->SetParent(this);
   properties_.Add(std::move(prop));
   MarkParentImageChanged();
+  return {};
 }
 
-void WzVideoProperty::RemoveProperty(const std::string& propertyName) {
+Result<std::unique_ptr<WzImageProperty>> WzVideoProperty::RemoveProperty(
+    const std::string& propertyName) {
   for (size_t i = 0; i < properties_.size(); i++) {
     if (properties_[i]->Name() == propertyName) {
-      properties_.erase_at(i);
+      auto removed = properties_.Remove(properties_[i]);
       MarkParentImageChanged();
-      return;
+      return removed;
     }
   }
+  return std::unique_ptr<WzImageProperty>();
 }
 
-void WzVideoProperty::RemoveProperty(WzImageProperty* prop) {
-  auto it = std::find(properties_.begin(), properties_.end(), prop);
-  if (it != properties_.end()) {
-    properties_.erase(it);
-    MarkParentImageChanged();
-  }
+Result<std::unique_ptr<WzImageProperty>> WzVideoProperty::RemoveProperty(
+    WzImageProperty* prop) {
+  auto removed = properties_.Remove(prop);
+  if (removed) MarkParentImageChanged();
+  return removed;
 }
 
-void WzVideoProperty::ClearProperties() {
-  if (properties_.size() == 0) return;
+Result<void> WzVideoProperty::ClearProperties() {
+  if (properties_.size() == 0) return {};
   properties_.clear();
   MarkParentImageChanged();
+  return {};
 }
 
 void WzVideoProperty::Parse(bool parseNow) {

@@ -55,7 +55,7 @@ void WzPropertyCollection::erase_at(size_t index) {
   items_.erase(it);
 }
 
-std::unique_ptr<WzImageProperty> WzPropertyCollection::Take(
+std::unique_ptr<WzImageProperty> WzPropertyCollection::Remove(
     WzImageProperty* item) {
   auto it =
       std::find_if(items_.begin(), items_.end(), [item](const auto& current) {
@@ -63,10 +63,10 @@ std::unique_ptr<WzImageProperty> WzPropertyCollection::Take(
       });
   if (it == items_.end()) return nullptr;
 
-  auto result = std::move(*it);
+  auto removed = std::move(*it);
   items_.erase(it);
-  if (result) result->SetParent(nullptr);
-  return result;
+  if (removed) removed->SetParent(nullptr);
+  return removed;
 }
 
 void WzPropertyCollection::clear() {

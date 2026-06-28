@@ -251,7 +251,7 @@ test('creates, edits, saves, and reopens a WZ file', () => {
   }
 })
 
-test('property removal invalidates aliases for the same native handle', () => {
+test('property removal detaches property for reuse', () => {
   const file = wz.WzFile.create(87, wz.MapleVersion.GMS)
   try {
     const image = file.getWzDirectory().createImage('Aliases.img')
@@ -262,8 +262,60 @@ test('property removal invalidates aliases for the same native handle', () => {
 
     image.removeProperty(prop)
 
-    assert.throws(() => prop.nativePtr(), /disposed/i)
-    assert.throws(() => alias.nativePtr(), /disposed/i)
+    assert.equal(image.getFromPath('value'), null)
+    assert.equal(prop.getParent(), null)
+    assert.equal(prop.getValue(), 1)
+    assert.equal(alias.getParent(), null)
+    assert.equal(alias.getValue(), 1)
+
+    const target = file.getWzDirectory().createImage('Target.img')
+    target.addProperty(prop)
+    assert.equal(target.getFromPath('value').getValue(), 1)
+  } finally {
+    file.close()
+  }
+})
+
+test('child property removal detaches property for reuse', () => {
+  const file = wz.WzFile.create(87, wz.MapleVersion.GMS)
+  try {
+    const image = file.getWzDirectory().createImage('NestedDetach.img')
+    const parent = wz.WzProperty.createSub('parent')
+    const child = wz.WzProperty.createInt('child', 7)
+    parent.addProperty(child)
+    image.addProperty(parent)
+
+    parent.removeProperty(child)
+
+    assert.equal(parent.getChildByName('child'), null)
+    assert.equal(child.getParent(), null)
+    assert.equal(child.getValue(), 7)
+
+    const target = wz.WzProperty.createSub('target')
+    image.addProperty(target)
+    target.addProperty(child)
+    assert.equal(target.getChildByName('child').getValue(), 7)
+  } finally {
+    file.close()
+  }
+})
+
+test('object remove detaches property for reuse', () => {
+  const file = wz.WzFile.create(87, wz.MapleVersion.GMS)
+  try {
+    const image = file.getWzDirectory().createImage('ObjectRemove.img')
+    const prop = wz.WzProperty.createInt('value', 9)
+    image.addProperty(prop)
+
+    prop.remove()
+
+    assert.equal(image.getFromPath('value'), null)
+    assert.equal(prop.getParent(), null)
+    assert.equal(prop.getValue(), 9)
+
+    const target = file.getWzDirectory().createImage('ObjectRemoveTarget.img')
+    target.addProperty(prop)
+    assert.equal(target.getFromPath('value').getValue(), 9)
   } finally {
     file.close()
   }
@@ -321,7 +373,7 @@ test('closing a WZ file invalidates known wrappers in its tree', () => {
   assert.throws(() => propAlias.getValue(), /disposed/i)
 })
 
-test('removeDirectory invalidates known descendant wrappers', () => {
+test('removeDirectory detaches known descendant wrappers for reuse', () => {
   const file = wz.WzFile.create(87, wz.MapleVersion.GMS)
   try {
     const root = file.getWzDirectory()
@@ -335,6 +387,14 @@ test('removeDirectory invalidates known descendant wrappers', () => {
 
     root.removeDirectory(dir)
 
+    assert.equal(dir.getParent(), null)
+  assert.equal(dir.getName(), 'RemoveDir')
+    assert.equal(image.getName(), 'Nested.img')
+    assert.equal(imageAlias.getName(), 'Nested.img')
+    assert.equal(prop.getValue(), 2)
+    assert.equal(propAlias.getValue(), 2)
+
+    dir.close()
     assert.throws(() => dir.getName(), /disposed/i)
     assert.throws(() => image.getName(), /disposed/i)
     assert.throws(() => imageAlias.getName(), /disposed/i)
@@ -345,7 +405,7 @@ test('removeDirectory invalidates known descendant wrappers', () => {
   }
 })
 
-test('removeImage invalidates known property wrappers', () => {
+test('removeImage detaches known property wrappers for reuse', () => {
   const file = wz.WzFile.create(87, wz.MapleVersion.GMS)
   try {
     const root = file.getWzDirectory()
@@ -357,6 +417,12 @@ test('removeImage invalidates known property wrappers', () => {
 
     root.removeImage(image)
 
+    assert.equal(image.getParent(), null)
+    assert.equal(image.getName(), 'RemoveImage.img')
+    assert.equal(prop.getValue(), 3)
+    assert.equal(propAlias.getValue(), 3)
+
+    image.close()
     assert.throws(() => image.getName(), /disposed/i)
     assert.throws(() => prop.getValue(), /disposed/i)
     assert.throws(() => propAlias.getValue(), /disposed/i)

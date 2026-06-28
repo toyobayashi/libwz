@@ -46,9 +46,9 @@ public class WzImage extends WzObject {
     }
 
     public void removeProperty(WzImageProperty property) {
-        List<Long> ptrs = property.collectNativeSubtreePointers();
+        long ptr = property.nativePtr();
         nativeRemoveProperty(nativePtr, property.nativePtr());
-        invalidateNativePtrs(ptrs);
+        markNativeOwned(ptr);
     }
 
     public void clearProperties() {

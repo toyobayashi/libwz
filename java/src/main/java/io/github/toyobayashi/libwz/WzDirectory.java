@@ -91,15 +91,15 @@ public class WzDirectory extends WzObject {
     }
 
     public void removeDirectory(WzDirectory directory) {
-        List<Long> ptrs = directory.collectNativeSubtreePointers();
+        long ptr = directory.nativePtr();
         nativeRemoveDirectory(nativePtr, directory.nativePtr());
-        invalidateNativePtrs(ptrs);
+        markNativeOwned(ptr);
     }
 
     public void removeImage(WzImage image) {
-        List<Long> ptrs = image.collectNativeSubtreePointers();
+        long ptr = image.nativePtr();
         nativeRemoveImage(nativePtr, image.nativePtr());
-        invalidateNativePtrs(ptrs);
+        markNativeOwned(ptr);
     }
 
     @Override

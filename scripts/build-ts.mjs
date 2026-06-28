@@ -26,9 +26,9 @@ await bundleJs({
 patchFlattenedWasmImports(join(dist, 'index.js'))
 
 const tsc = spawnSync(
-  process.platform === 'win32' ? 'npx.cmd' : 'npx',
+  process.execPath,
   [
-    'tsc',
+    'node_modules/typescript/bin/tsc',
     '-p',
     'tsconfig.json',
     '--emitDeclarationOnly',

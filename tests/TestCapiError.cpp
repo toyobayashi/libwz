@@ -203,6 +203,7 @@ TEST(CapiEditing, CreateEditReadAndRemoveImageProperty) {
   ASSERT_EQ(wz_image_remove_property(image, prop), WZ_ERROR_NONE);
   ASSERT_EQ(wz_image_count_properties(image, &count), WZ_ERROR_NONE);
   EXPECT_EQ(count, 0);
+  ASSERT_EQ(wz_property_free(prop), WZ_ERROR_NONE);
 
   wz_close_file(file);
 }
@@ -253,8 +254,7 @@ TEST(CapiEditing, FailedAddKeepsCallerOwnedPropertyUsable) {
   int32_t value = 0;
   ASSERT_EQ(wz_int_get_value(duplicate, &value), WZ_ERROR_NONE);
   EXPECT_EQ(value, 3);
-  ASSERT_EQ(wz_object_remove(reinterpret_cast<wz_object>(duplicate)),
-            WZ_ERROR_NONE);
+  ASSERT_EQ(wz_property_free(duplicate), WZ_ERROR_NONE);
 
   wz_property parent = nullptr;
   wz_property child = nullptr;
@@ -271,8 +271,7 @@ TEST(CapiEditing, FailedAddKeepsCallerOwnedPropertyUsable) {
   ASSERT_EQ(wz_int_set_value(duplicate_child, 6), WZ_ERROR_NONE);
   ASSERT_EQ(wz_int_get_value(duplicate_child, &value), WZ_ERROR_NONE);
   EXPECT_EQ(value, 6);
-  ASSERT_EQ(wz_object_remove(reinterpret_cast<wz_object>(duplicate_child)),
-            WZ_ERROR_NONE);
+  ASSERT_EQ(wz_property_free(duplicate_child), WZ_ERROR_NONE);
 
   wz_close_file(file);
 }
@@ -374,11 +373,15 @@ TEST(CapiEditing, DirectoryCreateAndRemoveObjects) {
   ASSERT_EQ(wz_dir_remove_image(root, child_image), WZ_ERROR_NONE);
   ASSERT_EQ(wz_dir_count_images(root, &count), WZ_ERROR_NONE);
   EXPECT_EQ(count, 0);
+  ASSERT_EQ(wz_object_free(reinterpret_cast<wz_object>(child_image)),
+            WZ_ERROR_NONE);
 
   ASSERT_EQ(wz_object_remove(reinterpret_cast<wz_object>(child_dir)),
             WZ_ERROR_NONE);
   ASSERT_EQ(wz_dir_count_directories(root, &count), WZ_ERROR_NONE);
   EXPECT_EQ(count, 0);
+  ASSERT_EQ(wz_object_free(reinterpret_cast<wz_object>(child_dir)),
+            WZ_ERROR_NONE);
 
   wz_close_file(file);
 }
@@ -436,10 +439,12 @@ TEST(CapiEditing, RemoveFromWrongParentReportsNotFound) {
   int count = -1;
   ASSERT_EQ(wz_property_count_children(first_parent, &count), WZ_ERROR_NONE);
   EXPECT_EQ(count, 0);
+  ASSERT_EQ(wz_property_free(child), WZ_ERROR_NONE);
 
   ASSERT_EQ(wz_object_remove(reinterpret_cast<wz_object>(prop)), WZ_ERROR_NONE);
   ASSERT_EQ(wz_image_count_properties(nested_image, &count), WZ_ERROR_NONE);
   EXPECT_EQ(count, 2);
+  ASSERT_EQ(wz_property_free(prop), WZ_ERROR_NONE);
 
   wz_close_file(file);
 }
@@ -485,6 +490,7 @@ TEST(CapiEditing, ImageAndPropertyChildContainersCanBeCleared) {
   ASSERT_EQ(wz_property_remove_child(parent, child_to_remove), WZ_ERROR_NONE);
   ASSERT_EQ(wz_property_count_children(parent, &count), WZ_ERROR_NONE);
   EXPECT_EQ(count, 0);
+  ASSERT_EQ(wz_property_free(child_to_remove), WZ_ERROR_NONE);
 
   wz_close_file(file);
 }
@@ -616,8 +622,7 @@ TEST(CapiEditing, PropertyConstructorsAndSettersRoundTripValues) {
   wz_property_type type = WZ_PROP_INT;
   ASSERT_EQ(wz_property_get_type(null_prop, &type), WZ_ERROR_NONE);
   EXPECT_EQ(type, WZ_PROP_NULL);
-  ASSERT_EQ(wz_object_remove(reinterpret_cast<wz_object>(null_prop)),
-            WZ_ERROR_NONE);
+  ASSERT_EQ(wz_property_free(null_prop), WZ_ERROR_NONE);
 
   wz_property short_prop = nullptr;
   ASSERT_EQ(wz_property_create_short("short", 1, &short_prop), WZ_ERROR_NONE);
@@ -625,8 +630,7 @@ TEST(CapiEditing, PropertyConstructorsAndSettersRoundTripValues) {
   int16_t short_value = 0;
   ASSERT_EQ(wz_short_get_value(short_prop, &short_value), WZ_ERROR_NONE);
   EXPECT_EQ(short_value, 2);
-  ASSERT_EQ(wz_object_remove(reinterpret_cast<wz_object>(short_prop)),
-            WZ_ERROR_NONE);
+  ASSERT_EQ(wz_property_free(short_prop), WZ_ERROR_NONE);
 
   wz_property long_prop = nullptr;
   ASSERT_EQ(wz_property_create_long("long", 3, &long_prop), WZ_ERROR_NONE);
@@ -634,8 +638,7 @@ TEST(CapiEditing, PropertyConstructorsAndSettersRoundTripValues) {
   int64_t long_value = 0;
   ASSERT_EQ(wz_long_get_value(long_prop, &long_value), WZ_ERROR_NONE);
   EXPECT_EQ(long_value, 4);
-  ASSERT_EQ(wz_object_remove(reinterpret_cast<wz_object>(long_prop)),
-            WZ_ERROR_NONE);
+  ASSERT_EQ(wz_property_free(long_prop), WZ_ERROR_NONE);
 
   wz_property float_prop = nullptr;
   ASSERT_EQ(wz_property_create_float("float", 1.25f, &float_prop),
@@ -644,8 +647,7 @@ TEST(CapiEditing, PropertyConstructorsAndSettersRoundTripValues) {
   float float_value = 0;
   ASSERT_EQ(wz_float_get_value(float_prop, &float_value), WZ_ERROR_NONE);
   EXPECT_FLOAT_EQ(float_value, 2.5f);
-  ASSERT_EQ(wz_object_remove(reinterpret_cast<wz_object>(float_prop)),
-            WZ_ERROR_NONE);
+  ASSERT_EQ(wz_property_free(float_prop), WZ_ERROR_NONE);
 
   wz_property double_prop = nullptr;
   ASSERT_EQ(wz_property_create_double("double", 1.5, &double_prop),
@@ -654,8 +656,7 @@ TEST(CapiEditing, PropertyConstructorsAndSettersRoundTripValues) {
   double double_value = 0;
   ASSERT_EQ(wz_double_get_value(double_prop, &double_value), WZ_ERROR_NONE);
   EXPECT_DOUBLE_EQ(double_value, 3.25);
-  ASSERT_EQ(wz_object_remove(reinterpret_cast<wz_object>(double_prop)),
-            WZ_ERROR_NONE);
+  ASSERT_EQ(wz_property_free(double_prop), WZ_ERROR_NONE);
 
   wz_property string_prop = nullptr;
   ASSERT_EQ(wz_property_create_string("string", "a", &string_prop),
@@ -664,8 +665,7 @@ TEST(CapiEditing, PropertyConstructorsAndSettersRoundTripValues) {
   const char* string_value = nullptr;
   ASSERT_EQ(wz_string_get_value(string_prop, &string_value), WZ_ERROR_NONE);
   EXPECT_STREQ(string_value, "b");
-  ASSERT_EQ(wz_object_remove(reinterpret_cast<wz_object>(string_prop)),
-            WZ_ERROR_NONE);
+  ASSERT_EQ(wz_property_free(string_prop), WZ_ERROR_NONE);
 
   wz_property vector_prop = nullptr;
   ASSERT_EQ(wz_property_create_vector("vector", 5, 6, &vector_prop),
@@ -675,8 +675,7 @@ TEST(CapiEditing, PropertyConstructorsAndSettersRoundTripValues) {
   EXPECT_EQ(vector_value, 5);
   ASSERT_EQ(wz_vector_get_y(vector_prop, &vector_value), WZ_ERROR_NONE);
   EXPECT_EQ(vector_value, 6);
-  ASSERT_EQ(wz_object_remove(reinterpret_cast<wz_object>(vector_prop)),
-            WZ_ERROR_NONE);
+  ASSERT_EQ(wz_property_free(vector_prop), WZ_ERROR_NONE);
 
   wz_property uol_prop = nullptr;
   ASSERT_EQ(wz_property_create_uol("link", "../a", &uol_prop), WZ_ERROR_NONE);
@@ -684,8 +683,7 @@ TEST(CapiEditing, PropertyConstructorsAndSettersRoundTripValues) {
   const char* uol_value = nullptr;
   ASSERT_EQ(wz_uol_get_value(uol_prop, &uol_value), WZ_ERROR_NONE);
   EXPECT_STREQ(uol_value, "../b");
-  ASSERT_EQ(wz_object_remove(reinterpret_cast<wz_object>(uol_prop)),
-            WZ_ERROR_NONE);
+  ASSERT_EQ(wz_property_free(uol_prop), WZ_ERROR_NONE);
 }
 
 TEST(CapiError, UtilityCallClearsPreviousError) {

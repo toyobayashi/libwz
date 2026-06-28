@@ -39,15 +39,15 @@ TEST(EditingTest, AddPropertySetsParentAndMarksImageChanged) {
   EXPECT_TRUE(image.Changed());
 }
 
-TEST(EditingTest, TryAddPropertyRejectsDuplicateName) {
+TEST(EditingTest, AddPropertyRejectsDuplicateName) {
   wz::WzImage image("test.img");
   ASSERT_TRUE(
-      image.TryAddProperty(std::make_unique<wz::WzIntProperty>("count", 42))
+      image.AddProperty(std::make_unique<wz::WzIntProperty>("count", 42))
           .has_value());
   image.SetChanged(false);
 
   auto result =
-      image.TryAddProperty(std::make_unique<wz::WzIntProperty>("COUNT", 7));
+      image.AddProperty(std::make_unique<wz::WzIntProperty>("COUNT", 7));
 
   ASSERT_FALSE(result.has_value());
   EXPECT_EQ(result.error().code(), wz::ErrorCode::InvalidArgument);
@@ -56,32 +56,19 @@ TEST(EditingTest, TryAddPropertyRejectsDuplicateName) {
   EXPECT_EQ((*image.WzProperties())[0]->GetInt(), 42);
 }
 
-TEST(EditingTest, TakePropertyClearsParentAndMarksImageChanged) {
+TEST(EditingTest, RemovePropertyDetachesPropertyAndMarksImageChanged) {
   wz::WzImage image("test.img");
   auto prop = std::make_unique<wz::WzIntProperty>("count", 42);
   auto* rawProp = prop.get();
   image.AddProperty(std::move(prop));
   image.SetChanged(false);
 
-  auto detached = image.TakeProperty(rawProp);
+  auto removed = image.RemoveProperty(rawProp);
 
-  ASSERT_TRUE(detached.has_value()) << detached.error().message();
-  ASSERT_NE(detached.value(), nullptr);
-  EXPECT_EQ(detached.value().get(), rawProp);
-  EXPECT_EQ(detached.value()->Parent(), nullptr);
-  EXPECT_TRUE(image.Changed());
-  EXPECT_EQ(image.WzProperties()->size(), 0);
-}
-
-TEST(EditingTest, RemovePropertyDestroysPropertyAndMarksImageChanged) {
-  wz::WzImage image("test.img");
-  auto prop = std::make_unique<wz::WzIntProperty>("count", 42);
-  auto* rawProp = prop.get();
-  image.AddProperty(std::move(prop));
-  image.SetChanged(false);
-
-  image.RemoveProperty(rawProp);
-
+  ASSERT_TRUE(removed.has_value()) << removed.error().message();
+  ASSERT_EQ(removed.value().get(), rawProp);
+  EXPECT_EQ(rawProp->Parent(), nullptr);
+  EXPECT_EQ(rawProp->GetInt(), 42);
   EXPECT_TRUE(image.Changed());
   EXPECT_EQ(image.WzProperties()->size(), 0);
 }
@@ -92,7 +79,7 @@ TEST(EditingTest, NestedScalarValueChangeMarksParentImageChanged) {
   auto scalar = std::make_unique<wz::WzIntProperty>("count", 42);
   auto* rawScalar = scalar.get();
   sub->AddProperty(std::move(scalar));
-  ASSERT_TRUE(image.TryAddProperty(std::move(sub)).has_value());
+  ASSERT_TRUE(image.AddProperty(std::move(sub)).has_value());
   image.SetChanged(false);
 
   rawScalar->SetValue(43);
@@ -104,7 +91,7 @@ TEST(EditingTest, UnchangedScalarSetValueDoesNotMarkParentImageChanged) {
   wz::WzImage image("test.img");
   auto prop = std::make_unique<wz::WzIntProperty>("count", 42);
   auto* rawProp = prop.get();
-  ASSERT_TRUE(image.TryAddProperty(std::move(prop)).has_value());
+  ASSERT_TRUE(image.AddProperty(std::move(prop)).has_value());
   image.SetChanged(false);
 
   rawProp->SetValue(42);
@@ -138,7 +125,7 @@ TEST(EditingTest, PropertyRenameMarksParentImageChanged) {
   wz::WzImage image("test.img");
   auto prop = std::make_unique<wz::WzIntProperty>("count", 42);
   auto* rawProp = prop.get();
-  ASSERT_TRUE(image.TryAddProperty(std::move(prop)).has_value());
+  ASSERT_TRUE(image.AddProperty(std::move(prop)).has_value());
   image.SetChanged(false);
 
   auto result = rawProp->Rename("total");
@@ -153,8 +140,8 @@ TEST(EditingTest, PropertyRenameRejectsDuplicateSiblingName) {
   auto first = std::make_unique<wz::WzIntProperty>("count", 42);
   auto second = std::make_unique<wz::WzIntProperty>("total", 7);
   auto* rawSecond = second.get();
-  ASSERT_TRUE(image.TryAddProperty(std::move(first)).has_value());
-  ASSERT_TRUE(image.TryAddProperty(std::move(second)).has_value());
+  ASSERT_TRUE(image.AddProperty(std::move(first)).has_value());
+  ASSERT_TRUE(image.AddProperty(std::move(second)).has_value());
   image.SetChanged(false);
 
   auto result = rawSecond->Rename("COUNT");
@@ -174,7 +161,7 @@ TEST(EditingTest, RawDataPropertyRenameRejectsDuplicateSiblingName) {
   auto* rawSecond = second.get();
   rawContainer->AddProperty(std::move(first));
   rawContainer->AddProperty(std::move(second));
-  ASSERT_TRUE(image.TryAddProperty(std::move(raw)).has_value());
+  ASSERT_TRUE(image.AddProperty(std::move(raw)).has_value());
   image.SetChanged(false);
 
   auto result = rawSecond->Rename("COUNT");
@@ -194,7 +181,7 @@ TEST(EditingTest, VideoPropertyRenameRejectsDuplicateSiblingName) {
   auto* videoSecond = second.get();
   videoContainer->AddProperty(std::move(first));
   videoContainer->AddProperty(std::move(second));
-  ASSERT_TRUE(image.TryAddProperty(std::move(video)).has_value());
+  ASSERT_TRUE(image.AddProperty(std::move(video)).has_value());
   image.SetChanged(false);
 
   auto result = videoSecond->Rename("COUNT");
@@ -241,7 +228,7 @@ TEST(EditingTest, RenameToSameNameIsNoOp) {
   wz::WzImage image("test.img");
   auto prop = std::make_unique<wz::WzIntProperty>("count", 42);
   auto* rawProp = prop.get();
-  ASSERT_TRUE(image.TryAddProperty(std::move(prop)).has_value());
+  ASSERT_TRUE(image.AddProperty(std::move(prop)).has_value());
   image.SetChanged(false);
 
   auto result = rawProp->Rename("count");

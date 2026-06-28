@@ -65,6 +65,7 @@ export interface NativeBinding {
   objectAt(ptr: NativeHandle, name: string): NativeObjectInfo | null;
   objectSetName(ptr: NativeHandle, name: string): void;
   objectRemove(ptr: NativeHandle): void;
+  objectFree(ptr: NativeHandle): void;
 
   dirName(ptr: NativeHandle): string;
   dirCountImagesTotal(ptr: NativeHandle): number;

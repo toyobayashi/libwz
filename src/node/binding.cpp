@@ -813,8 +813,9 @@ FN(DirRemoveDirectory) {
   GET_ARGS(2);
   READ_HANDLE(wz::WzDirectory*, dir, args[0]);
   READ_HANDLE(wz::WzDirectory*, child, args[1]);
-  auto result = dir->TryRemoveDirectory(child);
+  auto result = dir->RemoveDirectory(child);
   if (!CheckResult(env, result)) return nullptr;
+  (void)result.value().release();
   RETURN_UNDEFINED();
 }
 
@@ -822,8 +823,9 @@ FN(DirRemoveImage) {
   GET_ARGS(2);
   READ_HANDLE(wz::WzDirectory*, dir, args[0]);
   READ_HANDLE(wz::WzImage*, image, args[1]);
-  auto result = dir->TryRemoveImage(image);
+  auto result = dir->RemoveImage(image);
   if (!CheckResult(env, result)) return nullptr;
+  (void)result.value().release();
   RETURN_UNDEFINED();
 }
 
@@ -921,7 +923,7 @@ FN(ImageAddProperty) {
   GET_ARGS(2);
   READ_HANDLE(wz::WzImage*, image, args[0]);
   READ_HANDLE(wz::WzImageProperty*, prop, args[1]);
-  auto result = image->TryAddProperty(prop);
+  auto result = image->AddProperty(prop);
   if (!CheckResult(env, result)) return nullptr;
   RETURN_UNDEFINED();
 }
@@ -930,15 +932,17 @@ FN(ImageRemoveProperty) {
   GET_ARGS(2);
   READ_HANDLE(wz::WzImage*, image, args[0]);
   READ_HANDLE(wz::WzImageProperty*, prop, args[1]);
-  auto result = image->TryRemoveProperty(prop);
+  auto result = image->RemoveProperty(prop);
   if (!CheckResult(env, result)) return nullptr;
+  (void)result.value().release();
   RETURN_UNDEFINED();
 }
 
 FN(ImageClearProperties) {
   GET_ARGS(1);
   READ_HANDLE(wz::WzImage*, image, args[0]);
-  image->ClearProperties();
+  auto result = image->ClearProperties();
+  if (!CheckResult(env, result)) return nullptr;
   RETURN_UNDEFINED();
 }
 
@@ -1008,8 +1012,23 @@ FN(ObjectSetName) {
 FN(ObjectRemove) {
   GET_ARGS(1);
   READ_HANDLE(wz::WzObject*, obj, args[0]);
-  auto result = obj->TryRemove();
+  auto result = obj->Remove();
   if (!CheckResult(env, result)) return nullptr;
+  (void)result.value().release();
+  RETURN_UNDEFINED();
+}
+
+FN(ObjectFree) {
+  GET_ARGS(1);
+  READ_HANDLE(wz::WzObject*, obj, args[0]);
+  if (!CheckNotNull(env, obj, "objectFree")) return nullptr;
+  if (obj->Parent()) {
+    NODE_API_THROW(env, "objectFree: object is owned by a WZ tree");
+  }
+  if (obj->ObjectType() == wz::WzObjectType::File) {
+    NODE_API_THROW(env, "objectFree: use closeFile for WZ files");
+  }
+  delete obj;
   RETURN_UNDEFINED();
 }
 
@@ -1213,7 +1232,7 @@ FN(PropertyAddChild) {
   if (!IsMutablePropertyContainer(parent)) {
     NODE_API_THROW(env, "propertyAddChild: wrong property type");
   }
-  auto result = parent->TryAddChildProperty(child);
+  auto result = parent->AddProperty(child);
   if (!CheckResult(env, result)) return nullptr;
   RETURN_UNDEFINED();
 }
@@ -1225,8 +1244,9 @@ FN(PropertyRemoveChild) {
   if (!IsMutablePropertyContainer(parent)) {
     NODE_API_THROW(env, "propertyRemoveChild: wrong property type");
   }
-  auto result = parent->TryRemoveChildProperty(child);
+  auto result = parent->RemoveProperty(child);
   if (!CheckResult(env, result)) return nullptr;
+  (void)result.value().release();
   RETURN_UNDEFINED();
 }
 
@@ -1236,7 +1256,7 @@ FN(PropertyClearChildren) {
   if (!IsMutablePropertyContainer(prop)) {
     NODE_API_THROW(env, "propertyClearChildren: wrong property type");
   }
-  auto result = prop->TryClearChildProperties();
+  auto result = prop->ClearProperties();
   if (!CheckResult(env, result)) return nullptr;
   RETURN_UNDEFINED();
 }
@@ -1647,6 +1667,7 @@ NAPI_MODULE_INIT() {
       WZ_EXPORT_FN("objectAt", ObjectAt),
       WZ_EXPORT_FN("objectSetName", ObjectSetName),
       WZ_EXPORT_FN("objectRemove", ObjectRemove),
+      WZ_EXPORT_FN("objectFree", ObjectFree),
       WZ_EXPORT_FN("propType", PropType),
       WZ_EXPORT_FN("propIsRaw", PropIsRaw),
       WZ_EXPORT_FN("propIsVideo", PropIsVideo),

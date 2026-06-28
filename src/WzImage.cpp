@@ -1,5 +1,6 @@
 #include "wz/WzImage.h"
 #include <algorithm>
+#include <cctype>
 #include <mutex>
 #include <utility>
 #include "wz/Properties/WzLuaProperty.h"
@@ -16,6 +17,14 @@ namespace {
 bool IsSingleLuaProperty(WzPropertyCollection* properties) {
   return properties && properties->size() == 1 &&
          (*properties)[0]->PropertyType() == WzPropertyType::Lua;
+}
+
+std::string ToLower(const std::string& s) {
+  std::string r = s;
+  std::transform(r.begin(), r.end(), r.begin(), [](unsigned char c) {
+    return static_cast<char>(std::tolower(c));
+  });
+  return r;
 }
 
 }  // namespace
@@ -56,15 +65,13 @@ WzObjectType WzImage::ObjectType() const {
   return WzObjectType::Image;
 }
 
-Result<void> WzImage::TryRemove() {
+Result<std::unique_ptr<WzObject>> WzImage::Remove() {
   if (!Parent() || Parent()->ObjectType() != WzObjectType::Directory) {
     return std::unexpected(Error::NotFound("WZ image has no parent directory"));
   }
-  return static_cast<WzDirectory*>(Parent())->TryRemoveImage(this);
-}
-
-void WzImage::Remove() {
-  (void)TryRemove();
+  auto result = static_cast<WzDirectory*>(Parent())->RemoveImage(this);
+  if (!result.has_value()) return std::unexpected(result.error());
+  return std::unique_ptr<WzObject>(std::move(result.value()));
 }
 
 bool WzImage::IsLuaWzImage() const {
@@ -84,11 +91,7 @@ Result<WzPropertyCollection*> WzImage::WzPropertiesResult() {
   return &properties_;
 }
 
-void WzImage::AddProperty(WzImageProperty* prop) {
-  AddProperty(std::unique_ptr<WzImageProperty>(prop));
-}
-
-Result<void> WzImage::TryAddProperty(WzImageProperty* prop) {
+Result<void> WzImage::AddProperty(WzImageProperty* prop) {
   if (!prop) {
     return std::unexpected(
         Error::InvalidArgument("Cannot add a null WZ image property"));
@@ -115,63 +118,51 @@ Result<void> WzImage::TryAddProperty(WzImageProperty* prop) {
   return {};
 }
 
-Result<void> WzImage::TryAddProperty(std::unique_ptr<WzImageProperty> prop) {
+Result<void> WzImage::AddProperty(std::unique_ptr<WzImageProperty> prop) {
   auto* raw = prop.get();
-  auto result = TryAddProperty(raw);
+  auto result = AddProperty(raw);
   if (result.has_value()) {
     (void)prop.release();
   }
   return result;
 }
 
-void WzImage::AddProperty(std::unique_ptr<WzImageProperty> prop) {
-  (void)TryAddProperty(std::move(prop));
-}
-
-void WzImage::RemoveProperty(const std::string& propertyName) {
-  // C#: first lookup by name (case-insensitive),
-  // then delegate to RemoveProperty(prop)
-  WzImageProperty* prop = (*this)[propertyName];
-  if (prop) {
-    RemoveProperty(prop);
+Result<std::unique_ptr<WzImageProperty>> WzImage::RemoveProperty(
+    const std::string& propertyName) {
+  auto parseResult = EnsureParsed();
+  if (!parseResult.has_value()) return std::unexpected(parseResult.error());
+  std::string lower = ToLower(propertyName);
+  for (size_t i = 0; i < properties_.size(); i++) {
+    if (ToLower(properties_[i]->Name()) == lower) {
+      auto removed = properties_.Remove(properties_[i]);
+      SetChanged(true);
+      return removed;
+    }
   }
+  return std::unique_ptr<WzImageProperty>();
 }
 
-void WzImage::RemoveProperty(WzImageProperty* prop) {
-  (void)TryRemoveProperty(prop);
-}
-
-Result<void> WzImage::TryRemoveProperty(WzImageProperty* prop) {
+Result<std::unique_ptr<WzImageProperty>> WzImage::RemoveProperty(
+    WzImageProperty* prop) {
   if (!prop) {
     return std::unexpected(
         Error::InvalidArgument("Cannot remove a null WZ image property"));
   }
-  auto result = TakeProperty(prop);
-  if (!result.has_value()) return std::unexpected(result.error());
-  if (!result.value()) {
+  auto parseResult = EnsureParsed();
+  if (!parseResult.has_value()) return std::unexpected(parseResult.error());
+  auto removed = properties_.Remove(prop);
+  if (!removed) {
     return std::unexpected(
         Error::NotFound("WZ image property is not owned by this image"));
   }
-  return {};
-}
-
-Result<std::unique_ptr<WzImageProperty>> WzImage::TakeProperty(
-    WzImageProperty* prop) {
-  // C#: check containment BEFORE parsing
-  auto it = std::find(properties_.begin(), properties_.end(), prop);
-  if (it == properties_.end()) return std::unique_ptr<WzImageProperty>();
-
-  auto parseResult = EnsureParsed();
-  if (!parseResult.has_value()) return std::unexpected(parseResult.error());
-  auto removed = properties_.Take(prop);
-  if (!removed) return std::unique_ptr<WzImageProperty>();
   SetChanged(true);
   return removed;
 }
 
-void WzImage::ClearProperties() {
+Result<void> WzImage::ClearProperties() {
   properties_.clear();
   SetChanged(true);
+  return {};
 }
 
 WzImageProperty* WzImage::GetFromPath(const std::string& path) {
@@ -338,14 +329,6 @@ Result<void> WzImage::EnsureParsed() {
   auto parseResult = ParseImage();
   if (!parseResult.has_value()) return std::unexpected(parseResult.error());
   return {};
-}
-
-static std::string ToLower(const std::string& s) {
-  std::string r = s;
-  std::transform(r.begin(), r.end(), r.begin(), [](unsigned char c) {
-    return static_cast<char>(std::tolower(c));
-  });
-  return r;
 }
 
 WzImageProperty* WzImage::operator[](const std::string& name) {

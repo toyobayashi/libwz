@@ -30,8 +30,7 @@ class WzImage final : public WzObject, public IPropertyContainer {
 
   WzObjectType ObjectType() const override;
   WzFile* WzFileParent() const override;
-  Result<void> TryRemove() override;
-  void Remove() override;
+  Result<std::unique_ptr<WzObject>> Remove() override;
 
   bool Parsed() const { return parsed_; }
   void SetParsed(bool v) { parsed_ = v; }
@@ -54,15 +53,13 @@ class WzImage final : public WzObject, public IPropertyContainer {
   using IPropertyContainer::AddProperty;
   WzPropertyCollection* WzProperties() override;
   Result<WzPropertyCollection*> WzPropertiesResult();
-  Result<void> TryAddProperty(WzImageProperty* prop);
-  Result<void> TryAddProperty(std::unique_ptr<WzImageProperty> prop);
-  void AddProperty(WzImageProperty* prop) override;
-  void AddProperty(std::unique_ptr<WzImageProperty> prop) override;
-  void RemoveProperty(const std::string& propertyName) override;
-  void RemoveProperty(WzImageProperty* prop) override;
-  Result<void> TryRemoveProperty(WzImageProperty* prop);
-  Result<std::unique_ptr<WzImageProperty>> TakeProperty(WzImageProperty* prop);
-  void ClearProperties() override;
+  Result<void> AddProperty(WzImageProperty* prop) override;
+  Result<void> AddProperty(std::unique_ptr<WzImageProperty> prop) override;
+  Result<std::unique_ptr<WzImageProperty>> RemoveProperty(
+      const std::string& propertyName) override;
+  Result<std::unique_ptr<WzImageProperty>> RemoveProperty(
+      WzImageProperty* prop) override;
+  Result<void> ClearProperties() override;
 
   WzImageProperty* GetFromPath(const std::string& path);
   Result<WzImageProperty*> GetFromPathResult(const std::string& path);

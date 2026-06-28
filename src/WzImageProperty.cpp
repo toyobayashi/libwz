@@ -147,13 +147,15 @@ Result<void> WzImageProperty::WriteValue(WzBinaryWriter* writer) const {
       "WriteValue is not implemented for this property type"));
 }
 
-void IPropertyContainer::AddProperties(WzPropertyCollection& props) {
+Result<void> IPropertyContainer::AddProperties(WzPropertyCollection& props) {
   for (auto& prop : props.TakeItems()) {
-    AddProperty(std::move(prop));
+    auto result = AddProperty(std::move(prop));
+    if (!result.has_value()) return result;
   }
+  return {};
 }
 
-Result<void> WzImageProperty::TryAddChildProperty(WzImageProperty* prop) {
+Result<void> WzImageProperty::AddProperty(WzImageProperty* prop) {
   if (!prop) {
     return std::unexpected(
         Error::InvalidArgument("Cannot add a null WZ image property"));
@@ -183,17 +185,18 @@ Result<void> WzImageProperty::TryAddChildProperty(WzImageProperty* prop) {
   return {};
 }
 
-Result<void> WzImageProperty::TryAddChildProperty(
+Result<void> WzImageProperty::AddProperty(
     std::unique_ptr<WzImageProperty> prop) {
   auto* raw = prop.get();
-  auto result = TryAddChildProperty(raw);
+  auto result = AddProperty(raw);
   if (result.has_value()) {
     (void)prop.release();
   }
   return result;
 }
 
-Result<void> WzImageProperty::TryRemoveChildProperty(WzImageProperty* prop) {
+Result<std::unique_ptr<WzImageProperty>>
+WzImageProperty::RemoveProperty(WzImageProperty* prop) {
   if (!prop) {
     return std::unexpected(
         Error::InvalidArgument("Cannot remove a null WZ image property"));
@@ -203,16 +206,16 @@ Result<void> WzImageProperty::TryRemoveChildProperty(WzImageProperty* prop) {
     return std::unexpected(
         Error::InvalidArgument("WZ object is not a property container"));
   }
-  auto removed = properties->Take(prop);
+  auto removed = properties->Remove(prop);
   if (!removed) {
     return std::unexpected(
         Error::NotFound("WZ image property is not owned by this property"));
   }
-  if (removed) MarkParentImageChanged();
-  return {};
+  MarkParentImageChanged();
+  return removed;
 }
 
-Result<void> WzImageProperty::TryClearChildProperties() {
+Result<void> WzImageProperty::ClearProperties() {
   auto* properties = WzProperties();
   if (!properties) {
     return std::unexpected(
@@ -224,23 +227,23 @@ Result<void> WzImageProperty::TryClearChildProperties() {
   return {};
 }
 
-Result<void> WzImageProperty::TryRemove() {
+Result<std::unique_ptr<WzObject>> WzImageProperty::Remove() {
   auto* parent = Parent();
   if (!parent) {
-    delete this;
-    return {};
+    return std::unexpected(
+        Error::NotFound("WZ image property has no removable parent"));
   }
+  Result<std::unique_ptr<WzImageProperty>> result;
   if (parent->ObjectType() == WzObjectType::Image) {
-    return static_cast<WzImage*>(parent)->TryRemoveProperty(this);
+    result = static_cast<WzImage*>(parent)->RemoveProperty(this);
   } else if (parent->ObjectType() == WzObjectType::Property) {
-    return static_cast<WzImageProperty*>(parent)->TryRemoveChildProperty(this);
+    result = static_cast<WzImageProperty*>(parent)->RemoveProperty(this);
+  } else {
+    return std::unexpected(
+        Error::NotFound("WZ image property has no removable parent"));
   }
-  return std::unexpected(
-      Error::NotFound("WZ image property has no removable parent"));
-}
-
-void WzImageProperty::Remove() {
-  (void)TryRemove();
+  if (!result.has_value()) return std::unexpected(result.error());
+  return std::unique_ptr<WzObject>(std::move(result.value()));
 }
 
 Result<WzPropertyCollection> WzImageProperty::ParsePropertyList(

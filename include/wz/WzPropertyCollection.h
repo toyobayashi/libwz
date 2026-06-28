@@ -90,7 +90,7 @@ class WzPropertyCollection {
 
   void erase(iterator it);
   void erase_at(size_t index);
-  std::unique_ptr<WzImageProperty> Take(WzImageProperty* item);
+  std::unique_ptr<WzImageProperty> Remove(WzImageProperty* item);
   void clear();
   std::vector<std::unique_ptr<WzImageProperty>> TakeItems();
 

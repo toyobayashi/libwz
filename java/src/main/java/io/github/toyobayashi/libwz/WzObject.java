@@ -49,9 +49,9 @@ public abstract class WzObject implements AutoCloseable {
     public void setName(String name) { nativeSetName(nativePtr, name); }
 
     public void remove() {
-        List<Long> ptrs = collectNativeSubtreePointers();
+        long ptr = nativePtr;
         nativeRemove(nativePtr);
-        invalidateNativePtrs(ptrs);
+        markNativeOwned(ptr);
     }
 
     public WzObject getParent() {
@@ -103,7 +103,20 @@ public abstract class WzObject implements AutoCloseable {
     }
 
     void releaseNativeOwnership() { this.ownsNative = false; }
+    void takeNativeOwnership() { this.ownsNative = true; }
     protected boolean ownsNative() { return ownsNative; }
+
+    static void markNativeOwned(long ptr) {
+        if (ptr == 0) return;
+        synchronized (HANDLE_REGISTRY) {
+            List<WeakReference<WzObject>> refs = HANDLE_REGISTRY.get(ptr);
+            if (refs == null) return;
+            for (WeakReference<WzObject> ref : refs) {
+                WzObject obj = ref.get();
+                if (obj != null && obj.nativePtr == ptr) obj.takeNativeOwnership();
+            }
+        }
+    }
 
     static void invalidateNativePtr(long ptr) {
         if (ptr == 0) return;

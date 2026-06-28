@@ -89,16 +89,14 @@ std::vector<WzDirectory*> WzDirectory::WzDirectories() const {
   return result;
 }
 
-Result<void> WzDirectory::TryRemove() {
+Result<std::unique_ptr<WzObject>> WzDirectory::Remove() {
   if (!Parent() || Parent()->ObjectType() != WzObjectType::Directory) {
     return std::unexpected(
         Error::NotFound("WZ directory has no parent directory"));
   }
-  return static_cast<WzDirectory*>(Parent())->TryRemoveDirectory(this);
-}
-
-void WzDirectory::Remove() {
-  (void)TryRemove();
+  auto result = static_cast<WzDirectory*>(Parent())->RemoveDirectory(this);
+  if (!result.has_value()) return std::unexpected(result.error());
+  return std::unique_ptr<WzObject>(std::move(result.value()));
 }
 
 Result<void> WzDirectory::ParseDirectory() {
@@ -193,18 +191,18 @@ Result<void> WzDirectory::ParseImages() {
   return {};
 }
 
-void WzDirectory::AddImage(WzImage* img) {
-  (void)TryAddImage(std::unique_ptr<WzImage>(img));
+Result<void> WzDirectory::AddImage(WzImage* img) {
+  return AddImage(std::unique_ptr<WzImage>(img));
 }
 
-void WzDirectory::AddDirectory(WzDirectory* dir) {
-  (void)TryAddDirectory(std::unique_ptr<WzDirectory>(dir));
+Result<void> WzDirectory::AddDirectory(WzDirectory* dir) {
+  return AddDirectory(std::unique_ptr<WzDirectory>(dir));
 }
 
 Result<WzDirectory*> WzDirectory::CreateDirectory(const std::string& name) {
   auto dir = std::make_unique<WzDirectory>(name);
   auto* raw = dir.get();
-  auto result = TryAddDirectory(std::move(dir));
+  auto result = AddDirectory(std::move(dir));
   if (!result.has_value()) return std::unexpected(result.error());
   return raw;
 }
@@ -212,12 +210,12 @@ Result<WzDirectory*> WzDirectory::CreateDirectory(const std::string& name) {
 Result<WzImage*> WzDirectory::CreateImage(const std::string& name) {
   auto img = std::make_unique<WzImage>(name);
   auto* raw = img.get();
-  auto result = TryAddImage(std::move(img));
+  auto result = AddImage(std::move(img));
   if (!result.has_value()) return std::unexpected(result.error());
   return raw;
 }
 
-Result<void> WzDirectory::TryAddDirectory(std::unique_ptr<WzDirectory> dir) {
+Result<void> WzDirectory::AddDirectory(std::unique_ptr<WzDirectory> dir) {
   if (!dir) {
     return std::unexpected(
         Error::InvalidArgument("Cannot add a null WZ directory"));
@@ -242,7 +240,7 @@ Result<void> WzDirectory::TryAddDirectory(std::unique_ptr<WzDirectory> dir) {
   return {};
 }
 
-Result<void> WzDirectory::TryAddImage(std::unique_ptr<WzImage> img) {
+Result<void> WzDirectory::AddImage(std::unique_ptr<WzImage> img) {
   if (!img) {
     return std::unexpected(
         Error::InvalidArgument("Cannot add a null WZ image"));
@@ -296,7 +294,7 @@ WzDirectory* WzDirectory::GetDirectoryByName(const std::string& name) {
   return nullptr;
 }
 
-Result<void> WzDirectory::TryRemoveImage(WzImage* image) {
+Result<std::unique_ptr<WzImage>> WzDirectory::RemoveImage(WzImage* image) {
   if (!image) {
     return std::unexpected(
         Error::InvalidArgument("Cannot remove a null WZ image"));
@@ -308,15 +306,14 @@ Result<void> WzDirectory::TryRemoveImage(WzImage* image) {
     return std::unexpected(
         Error::NotFound("WZ image is not owned by this directory"));
   }
+  auto removed = std::move(*it);
   images_.erase(it);
-  return {};
+  if (removed) removed->SetParent(nullptr);
+  return removed;
 }
 
-void WzDirectory::RemoveImage(WzImage* image) {
-  (void)TryRemoveImage(image);
-}
-
-Result<void> WzDirectory::TryRemoveDirectory(WzDirectory* dir) {
+Result<std::unique_ptr<WzDirectory>> WzDirectory::RemoveDirectory(
+    WzDirectory* dir) {
   if (!dir) {
     return std::unexpected(
         Error::InvalidArgument("Cannot remove a null WZ directory"));
@@ -328,12 +325,10 @@ Result<void> WzDirectory::TryRemoveDirectory(WzDirectory* dir) {
     return std::unexpected(
         Error::NotFound("WZ directory is not owned by this directory"));
   }
+  auto removed = std::move(*it);
   subDirs_.erase(it);
-  return {};
-}
-
-void WzDirectory::RemoveDirectory(WzDirectory* dir) {
-  (void)TryRemoveDirectory(dir);
+  if (removed) removed->SetParent(nullptr);
+  return removed;
 }
 
 int WzDirectory::CountImages() const {

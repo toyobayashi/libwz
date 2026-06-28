@@ -80,6 +80,10 @@ class EditingTest {
 
             image.remove();
             assertEquals(0, file.getWzDirectory().wzImages().size());
+            assertEquals(null, image.getParent());
+            assertEquals("New.img", image.getName());
+            image.close();
+            assertEquals(0, image.nativePtr());
         }
     }
 
@@ -103,7 +107,7 @@ class EditingTest {
     }
 
     @Test
-    void removalInvalidatesJavaWrappers() {
+    void propertyRemovalDetachesJavaWrappers() {
         try (WzFile file = WzFile.create((short)95, MapleVersion.GMS)) {
             WzDirectory root = file.getWzDirectory();
             WzDirectory directory = root.addDirectory("String");
@@ -112,18 +116,31 @@ class EditingTest {
             image.addProperty(property);
 
             image.removeProperty(property);
-            assertEquals(0, property.nativePtr());
+            assertEquals(0, image.wzProperties().size());
+            assertEquals(123, property.getValue());
+            assertEquals(null, property.getParent());
+
+            WzImage target = root.addImage("Target.img");
+            target.addProperty(property);
+            assertEquals(123,
+                ((WzIntProperty)target.getFromPath("id")).getValue());
 
             root.removeImage(image);
+            assertEquals(null, image.getParent());
+            assertEquals("Item.img", image.getName());
+            image.close();
             assertEquals(0, image.nativePtr());
 
             root.removeDirectory(directory);
+            assertEquals(null, directory.getParent());
+            assertEquals("String", directory.getName());
+            directory.close();
             assertEquals(0, directory.nativePtr());
         }
     }
 
     @Test
-    void objectRemoveInvalidatesTargetWrapper() {
+    void objectRemoveDetachesAllObjectTypes() {
         try (WzFile file = WzFile.create((short)95, MapleVersion.GMS)) {
             WzImage image = file.getWzDirectory().addImage("Old.img");
             WzSubProperty sub = WzPropertyFactory.createSub("info");
@@ -132,12 +149,20 @@ class EditingTest {
             image.addProperty(sub);
 
             property.remove();
+            assertEquals(null, property.getParent());
+            assertEquals(123, property.getValue());
+            property.close();
             assertEquals(0, property.nativePtr());
 
             sub.remove();
+            assertEquals(null, sub.getParent());
+            sub.close();
             assertEquals(0, sub.nativePtr());
 
             image.remove();
+            assertEquals(null, image.getParent());
+            assertEquals("Old.img", image.getName());
+            image.close();
             assertEquals(0, image.nativePtr());
         }
     }
@@ -155,10 +180,16 @@ class EditingTest {
             assertNotNull(propertyAlias);
 
             image.removeProperty(property);
+            assertEquals(123, property.getValue());
+            assertEquals(123, ((WzIntProperty)propertyAlias).getValue());
+            property.close();
             assertEquals(0, property.nativePtr());
             assertEquals(0, propertyAlias.nativePtr());
 
             root.removeImage(imageAlias);
+            assertEquals(null, image.getParent());
+            assertEquals(image.nativePtr(), imageAlias.nativePtr());
+            image.close();
             assertEquals(0, image.nativePtr());
             assertEquals(0, imageAlias.nativePtr());
         }
@@ -240,7 +271,7 @@ class EditingTest {
     }
 
     @Test
-    void removingPropertyInvalidatesDescendantAliases() {
+    void removingPropertyKeepsDetachedSubtreeUsableUntilClosed() {
         try (WzFile file = WzFile.create((short)95, MapleVersion.GMS)) {
             WzImage image = file.getWzDirectory().addImage("Item.img");
             WzSubProperty sub = WzPropertyFactory.createSub("info");
@@ -253,6 +284,11 @@ class EditingTest {
             assertNotNull(idAlias);
 
             image.removeProperty(subAlias);
+            assertEquals(null, sub.getParent());
+            assertEquals(sub.nativePtr(), subAlias.nativePtr());
+            assertEquals(123, id.getValue());
+            assertEquals(123, ((WzIntProperty)idAlias).getValue());
+            sub.close();
             assertEquals(0, sub.nativePtr());
             assertEquals(0, subAlias.nativePtr());
             assertEquals(0, id.nativePtr());

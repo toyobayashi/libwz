@@ -109,6 +109,12 @@ function markHandleBorrowed (ptr: NativeHandle): void {
   for (const entry of entries) entry._markBorrowedInstance()
 }
 
+function markHandleOwned (ptr: NativeHandle): void {
+  const entries = handleRegistry.get(ptr)
+  if (entries === undefined) return
+  for (const entry of entries) entry._markOwnedInstance()
+}
+
 function invalidateHandle (ptr: NativeHandle): void {
   const entries = handleRegistry.get(ptr)
   if (entries === undefined) return
@@ -223,6 +229,11 @@ export class WzObject {
     markHandleBorrowed(this._ptr)
   }
 
+  _markOwned (): void {
+    this._assertAlive()
+    markHandleOwned(this._ptr)
+  }
+
   _markDisposed (): void {
     this._assertAlive()
     invalidateHandle(this._ptr)
@@ -230,6 +241,10 @@ export class WzObject {
 
   _markBorrowedInstance (): void {
     this._ownsNative = false
+  }
+
+  _markOwnedInstance (): void {
+    this._ownsNative = true
   }
 
   _markDisposedInstance (): void {
@@ -279,12 +294,25 @@ export class WzObject {
   }
 
   remove (): void {
-    const ptrs = collectKnownSubtreePtrs(this)
+    const ptr = this.nativePtr()
     native.objectRemove(this.nativePtr())
-    invalidateHandles(ptrs)
+    markHandleOwned(ptr)
   }
 
-  close (): void {}
+  close (): void {
+    if (this._ownsNative && this._ptr !== 0n) {
+      const ptr = this._ptr
+      const ptrs = collectKnownSubtreePtrs(this)
+      try {
+        native.objectFree(ptr)
+      } finally {
+        invalidateHandles(ptrs)
+      }
+    } else if (this._ptr !== 0n) {
+      unregisterHandle(this._ptr, this)
+      this._ptr = 0n
+    }
+  }
 
   [Symbol.dispose] (): void {
     this.close()
@@ -508,15 +536,13 @@ export class WzDirectory extends WzObject {
   }
 
   removeDirectory (child: WzDirectory): void {
-    const ptrs = collectKnownSubtreePtrs(child)
     native.dirRemoveDirectory(this.nativePtr(), child.nativePtr())
-    invalidateHandles(ptrs)
+    child._markOwned()
   }
 
   removeImage (child: WzImage): void {
-    const ptrs = collectKnownSubtreePtrs(child)
     native.dirRemoveImage(this.nativePtr(), child.nativePtr())
-    invalidateHandles(ptrs)
+    child._markOwned()
   }
 
   getBlockSize (): number {
@@ -584,9 +610,8 @@ export class WzImage extends WzObject {
   }
 
   removeProperty (prop: WzImageProperty): void {
-    const ptrs = collectPropertySubtreePtrs(prop)
     native.imageRemoveProperty(this.nativePtr(), prop.nativePtr())
-    invalidateHandles(ptrs)
+    prop._markOwned()
   }
 
   clearProperties (): void {
@@ -672,9 +697,8 @@ export class WzImageProperty extends WzObject {
   }
 
   removeProperty (child: WzImageProperty): void {
-    const ptrs = collectPropertySubtreePtrs(child)
     native.propertyRemoveChild(this.nativePtr(), child.nativePtr())
-    invalidateHandles(ptrs)
+    child._markOwned()
   }
 
   clearProperties (): void {
@@ -684,14 +708,7 @@ export class WzImageProperty extends WzObject {
   }
 
   close (): void {
-    if (this._ownsNative && this._ptr !== 0n) {
-      const ptr = this._ptr
-      native.propertyFree(ptr)
-      invalidateHandle(ptr)
-    } else if (this._ptr !== 0n) {
-      unregisterHandle(this._ptr, this)
-      this._ptr = 0n
-    }
+    super.close()
   }
 }
 

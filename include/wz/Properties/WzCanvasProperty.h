@@ -28,11 +28,13 @@ class WzCanvasProperty : public WzImageProperty, public IPropertyContainer {
   WzPropertyCollection* WzProperties() override { return &properties_; }
 
   using IPropertyContainer::AddProperty;
-  void AddProperty(WzImageProperty* prop) override;
-  void AddProperty(std::unique_ptr<WzImageProperty> prop) override;
-  void RemoveProperty(const std::string& propertyName) override;
-  void RemoveProperty(WzImageProperty* prop) override;
-  void ClearProperties() override;
+  Result<void> AddProperty(WzImageProperty* prop) override;
+  Result<void> AddProperty(std::unique_ptr<WzImageProperty> prop) override;
+  Result<std::unique_ptr<WzImageProperty>> RemoveProperty(
+      const std::string& propertyName) override;
+  Result<std::unique_ptr<WzImageProperty>> RemoveProperty(
+      WzImageProperty* prop) override;
+  Result<void> ClearProperties() override;
   WzImageProperty* operator[](const std::string& name) override;
   WzImageProperty* GetFromPath(const std::string& path) override;
 

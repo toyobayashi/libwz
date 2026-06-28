@@ -97,9 +97,8 @@ Result<void> WzObject::Rename(const std::string& name) {
   return {};
 }
 
-Result<void> WzObject::TryRemove() {
-  Remove();
-  return {};
+Result<std::unique_ptr<WzObject>> WzObject::Remove() {
+  return std::unique_ptr<WzObject>();
 }
 
 std::string WzObject::FullPath() const {

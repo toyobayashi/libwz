@@ -16,6 +16,7 @@ class WzBinaryReader;
 class WzBinaryWriter;
 class WzFile;
 class WzImage;
+class WzImageProperty;
 
 class WzDirectory final : public WzObject {
  public:
@@ -32,8 +33,7 @@ class WzDirectory final : public WzObject {
 
   WzObjectType ObjectType() const override { return WzObjectType::Directory; }
   WzFile* WzFileParent() const override { return wzFile_; }
-  Result<void> TryRemove() override;
-  void Remove() override;
+  Result<std::unique_ptr<WzObject>> Remove() override;
 
   int BlockSize() const { return size_; }
   void SetBlockSize(int v) { size_ = v; }
@@ -51,20 +51,18 @@ class WzDirectory final : public WzObject {
   Result<void> ParseDirectory();
   Result<void> ParseImages();
 
-  void AddImage(WzImage* img);
-  void AddDirectory(WzDirectory* dir);
+  Result<void> AddImage(WzImage* img);
+  Result<void> AddImage(std::unique_ptr<WzImage> img);
+  Result<void> AddDirectory(WzDirectory* dir);
+  Result<void> AddDirectory(std::unique_ptr<WzDirectory> dir);
   Result<WzDirectory*> CreateDirectory(const std::string& name);
   Result<WzImage*> CreateImage(const std::string& name);
-  Result<void> TryAddDirectory(std::unique_ptr<WzDirectory> dir);
-  Result<void> TryAddImage(std::unique_ptr<WzImage> img);
-  Result<void> TryRemoveImage(WzImage* image);
-  Result<void> TryRemoveDirectory(WzDirectory* dir);
+  Result<std::unique_ptr<WzImage>> RemoveImage(WzImage* image);
+  Result<std::unique_ptr<WzDirectory>> RemoveDirectory(WzDirectory* dir);
   void ClearImages();
   void ClearDirectories();
   WzImage* GetImageByName(const std::string& name);
   WzDirectory* GetDirectoryByName(const std::string& name);
-  void RemoveImage(WzImage* image);
-  void RemoveDirectory(WzDirectory* dir);
   int CountImages() const;
 
   WzObject* operator[](const std::string& name) const;

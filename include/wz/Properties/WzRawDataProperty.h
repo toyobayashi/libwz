@@ -22,11 +22,13 @@ class WzRawDataProperty : public WzImageProperty, public IPropertyContainer {
   Result<void> WriteValue(WzBinaryWriter* writer) const override;
   WzPropertyCollection* WzProperties() override { return &properties_; }
   using IPropertyContainer::AddProperty;
-  void AddProperty(WzImageProperty* prop) override;
-  void AddProperty(std::unique_ptr<WzImageProperty> prop) override;
-  void RemoveProperty(const std::string& propertyName) override;
-  void RemoveProperty(WzImageProperty* prop) override;
-  void ClearProperties() override;
+  Result<void> AddProperty(WzImageProperty* prop) override;
+  Result<void> AddProperty(std::unique_ptr<WzImageProperty> prop) override;
+  Result<std::unique_ptr<WzImageProperty>> RemoveProperty(
+      const std::string& propertyName) override;
+  Result<std::unique_ptr<WzImageProperty>> RemoveProperty(
+      WzImageProperty* prop) override;
+  Result<void> ClearProperties() override;
   Result<std::vector<uint8_t>> GetBytes() override;
   Result<std::vector<uint8_t>> GetBytes(bool saveInMemory);
   void Parse(bool parseNow);

@@ -211,7 +211,12 @@ wz_error_code wz_object_at(wz_object obj,
                            const char* name,
                            wz_object* out_object);
 wz_error_code wz_object_set_name(wz_object obj, const char* name);
+// Removes obj from its parent and transfers ownership back to the caller.
+// Call wz_object_free(obj) unless obj is re-added to another container.
 wz_error_code wz_object_remove(wz_object obj);
+// Frees a detached caller-owned directory, image, or property object. File
+// objects must be closed with wz_close_file.
+wz_error_code wz_object_free(wz_object obj);
 
 wz_error_code wz_property_get_type(wz_property prop,
                                    wz_property_type* out_type);
@@ -234,8 +239,8 @@ wz_error_code wz_property_get_from_path(wz_property prop,
 // successful add call, ownership transfers to the WZ tree and the caller must
 // not separately dispose or free the property handle. If a created property is
 // not added to a WZ tree, or an add call fails, release it with
-// wz_property_free. Do not call wz_property_free for properties owned by a WZ
-// tree; use the remove APIs instead.
+// wz_property_free or wz_object_free. Do not call free APIs for properties
+// owned by a WZ tree; use the remove APIs instead.
 wz_error_code wz_property_create_null(const char* name,
                                       wz_property* out_property);
 wz_error_code wz_property_create_short(const char* name,
@@ -268,9 +273,15 @@ wz_error_code wz_property_create_uol(const char* name,
 wz_error_code wz_property_free(wz_property prop);
 wz_error_code wz_image_add_property(wz_image img, wz_property prop);
 wz_error_code wz_property_add_child(wz_property parent, wz_property child);
+// Removes prop from img and transfers ownership back to the caller.
+// Call wz_property_free(prop) unless prop is re-added to another container.
 wz_error_code wz_image_remove_property(wz_image img, wz_property prop);
+// Removes child from parent and transfers ownership back to the caller.
+// Call wz_property_free(child) unless child is re-added to another container.
 wz_error_code wz_property_remove_child(wz_property parent, wz_property child);
+// Clears and destroys all child properties owned by the container.
 wz_error_code wz_image_clear_properties(wz_image img);
+// Clears and destroys all child properties owned by the container.
 wz_error_code wz_property_clear_children(wz_property prop);
 
 // Cast methods
