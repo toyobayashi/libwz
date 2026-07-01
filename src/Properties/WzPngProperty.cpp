@@ -59,9 +59,188 @@ static bool WritePngChunk(WzFileStream* out,
   return out->Write(&beCrc, 4);
 }
 
+static uint32_t ReadBigEndian32(const uint8_t* p) {
+  return (static_cast<uint32_t>(p[0]) << 24) |
+         (static_cast<uint32_t>(p[1]) << 16) |
+         (static_cast<uint32_t>(p[2]) << 8) | static_cast<uint32_t>(p[3]);
+}
+
+static uint8_t PaethPredictor(uint8_t left, uint8_t up, uint8_t upLeft) {
+  int p = static_cast<int>(left) + static_cast<int>(up) -
+          static_cast<int>(upLeft);
+  int pa = std::abs(p - static_cast<int>(left));
+  int pb = std::abs(p - static_cast<int>(up));
+  int pc = std::abs(p - static_cast<int>(upLeft));
+  if (pa <= pb && pa <= pc) return left;
+  if (pb <= pc) return up;
+  return upLeft;
+}
+
+static Result<std::vector<uint8_t>> InflatePngData(
+    const std::vector<uint8_t>& compressed,
+    size_t expectedSize) {
+  std::vector<uint8_t> result(expectedSize);
+  z_stream zs = {};
+  zs.next_in = const_cast<Bytef*>(compressed.data());  // NOLINT
+  zs.avail_in = static_cast<uInt>(compressed.size());
+  zs.next_out = result.data();
+  zs.avail_out = static_cast<uInt>(result.size());
+
+  if (inflateInit(&zs) != Z_OK)
+    return std::unexpected(Error::DataError("inflateInit failed"));
+
+  int ret = inflate(&zs, Z_FINISH);
+  inflateEnd(&zs);
+  if (ret != Z_STREAM_END || zs.total_out != expectedSize)
+    return std::unexpected(Error::DataError("PNG inflate failed"));
+
+  return result;
+}
+
 }  // namespace
 
 WzPngProperty::WzPngProperty() = default;
+
+Result<std::unique_ptr<WzPngProperty>> WzPngProperty::FromPngFile(
+    const std::string& filePath) {
+  auto inputPath = wz::to_path(filePath);
+  WzFileStream in(inputPath, "rb");
+  if (!in.IsOpen())
+    return std::unexpected(Error::IoError("Failed to open PNG file"));
+
+  const int64_t inputSize = in.Size();
+  if (inputSize < 0)
+    return std::unexpected(Error::IoError("Failed to get PNG file size"));
+  std::vector<uint8_t> png(static_cast<size_t>(inputSize));
+  if (!png.empty() && in.Read(png.data(), png.size()) != png.size())
+    return std::unexpected(Error::IoError("Failed to read PNG file"));
+  static const uint8_t signature[8] = {137, 80, 78, 71, 13, 10, 26, 10};
+  if (png.size() < 33 || std::memcmp(png.data(), signature, 8) != 0)
+    return std::unexpected(Error::DataError("Invalid PNG signature"));
+
+  int width = 0;
+  int height = 0;
+  uint8_t bitDepth = 0;
+  uint8_t colorType = 0;
+  std::vector<uint8_t> idat;
+
+  size_t pos = 8;
+  while (pos + 8 <= png.size()) {
+    uint32_t len = ReadBigEndian32(png.data() + pos);
+    pos += 4;
+    if (pos + 4 + len + 4 > png.size())
+      return std::unexpected(Error::DataError("Truncated PNG chunk"));
+
+    const uint8_t* type = png.data() + pos;
+    pos += 4;
+    const uint8_t* data = png.data() + pos;
+
+    if (std::memcmp(type, "IHDR", 4) == 0) {
+      if (len != 13)
+        return std::unexpected(Error::DataError("Invalid PNG IHDR"));
+      width = static_cast<int>(ReadBigEndian32(data));
+      height = static_cast<int>(ReadBigEndian32(data + 4));
+      bitDepth = data[8];
+      colorType = data[9];
+      if (data[10] != 0 || data[11] != 0 || data[12] != 0)
+        return std::unexpected(
+            Error::DataError("Unsupported PNG compression/filter/interlace"));
+    } else if (std::memcmp(type, "IDAT", 4) == 0) {
+      idat.insert(idat.end(), data, data + len);
+    } else if (std::memcmp(type, "IEND", 4) == 0) {
+      break;
+    }
+
+    pos += len + 4;  // skip data and CRC
+  }
+
+  if (width <= 0 || height <= 0 || idat.empty())
+    return std::unexpected(Error::DataError("PNG image is empty"));
+  if (bitDepth != 8 || (colorType != 6 && colorType != 2))
+    return std::unexpected(
+        Error::DataError("Only 8-bit RGB/RGBA PNG files are supported"));
+
+  const size_t channels = colorType == 6 ? 4 : 3;
+  const size_t rowSize = static_cast<size_t>(width) * channels;
+  const size_t inflatedSize = static_cast<size_t>(height) * (rowSize + 1);
+  auto inflatedResult = InflatePngData(idat, inflatedSize);
+  if (!inflatedResult.has_value())
+    return std::unexpected(inflatedResult.error());
+  auto& inflated = inflatedResult.value();
+
+  std::vector<uint8_t> bgra(static_cast<size_t>(width) * height * 4);
+  std::vector<uint8_t> previous(rowSize, 0);
+  std::vector<uint8_t> current(rowSize, 0);
+  size_t sourceOffset = 0;
+
+  for (int y = 0; y < height; y++) {
+    uint8_t filter = inflated[sourceOffset++];
+    const uint8_t* scanline = inflated.data() + sourceOffset;
+    sourceOffset += rowSize;
+
+    for (size_t x = 0; x < rowSize; x++) {
+      uint8_t left = x >= channels ? current[x - channels] : 0;
+      uint8_t up = previous[x];
+      uint8_t upLeft = x >= channels ? previous[x - channels] : 0;
+      uint8_t value = scanline[x];
+      switch (filter) {
+        case 0:
+          break;
+        case 1:
+          value = static_cast<uint8_t>(value + left);
+          break;
+        case 2:
+          value = static_cast<uint8_t>(value + up);
+          break;
+        case 3:
+          value = static_cast<uint8_t>(
+              value + static_cast<uint8_t>((static_cast<int>(left) +
+                                             static_cast<int>(up)) /
+                                            2));
+          break;
+        case 4:
+          value = static_cast<uint8_t>(
+              value + PaethPredictor(left, up, upLeft));
+          break;
+        default:
+          return std::unexpected(Error::DataError("Unsupported PNG filter"));
+      }
+      current[x] = value;
+    }
+
+    for (int x = 0; x < width; x++) {
+      size_t src = static_cast<size_t>(x) * channels;
+      size_t dst = (static_cast<size_t>(y) * width + x) * 4;
+      bgra[dst] = current[src + 2];
+      bgra[dst + 1] = current[src + 1];
+      bgra[dst + 2] = current[src];
+      bgra[dst + 3] = channels == 4 ? current[src + 3] : 255;
+    }
+
+    std::swap(previous, current);
+    std::fill(current.begin(), current.end(), 0);
+  }
+
+  uLongf compressedSize = compressBound(static_cast<uLong>(bgra.size()));
+  std::vector<uint8_t> compressed(compressedSize);
+  if (compress2(compressed.data(),
+                &compressedSize,
+                bgra.data(),
+                static_cast<uLong>(bgra.size()),
+                Z_DEFAULT_COMPRESSION) != Z_OK) {
+    return std::unexpected(Error::DataError("PNG recompress failed"));
+  }
+  compressed.resize(compressedSize);
+
+  auto property = std::make_unique<WzPngProperty>();
+  property->width_ = width;
+  property->height_ = height;
+  property->format_ = WzPngFormat::Format2;
+  property->compressedImageBytes_ = std::move(compressed);
+  property->pngData_ = std::move(bgra);
+  property->listWzUsed_ = false;
+  return property;
+}
 
 WzPngProperty::WzPngProperty(WzBinaryReader* reader, bool parseNow)
     : wzReader_(reader) {

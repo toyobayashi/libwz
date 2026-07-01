@@ -559,6 +559,15 @@ export class WzDirectory extends WzObject {
 }
 
 export class WzImage extends WzObject {
+  static fromFile (path: string, mapleVersion: MapleVersion): WzImage {
+    if (!capabilities.pathInput || native.openImage === undefined) {
+      throw new Error('WZ image path input is not supported by this binding')
+    }
+    const ptr = native.openImage(path, mapleVersion)
+    if (ptr === null) throw new Error('failed to open WZ image')
+    return new WzImage(ptr, true)
+  }
+
   getName (): string {
     return native.imageName(this.nativePtr())
   }
@@ -969,6 +978,10 @@ export class WzProperty {
 
   static createUol (name: string, value: string): WzUOLProperty {
     return requireProperty(native.propertyCreateUol(name, value)) as WzUOLProperty
+  }
+
+  static createCanvasFromPng (name: string, path: string): WzCanvasProperty {
+    return requireProperty(native.propertyCreateCanvasFromPng(name, path)) as WzCanvasProperty
   }
 }
 

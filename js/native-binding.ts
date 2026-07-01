@@ -32,6 +32,10 @@ export interface NativeOpenMemory {
   (name: string, bytes: Uint8Array, iv: NativeIv): NullableNativeHandle;
 }
 
+export interface NativeOpenImage {
+  (path: string, mapleVersion: MapleVersion): NullableNativeHandle;
+}
+
 export interface NativeOpenBlobSource {
   (size: number, name: string, gameVersion: number, mapleVersion: MapleVersion, readRange: BlobReadRangeCallback): NullableNativeHandle;
   (size: number, name: string, iv: NativeIv, readRange: BlobReadRangeCallback): NullableNativeHandle;
@@ -40,6 +44,7 @@ export interface NativeOpenBlobSource {
 export interface NativeBinding {
   openFile: NativeOpenFile;
   openMemory: NativeOpenMemory;
+  openImage?: NativeOpenImage;
   openBlobSource?: NativeOpenBlobSource;
   createFile(gameVersion: number, mapleVersion: MapleVersion): NullableNativeHandle;
   closeFile(ptr: NativeHandle): void;
@@ -125,6 +130,7 @@ export interface NativeBinding {
   propertyCreateSub(name: string): NullableNativeHandle;
   propertyCreateVector(name: string, x: number, y: number): NullableNativeHandle;
   propertyCreateUol(name: string, value: string): NullableNativeHandle;
+  propertyCreateCanvasFromPng(name: string, path: string): NullableNativeHandle;
   propertyFree(ptr: NativeHandle): void;
   propertyAddChild(ptr: NativeHandle, child: NativeHandle): void;
   propertyRemoveChild(ptr: NativeHandle, child: NativeHandle): void;

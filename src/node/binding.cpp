@@ -3,6 +3,7 @@
 #include <array>
 #include <cstdint>
 #include <cstring>
+#include <filesystem>
 #include <memory>
 #include <span>
 #include <string>
@@ -32,6 +33,7 @@
 #include "wz/Result.h"
 #include "wz/Util/WzBlobDataSource.h"
 #include "wz/Util/WzDataSource.h"
+#include "wz/Util/WzStream.h"
 #include "wz/Util/WzTool.h"
 #include "wz/WzDirectory.h"
 #include "wz/WzFile.h"
@@ -614,6 +616,21 @@ FN(OpenMemory) {
                                  source,
                                  static_cast<short>(game_version),
                                  static_cast<wz::WzMapleVersion>(version)));
+}
+
+FN(OpenImage) {
+  GET_ARGS(2);
+  READ_STRING(path, args[0]);
+  READ_INT(version, args[1]);
+  const std::filesystem::path file_path(path);
+  wz::WzFileStream stream(file_path, "rb");
+  if (!stream.IsOpen()) {
+    NODE_API_THROW(env, "failed to open WZ image file");
+  }
+  return ToHandle(env,
+                  new wz::WzImage(file_path.filename().string(),
+                                  std::move(stream),
+                                  static_cast<wz::WzMapleVersion>(version)));
 }
 
 FN(OpenBlobSource) {
@@ -1333,6 +1350,20 @@ FN(CreatePropertyUol) {
   return ToHandle(env, new wz::WzUOLProperty(name, value));
 }
 
+FN(CreatePropertyCanvasFromPng) {
+  GET_ARGS(2);
+  READ_STRING(name, args[0]);
+  READ_STRING(path, args[1]);
+  auto png = wz::WzPngProperty::FromPngFile(path);
+  if (!CheckResult(env, png)) return nullptr;
+  auto canvas = std::make_unique<wz::WzCanvasProperty>(name);
+  canvas->SetPngProperty(std::move(png.value()));
+  auto addOrigin =
+      canvas->AddProperty(std::make_unique<wz::WzVectorProperty>("origin", 0, 0));
+  if (!CheckResult(env, addOrigin)) return nullptr;
+  return ToHandle(env, canvas.release());
+}
+
 template <typename T>
 T* TypedProp(napi_env env,
              napi_value value,
@@ -1614,6 +1645,7 @@ NAPI_MODULE_INIT() {
   const napi_property_descriptor descriptors[] = {
       WZ_EXPORT_FN("openFile", OpenFile),
       WZ_EXPORT_FN("openMemory", OpenMemory),
+      WZ_EXPORT_FN("openImage", OpenImage),
       WZ_EXPORT_FN("openBlobSource", OpenBlobSource),
       WZ_EXPORT_FN("createFile", CreateFile),
       WZ_EXPORT_FN("parseFile", ParseFile),
@@ -1696,6 +1728,7 @@ NAPI_MODULE_INIT() {
       WZ_EXPORT_FN("propertyCreateSub", CreatePropertySub),
       WZ_EXPORT_FN("propertyCreateVector", CreatePropertyVector),
       WZ_EXPORT_FN("propertyCreateUol", CreatePropertyUol),
+      WZ_EXPORT_FN("propertyCreateCanvasFromPng", CreatePropertyCanvasFromPng),
       WZ_EXPORT_FN("propertyFree", PropertyFree),
       WZ_EXPORT_FN("propertyAddChild", PropertyAddChild),
       WZ_EXPORT_FN("propertyRemoveChild", PropertyRemoveChild),

@@ -1,6 +1,8 @@
 #ifndef WZ_PROPERTIES_WZPNGPROPERTY_H_
 #define WZ_PROPERTIES_WZPNGPROPERTY_H_
 #include <cstdint>
+#include <memory>
+#include <string>
 #include <vector>
 #include "wz/Result.h"
 #include "wz/WzEnums.h"
@@ -13,6 +15,9 @@ class WzPngProperty : public WzImageProperty {
   WzPngProperty();
   WzPngProperty(WzBinaryReader* reader, bool parseNow);
   WZ_DISALLOW_COPY_AND_MOVE(WzPngProperty)
+
+  static Result<std::unique_ptr<WzPngProperty>> FromPngFile(
+      const std::string& filePath);
 
   WzPropertyType PropertyType() const override { return WzPropertyType::PNG; }
   std::string Name() const override { return "PNG"; }
