@@ -6,15 +6,16 @@ on:
   workflow_dispatch:
     inputs:
       deploy-type:
-        description: 'Publish as snapshot or release'
+        description: 'Publish as snapshot, release, or npm'
         type: choice
         required: true
         default: snapshot
         options:
           - snapshot
           - release
+          - npm
       release-version:
-        description: 'Version number (required for release, e.g. 1.0.0)'
+        description: 'Version number (required for release, optional for npm, e.g. 1.0.0)'
         type: string
         required: false
 
@@ -23,6 +24,7 @@ jobs:
   build-native:
     name: Build JNI (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    if: github.event_name == 'push' || github.event.inputs.deploy-type != 'npm'
     strategy:
       fail-fast: false
       matrix:
@@ -178,6 +180,42 @@ jobs:
           </settings>
           SETTINGS
           mvn -B clean deploy --no-transfer-progress -DskipTests
+
+  # ── Publish npm package (workflow_dispatch only) ────────────────
+  publish-npm:
+    name: Publish npm
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.deploy-type == 'npm'
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Set up Emscripten
+        uses: mymindstorm/setup-emsdk@v14
+
+      - name: Use latest npm
+        run: npm install -g npm@latest
+
+      - name: Install dependencies
+        run: npm install --ignore-scripts
+
+      - name: Set npm release version
+        if: github.event.inputs.release-version != ''
+        env:
+          RELEASE_VERSION: ${{ github.event.inputs.release-version }}
+        run: npm pkg set version="$RELEASE_VERSION"
+
+      - name: Publish to npm
+        run: npm publish
 
   # ── Publish RELEASE (workflow_dispatch only) ─────────────────────
   publish-release:
